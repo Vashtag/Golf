@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side‑View Silhouette Golf (v1.2)</title>
+<title>Dusk Drive — Side‑View Silhouette Golf (v1.8)</title>
 <style>
   :root{
     --bg1:#0a1222;            /* night sky bottom */
@@ -228,18 +228,21 @@
     // Spin: -1 back, 0 neutral, 1 top
     let spinMode = 0;
 
-    // Audio (very minimal)
+    // ---------- Deterministic helpers (to stop jitter) ----------
+    const RAND_MAX = 4294967295;
+    function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
+    function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
+
+    // Audio (minimal)
     const AudioMini = (()=>{
       let ctx=null, windNode=null, masterGain=null; let enabled=false;
       function init(){
         if(enabled) return;
         ctx = new (window.AudioContext||window.webkitAudioContext)();
         masterGain = ctx.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctx.destination);
-        // airy pad
         const o1 = ctx.createOscillator(); o1.type='sine'; o1.frequency.value=120;
         const o2 = ctx.createOscillator(); o2.type='sine'; o2.frequency.value=240; o2.detune.value=-7;
         const g = ctx.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
-        // wind noise
         const buff = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
         const data = buff.getChannelData(0); for(let i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*0.6;}
         const noise = ctx.createBufferSource(); noise.buffer=buff; noise.loop=true;
@@ -267,6 +270,34 @@
     // World data
     let holeIndex=0, roundData=null; // {holes:[...], totals}
     let hole=null; // current hole data
+
+    // Backdrop (parallax mountains + rays)
+    const backdrop = { seed:(Math.random()*1e9)|0, rays:[], mountains:[] };
+    function buildBackdrop(){
+      // Rays (columns fixed in space; only opacity breathes)
+      backdrop.rays.length=0; const rc=7;
+      for(let i=0;i<rc;i++){
+        const u = (i+0.5)/rc + (rand01(backdrop.seed,i)-0.5)*0.12; // normalized x
+        const wU = 0.04 + rand01(backdrop.seed,i*3+1)*0.08;       // normalized width
+        const phase = rand01(backdrop.seed,i*5+2)*TAU;
+        const amp = 0.05 + rand01(backdrop.seed,i*7+3)*0.06;
+        backdrop.rays.push({u,wU,phase,amp});
+      }
+      // Mountain layers (far->near)
+      backdrop.mountains = [
+        makeLayer(0.18, 0.50, 90, 40, 0.0011, 0.00047, 0.06),
+        makeLayer(0.28, 0.60, 120, 52, 0.0015, 0.00063, 0.08),
+        makeLayer(0.42, 0.68, 140, 64, 0.0019, 0.00085, 0.10)
+      ];
+    }
+    function makeLayer(parallax, baseFrac, a1, a2, f1, f2, shade){
+      const s = (backdrop.seed ^ hash32((parallax*1000)|0))>>>0;
+      const base = WORLD.h*baseFrac; const ph = rand01(s,1)*TAU;
+      return { parallax, base, a1, a2, f1, f2, ph, shade };
+    }
+    function mountainYAt(L, wx){
+      return L.base - Math.sin(wx*L.f1)*L.a1 - Math.sin(wx*L.f2 + L.ph)*L.a2;
+    }
 
     // Ball
     const ball = { x:0,y:0,vx:0,vy:0,r:7, atRest:true, onGround:true, lastSafe:{x:0,y:0} };
@@ -339,7 +370,7 @@
     function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; screenIntro.style.display='none'; screenSummary.style.display='none'; nextHole(); }
 
     function nextHole(){
-      hole = genHole(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par; elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
+      hole = genHole(); buildBackdrop(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par; elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
       if(windOn){ windAx = (Math.random()*2 - 1) * 900; } else { windAx = 0; } updateWindUI();
       ball.x = hole.tee.x; ball.y = hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnBall();
@@ -423,7 +454,9 @@
     // ===== Rendering (GUARDED)
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
-      drawParallax(); drawGodRays();
+      drawSkyGradient();
+      drawMountains();
+      drawGodRays();
       if(!hole){ drawVignette(); return; }
       // water
       const w = hole.water; ctx.fillStyle = '#0e2233'; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
@@ -431,7 +464,7 @@
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
-      // grass tufts (silhouette)
+      // grass
       drawGrass();
       // sand bunker
       ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
@@ -446,19 +479,58 @@
       drawVignette();
     }
 
-    function drawParallax(){
+    // --- Sky gradient
+    function drawSkyGradient(){
       const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
-      skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim()); skyGrad.addColorStop(0.55, cs.getPropertyValue('--bg2').trim()); skyGrad.addColorStop(1, cs.getPropertyValue('--bg1').trim()); ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
-      const h1y = WORLD.h*0.78 - view.y*0.2; const h2y = WORLD.h*0.84 - view.y*0.1; ctx.fillStyle = 'rgba(0,0,0,.35)'; drawHillBand(h1y, 0.35); ctx.fillStyle = 'rgba(0,0,0,.18)'; drawHillBand(h2y, 0.20);
+      skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim()); skyGrad.addColorStop(0.55, cs.getPropertyValue('--bg2').trim()); skyGrad.addColorStop(1, cs.getPropertyValue('--bg1').trim());
+      ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
-    function drawHillBand(baseY, amp){ const w = canvas.width/DPR; const step=80; ctx.beginPath(); ctx.moveTo(0, canvas.height/DPR); for(let x=0;x<=w;x+=step){ const wx = x + view.x*0.3; const y = baseY + Math.sin(wx*0.0012)*amp*120 + Math.sin(wx*0.00047)*amp*80; ctx.lineTo(x,y - view.y); } ctx.lineTo(w, canvas.height/DPR); ctx.closePath(); ctx.fill(); }
 
-    function drawGodRays(){ // vertical light columns behind foreground (side‑view mood)
-      const w = canvas.width/DPR; const h = canvas.height/DPR; ctx.save(); ctx.globalCompositeOperation='screen'; const count=8; for(let i=0;i<count;i++){ const colW = 40 + Math.random()*80; const x = (i/count)*w + (Math.sin((performance.now()*0.0002+i)*2)*30); const grad = ctx.createLinearGradient(0,0,0,h); grad.addColorStop(0,'rgba(180,220,255,0.05)'); grad.addColorStop(0.5,'rgba(220,255,255,0.09)'); grad.addColorStop(1,'rgba(180,220,255,0.04)'); ctx.fillStyle=grad; ctx.fillRect(x,0,colW,h); } ctx.restore(); }
+    // --- Mountains (3 parallax layers)
+    function drawMountains(){
+      const w = canvas.width/DPR, h = canvas.height/DPR; const step=8;
+      backdrop.mountains.forEach((L, idx)=>{
+        ctx.fillStyle = `rgba(0,0,0,${0.25 + L.shade})`;
+        ctx.beginPath(); ctx.moveTo(0,h);
+        for(let x=0;x<=w;x+=step){ const wx = view.x*L.parallax + x; const y = mountainYAt(L, wx) - view.y*0.08*idx; ctx.lineTo(x, y); }
+        ctx.lineTo(w,h); ctx.closePath(); ctx.fill();
+      });
+    }
 
-    function drawGrass(){ // tiny spikes along top surface for silhouette vibe
+    // --- God rays (non-jittering)
+    function drawGodRays(){
+      const w = canvas.width/DPR; const h = canvas.height/DPR; const t = performance.now()*0.00025;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(const r of backdrop.rays){
+        const x = r.u * w; const colW = r.wU * w; const aMid = 0.06; const aPulse = r.amp * (0.5 + 0.5*Math.sin(t + r.phase));
+        const grad = ctx.createLinearGradient(0,0,0,h);
+        grad.addColorStop(0,`rgba(210,240,255,${aMid*0.4 + aPulse*0.5})`);
+        grad.addColorStop(0.5,`rgba(230,255,255,${aMid + aPulse})`);
+        grad.addColorStop(1,`rgba(200,230,255,${aMid*0.3 + aPulse*0.4})`);
+        ctx.fillStyle=grad; ctx.fillRect(x - colW/2, 0, colW, h);
+      }
+      ctx.restore();
+    }
+
+    // --- Grass (curved blades, deterministic; avoids shimmer)
+    const GRASS_STEP = 26;      // spacing between clusters
+    const GRASS_DENSITY = 3;    // blades per cluster
+    function drawGrass(){
       if(!hole){ return; }
-      ctx.save(); ctx.fillStyle='rgba(0,0,0,.9)'; const step=28; for(let x=view.x-40;x<view.x+view.w+40;x+=step){ const gx = clamp(x,0,hole.w); const gy = groundYAt(gx) - view.y; if(gy> -40 && gy < canvas.height/DPR){ const h=6+Math.random()*8; ctx.beginPath(); ctx.moveTo(gx - view.x, gy); ctx.lineTo(gx - view.x + 3, gy - h); ctx.lineTo(gx - view.x + 6, gy); ctx.closePath(); ctx.fill(); } } ctx.restore(); }
+      ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
+      const start = Math.floor((view.x-40)/GRASS_STEP)*GRASS_STEP; const end = view.x + view.w + 40;
+      for(let wx=start; wx<end; wx+=GRASS_STEP){
+        const gx = clamp(wx,0,hole.w); const gy = groundYAt(gx) - view.y; if(gy< -20 || gy > canvas.height/DPR+20) continue;
+        for(let k=0;k<GRASS_DENSITY;k++){
+          const idx = ((gx|0)*7 + k)|0; const h = 7 + rand01(backdrop.seed ^ 0xabc123, idx)*10; const lean = (rand01(backdrop.seed ^ 0x55aa55, idx+13)-0.5)*8;
+          const baseX = gx - view.x + (k-1)*(2 + rand01(backdrop.seed ^ 0x999,idx+21)*2);
+          ctx.beginPath(); ctx.moveTo(baseX, gy);
+          const ctrlX = baseX + lean*0.45; const ctrlY = gy - h*0.55; const tipX = baseX + lean; const tipY = gy - h;
+          ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
 
     function drawBall(){ const cs = getComputedStyle(document.documentElement); const trailColor = cs.getPropertyValue('--accent'); if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){ ctx.strokeStyle = trailColor; ctx.globalAlpha=0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y); ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1; } ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke(); }
 
@@ -467,7 +539,7 @@
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
 
     // ===== Resize
-    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; }
+    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
     window.addEventListener('resize', resize); resize();
 
     // ===== Main loop
@@ -493,6 +565,7 @@
         function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
         test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
         test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
+        test('Backdrop builds and draws', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); drawGodRays(); });
         console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
       }
     };
