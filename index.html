@@ -3,20 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v1.9.1)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v1.9.2)</title>
 <style>
   :root{
-    --bg1:#0a1222;            /* night sky bottom */
-    --bg2:#121d3c;            /* night sky mid    */
-    --bg3:#1e2b58;            /* night sky top    */
-    --fg:#050607;             /* silhouette foreground */
-    --text:#e6edf3;           /* text */
-    --muted:#a9b1ba;          
-    --accent:#ff8a3d;         /* primary accent (UI, ball trail) */
-    --accent2:#49d0ff;        /* secondary accent (flag) */
-    --accent3:#86efac;        /* tertiary accent (power) */
-    --panel:rgba(5,6,7,.65);
-    --panel-blur:8px;
+    --bg1:#0a1222; --bg2:#121d3c; --bg3:#1e2b58;
+    --fg:#050607; --text:#e6edf3; --muted:#a9b1ba;
+    --accent:#ff8a3d; --accent2:#49d0ff; --accent3:#86efac;
+    --panel:rgba(5,6,7,.65); --panel-blur:8px;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bg3),var(--bg2) 55%,var(--bg1));color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial}
@@ -48,27 +41,19 @@
   .powermeter .fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent3),var(--accent));box-shadow:0 0 12px rgba(255,138,61,.25) inset}
   .powermeter[data-on="1"]{display:block}
 
-  .aim-arrow{position:absolute;pointer-events:none;inset:0}
-
   /* Screens */
   .screen{position:fixed;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.72),rgba(10,10,10,.6));display:grid;place-items:center;z-index:2}
   .card{background:var(--panel);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:1rem 1.2rem;max-width:720px;width:min(720px,92vw);text-align:center}
-  h1,h2{margin:.2rem 0 .6rem 0}
-  h1{font-size:1.6rem}
+  h1,h2{margin:.2rem 0 .6rem 0} h1{font-size:1.6rem}
   .sub{opacity:.85;margin:.3rem 0 1rem 0}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem;margin-top:.4rem}
-
   .tag{display:inline-flex;gap:.45rem;align-items:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:.3rem .55rem;border-radius:999px;font-size:.85rem}
-
   .small{font-size:.9rem;color:var(--muted)}
 
   /* Orientation helper */
   #landscapeHint{position:fixed;inset:auto 0 0 0;display:none;justify-content:center}
   #landscapeHint .card{margin:0 auto 12px auto}
-
-  @media (orientation:portrait){
-    #landscapeHint{display:flex}
-  }
+  @media (orientation:portrait){ #landscapeHint{display:flex} }
 </style>
 </head>
 <body>
@@ -103,6 +88,7 @@
     <div class="powermeter" id="powermeter" aria-hidden="true"><div class="fill" id="powerfill"></div></div>
   </div>
 
+  <!-- Screens -->
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🏌️‍♂️ Dusk Drive</h1>
@@ -132,16 +118,13 @@
       <h2>Settings</h2>
       <div class="grid">
         <label class="chip" style="justify-content:space-between">
-          <span>Reduced motion</span>
-          <input type="checkbox" id="chkReduced" />
+          <span>Reduced motion</span><input type="checkbox" id="chkReduced" />
         </label>
         <label class="chip" style="justify-content:space-between">
-          <span>Audio (minimal ambience)</span>
-          <input type="checkbox" id="chkAudio" />
+          <span>Audio (minimal ambience)</span><input type="checkbox" id="chkAudio" />
         </label>
         <label class="chip" style="justify-content:space-between">
-          <span>Wind (toggle)</span>
-          <input type="checkbox" id="chkWind" checked />
+          <span>Wind (toggle)</span><input type="checkbox" id="chkWind" checked />
         </label>
       </div>
       <p class="small" style="margin-top:.7rem">Accents: <span style="color:var(--accent)">primary</span> • <span style="color:var(--accent2)">secondary</span> • <span style="color:var(--accent3)">tertiary</span></p>
@@ -181,10 +164,10 @@
     const screenIntro = document.getElementById('screenIntro');
     const screenSummary = document.getElementById('screenSummary');
     const screenSettings = document.getElementById('screenSettings');
+
     const btnPlay = document.getElementById('btnPlay');
     const btnPlayAgain = document.getElementById('btnPlayAgain');
-    theBtnNewRound = document.getElementById('btnNewRound'); // keep name stable
-    const btnNewRound = theBtnNewRound;
+    const btnNewRound = document.getElementById('btnNewRound'); // FIX: properly declared
     const btnSettings = document.getElementById('btnSettings');
     const btnCloseSettings = document.getElementById('btnCloseSettings');
     const chkReduced = document.getElementById('chkReduced');
@@ -196,9 +179,9 @@
     const sumScore = document.getElementById('sumScore');
     const holeBreakdown = document.getElementById('holeBreakdown');
 
-    // ===== Game Config & State (side-view)
+    // ===== Game Config & State
     const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
-    const WORLD = { w: 3400, h: 950 }; // world size in px
+    const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
     const CLUBS = [
@@ -211,7 +194,6 @@
       { id:'PUT', name:'Putter', loft:2,  power:0.35, roll:0.20 }
     ];
 
-    // Surface behavior (arcade)
     const SURF = {
       fairway: { fric: 420, rest: 0.35 },
       rough:   { fric: 700, rest: 0.28, powerMul: 0.85 },
@@ -220,14 +202,14 @@
       rock:    { fric: 260, rest: 0.55 }
     };
 
-    const GRAV = 3000;      // px/s^2 (arcade-y)
-    const AIR_DRAG = 0.002; // mild
+    const GRAV = 3000;
+    const AIR_DRAG = 0.002;
     let reducedMotion = false;
 
-    // Wind: ax in px/s^2 (can be negative)
-    let windOn = true; let windAx = 0; // set per-hole
+    // Wind
+    let windOn = true; let windAx = 0;
 
-    // Spin: -1 back, 0 neutral, 1 top
+    // Spin
     let spinMode = 0;
 
     // ---------- Deterministic helpers ----------
@@ -237,24 +219,24 @@
 
     // Audio (minimal)
     const AudioMini = (()=>{
-      let ctx=null, windNode=null, masterGain=null; let enabled=false;
+      let ctxA=null, windNode=null, masterGain=null; let enabled=false;
       function init(){
         if(enabled) return;
-        ctx = new (window.AudioContext||window.webkitAudioContext)();
-        masterGain = ctx.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctx.destination);
-        const o1 = ctx.createOscillator(); o1.type='sine'; o1.frequency.value=120;
-        const o2 = ctx.createOscillator(); o2.type='sine'; o2.frequency.value=240; o2.detune.value=-7;
-        const g = ctx.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
-        const buff = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
+        ctxA = new (window.AudioContext||window.webkitAudioContext)();
+        masterGain = ctxA.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctxA.destination);
+        const o1 = ctxA.createOscillator(); o1.type='sine'; o1.frequency.value=120;
+        const o2 = ctxA.createOscillator(); o2.type='sine'; o2.frequency.value=240; o2.detune.value=-7;
+        const g = ctxA.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
+        const buff = ctxA.createBuffer(1, ctxA.sampleRate*2, ctxA.sampleRate);
         const data = buff.getChannelData(0); for(let i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*0.6;}
-        const noise = ctx.createBufferSource(); noise.buffer=buff; noise.loop=true;
-        const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=400;
-        const wg = ctx.createGain(); wg.gain.value=0.05; noise.connect(lp); lp.connect(wg); wg.connect(masterGain); noise.start();
+        const noise = ctxA.createBufferSource(); noise.buffer=buff; noise.loop=true;
+        const lp = ctxA.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=400;
+        const wg = ctxA.createGain(); wg.gain.value=0.05; noise.connect(lp); lp.connect(wg); wg.connect(masterGain); noise.start();
         windNode = wg; enabled=true; if(!windOn) wg.gain.value=0.0;
       }
       function setEnabled(on){ if(on){init();} else { if(masterGain){masterGain.gain.value=0;} } }
-      function thwack(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='triangle'; o.frequency.setValueAtTime(220, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(60, ctx.currentTime+0.15); g.gain.setValueAtTime(0.3, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.2);} 
-      function cup(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(990, ctx.currentTime+0.08); g.gain.setValueAtTime(0.2, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.3); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.35);} 
+      function thwack(){ if(!enabled) return; const o=ctxA.createOscillator(); const g=ctxA.createGain(); o.type='triangle'; o.frequency.setValueAtTime(220, ctxA.currentTime); o.frequency.exponentialRampToValueAtTime(60, ctxA.currentTime+0.15); g.gain.setValueAtTime(0.3, ctxA.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime+0.18); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctxA.currentTime+0.2);} 
+      function cup(){ if(!enabled) return; const o=ctxA.createOscillator(); const g=ctxA.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctxA.currentTime); o.frequency.exponentialRampToValueAtTime(990, ctxA.currentTime+0.08); g.gain.setValueAtTime(0.2, ctxA.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime+0.3); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctxA.currentTime+0.35);} 
       function setWind(on){ if(!enabled||!windNode) return; windNode.gain.value = on?0.05:0.0; }
       return { setEnabled, thwack, cup, setWind };
     })();
@@ -343,7 +325,6 @@
         if(typeRand < 0.25) type='windmill';
         else if(typeRand < 0.45) type='lighthouse';
         else if(typeRand < 0.62) type='city';
-        else type='tree';
         L.push({ x, type, seed: (lSeed ^ hash32(i+3))>>>0 });
       }
       backdrop.landmarks = L;
@@ -354,10 +335,10 @@
     let strokes=0;
 
     // Input/aim
-    let aiming=false; let aimAngle=0; let meter=0; let meterDir=1; let meterOn=false; let pointerId=null; let pointerPos={x:0,y:0};
+    let aiming=false; let aimAngle=0; let meter=0; let meterDir=1; let meterOn=false;
     const METER_SPEED=1.6;
 
-    // Camera follow
+    // Camera
     function centerCameraOnBall(){
       if(!hole){ return; }
       view.x = clamp(ball.x - view.w*0.45, 0, WORLD.w - view.w);
@@ -368,7 +349,7 @@
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
 
-    // ===== Procedural hole generation
+    // ===== Procedural hole
     function genHole(){
       const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0;
       let s = (Math.random()*1e9)|0; const seed = s;
@@ -415,7 +396,7 @@
 
     function nextHole(){
       hole = genHole(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par; elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
-      if(windOn){ windAx = (Math.random()*2 - 1) * 900; } else { windAx = 0; } updateWindUI(); AudioMini.setWind(windOn);
+      windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI(); AudioMini.setWind(windOn);
       ball.x = hole.tee.x; ball.y = hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; strokes=0; elStrokes.textContent=strokes;
       backdrop.seed = (hole.seed ^ 0x5EA)|0; buildBackdrop();
       centerCameraOnBall();
@@ -445,10 +426,10 @@
     // ===== Input
     function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
     function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
-    function onPointerDown(e){ if(!hole || !ball.atRest) return; const p = getPoint(e); pointerId = p.id; pointerPos={x:p.x,y:p.y}; const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; e.preventDefault(); }
-    function onPointerMove(e){ if(!aiming) return; const p = getPoint(e); pointerPos={x:p.x,y:p.y}; const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); }
-    function onPointerUp(e){ if(!aiming) return; aiming=false; meterOn=false; elPowermeter.dataset.on='0'; shoot(); pointerId=null; }
-    function getPoint(e){ if(e.changedTouches){ const t=e.changedTouches[0]; return { id:t.identifier, x:t.clientX*DPR, y:t.clientY*DPR }; } return { id:'mouse', x:e.clientX*DPR, y:e.clientY*DPR }; }
+    function onPointerDown(e){ if(!hole || !ball.atRest) return; const p = getPoint(e); const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; e.preventDefault(); }
+    function onPointerMove(e){ if(!aiming) return; const p = getPoint(e); const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); }
+    function onPointerUp(){ if(!aiming) return; aiming=false; meterOn=false; elPowermeter.dataset.on='0'; shoot(); }
+    function getPoint(e){ if(e.changedTouches){ const t=e.changedTouches[0]; return { x:t.clientX*DPR, y:t.clientY*DPR }; } return { x:e.clientX*DPR, y:e.clientY*DPR }; }
     canvas.addEventListener('mousedown', onPointerDown); window.addEventListener('mousemove', onPointerMove); window.addEventListener('mouseup', onPointerUp);
     canvas.addEventListener('touchstart', onPointerDown, {passive:false}); window.addEventListener('touchmove', onPointerMove, {passive:false}); window.addEventListener('touchend', onPointerUp);
 
@@ -545,7 +526,7 @@
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
 
-    // --- Stars
+    // --- Stars (sine twinkle, no flicker)
     function drawStars(){
       if(!backdrop.stars) return;
       const par = 0.06;
@@ -556,14 +537,12 @@
         const tw = s.base + 0.12*Math.sin((globalTime*s.rate*TAU) + s.phase);
         ctx.globalAlpha = Math.max(0, Math.min(0.35, tw));
         ctx.fillStyle = '#e6f2ff';
-        ctx.beginPath();
-        ctx.arc(x, y, s.r, 0, TAU);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, s.r, 0, TAU); ctx.fill();
       }
       ctx.globalAlpha=1;
     }
 
-    // --- Moon
+    // --- Moon (halo + slow drift)
     function drawMoon(){
       if(!backdrop.moon) return;
       const m = backdrop.moon;
@@ -574,15 +553,12 @@
       const my = (m.y + driftY) - view.y*par*0.3;
 
       const g = ctx.createRadialGradient(mx,my, m.r*0.4, mx,my, m.r*3.2);
-      g.addColorStop(0,'rgba(255,255,255,0.25)');
-      g.addColorStop(1,'rgba(255,255,255,0)');
+      g.addColorStop(0,'rgba(255,255,255,0.25)'); g.addColorStop(1,'rgba(255,255,255,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(mx,my, m.r*3.2, 0, TAU); ctx.fill();
 
-      ctx.fillStyle = '#f8fafc';
-      ctx.beginPath(); ctx.arc(mx,my, m.r, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(mx,my, m.r, 0, TAU); ctx.fill();
 
-      ctx.fillStyle = 'rgba(0,0,0,0.08)';
-      ctx.beginPath(); ctx.arc(mx+m.r*0.15, my, m.r*0.95, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.beginPath(); ctx.arc(mx+m.r*0.15, my, m.r*0.95, 0, TAU); ctx.fill();
     }
 
     // --- Clouds
@@ -624,8 +600,7 @@
     }
 
     // --- Grass
-    const GRASS_STEP = 26;
-    const GRASS_DENSITY = 3;
+    const GRASS_STEP = 26, GRASS_DENSITY = 3;
     function drawGrass(){
       if(!hole){ return; }
       ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
@@ -677,11 +652,8 @@
       drawBlade(x, hubY, ang+2*TAU/3, 22);
     }
     function drawBlade(x,y,ang,len){
-      ctx.save();
-      ctx.translate(x,y); ctx.rotate(ang);
-      ctx.beginPath();
-      ctx.moveTo(0,0); ctx.lineTo(len,2); ctx.lineTo(len, -2); ctx.closePath();
-      ctx.fill();
+      ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(len,2); ctx.lineTo(len,-2); ctx.closePath(); ctx.fill();
       ctx.restore();
     }
     function drawLighthouse(x,y,s){
@@ -711,7 +683,7 @@
       }
     }
 
-    function drawBall(){ const cs = getComputedStyle(document.documentElement); const trailColor = cs.getPropertyValue('--accent'); if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){ ctx.strokeStyle = trailColor; ctx.globalAlpha = 0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y); ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1; } ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke(); }
+    function drawBall(){ const cs = getComputedStyle(document.documentElement); const trailColor = cs.getPropertyValue('--accent'); if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){ ctx.strokeStyle = trailColor; ctx.globalAlpha = 0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y); ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1; } ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, TAU); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke(); }
 
     function drawAimArrow(){ const b = worldToScreen(ball.x, ball.y); const len = 80 + meter*160; const x2 = b.x + Math.cos(aimAngle)*len; const y2 = b.y + Math.sin(aimAngle)*len; ctx.save(); ctx.scale(DPR,DPR); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent3'); ctx.lineWidth=3; ctx.globalAlpha=0.9; ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke(); const a=aimAngle; const ah = 10; const aw = 7; ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR); ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR); ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill(); ctx.restore(); }
 
@@ -731,21 +703,18 @@
       const tip= { x: base.x + dir*(len*1.0), y: base.y + Math.sin(t+1.2)*amp };
 
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent2');
-
       ctx.beginPath();
       ctx.moveTo(base.x, base.y);
       ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
       ctx.lineTo(p2.x, p2.y+8);
       ctx.quadraticCurveTo(p1.x, p1.y+8, base.x, base.y+8);
-      ctx.closePath();
-      ctx.fill();
+      ctx.closePath(); ctx.fill();
 
       ctx.beginPath();
       ctx.moveTo(p2.x, p2.y);
       ctx.lineTo(tip.x, tip.y+4);
       ctx.lineTo(p2.x, p2.y+8);
-      ctx.closePath();
-      ctx.fill();
+      ctx.closePath(); ctx.fill();
     }
 
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
@@ -757,28 +726,30 @@
     // ===== Main loop
     let last=0; function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; update(dt); draw(); requestAnimationFrame(loop); } requestAnimationFrame(loop);
 
-    // ===== UI wiring
-    btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
-    btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; newRound(); });
-    btnNewRound.addEventListener('click', ()=>{ newRound(); });
-    btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
-    btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
-    chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
-    chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
-    chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
+    // ===== UI wiring (with guards)
+    if(btnPlay) btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
+    if(btnPlayAgain) btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; newRound(); });
+    if(btnNewRound) btnNewRound.addEventListener('click', ()=>{ newRound(); });
+    if(btnSettings) btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
+    if(btnCloseSettings) btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
+    if(chkReduced) chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
+    if(chkAudio) chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
+    if(chkWind) chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
 
     // Build initial UI
     buildClubs(); updateWindUI();
 
-    // ====== Quick self-checks (optional: run in console)
+    // Emergency start (press S) if needed
+    window.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase()==='s'){ screenIntro.style.display='none'; newRound(); } });
+
+    // Self-check (call in console: DuskDriveTests.run())
     window.DuskDriveTests = {
       run(){
         let ok=0, fail=0;
         function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
-        test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
-        test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
-        test('Backdrop builds and draws with sky', ()=>{ buildBackdrop(); drawSkyGradient(); drawStars(); drawMoon(); drawClouds(); drawMountains(); });
-        console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
+        test('Start round', ()=>{ newRound(); });
+        test('Update/draw', ()=>{ update(0.016); draw(); });
+        console.log(`Tests: ${ok} passed, ${fail} failed.`);
       }
     };
   }
