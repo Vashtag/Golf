@@ -456,7 +456,6 @@
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
       drawSkyGradient();
       drawMountains();
-      drawGodRays();
       if(!hole){ drawVignette(); return; }
       // water
       const w = hole.water; ctx.fillStyle = '#0e2233'; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
@@ -495,21 +494,6 @@
         for(let x=0;x<=w;x+=step){ const wx = view.x*L.parallax + x; const y = mountainYAt(L, wx) - view.y*0.08*idx; ctx.lineTo(x, y); }
         ctx.lineTo(w,h); ctx.closePath(); ctx.fill();
       });
-    }
-
-    // --- God rays (non-jittering)
-    function drawGodRays(){
-      const w = canvas.width/DPR; const h = canvas.height/DPR; const t = performance.now()*0.00025;
-      ctx.save(); ctx.globalCompositeOperation='screen';
-      for(const r of backdrop.rays){
-        const x = r.u * w; const colW = r.wU * w; const aMid = 0.06; const aPulse = r.amp * (0.5 + 0.5*Math.sin(t + r.phase));
-        const grad = ctx.createLinearGradient(0,0,0,h);
-        grad.addColorStop(0,`rgba(210,240,255,${aMid*0.4 + aPulse*0.5})`);
-        grad.addColorStop(0.5,`rgba(230,255,255,${aMid + aPulse})`);
-        grad.addColorStop(1,`rgba(200,230,255,${aMid*0.3 + aPulse*0.4})`);
-        ctx.fillStyle=grad; ctx.fillRect(x - colW/2, 0, colW, h);
-      }
-      ctx.restore();
     }
 
     // --- Grass (curved blades, deterministic; avoids shimmer)
@@ -565,7 +549,7 @@
         function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
         test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
         test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
-        test('Backdrop builds and draws', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); drawGodRays(); });
+       test('Backdrop builds and draws (no rays)', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); });
         console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
       }
     };
