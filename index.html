@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Silhouette Golf (MVP)</title>
+<title>Dusk Drive — Side‑View Silhouette Golf (v1.2)</title>
 <style>
   :root{
-    --bg1:#0b1020;            /* night sky bottom */
-    --bg2:#1a2240;            /* night sky mid    */
-    --bg3:#2b3a6a;            /* night sky top    */
-    --fg:#0a0a0a;             /* silhouette foreground */
+    --bg1:#0a1222;            /* night sky bottom */
+    --bg2:#121d3c;            /* night sky mid    */
+    --bg3:#1e2b58;            /* night sky top    */
+    --fg:#050607;             /* silhouette foreground */
     --text:#e6edf3;           /* text */
     --muted:#a9b1ba;          
     --accent:#ff8a3d;         /* primary accent (UI, ball trail) */
     --accent2:#49d0ff;        /* secondary accent (flag) */
     --accent3:#86efac;        /* tertiary accent (power) */
-    --panel:rgba(10,10,10,.65);
+    --panel:rgba(5,6,7,.65);
     --panel-blur:8px;
   }
   *{box-sizing:border-box}
@@ -36,7 +36,7 @@
 
   .bottombar{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding:.7rem}
   .panel{pointer-events:auto;background:var(--panel);backdrop-filter:blur(var(--panel-blur));border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:.55rem .7rem}
-  .controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;justify-content:center;max-width:min(900px,96vw)}
+  .controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;justify-content:center;max-width:min(1000px,96vw)}
   button.btn{appearance:none;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:var(--text);padding:.55rem .7rem;border-radius:10px;font-weight:600;letter-spacing:.3px;cursor:pointer}
   button.btn:active{transform:translateY(1px)}
   button.btn[aria-pressed="true"], .seg button[aria-pressed="true"]{outline:2px solid var(--accent);background:rgba(255,138,61,.18)}
@@ -44,7 +44,7 @@
   .seg button{border:0;border-right:1px solid rgba(255,255,255,.06);background:transparent;padding:.5rem .7rem;color:var(--text);font-weight:600}
   .seg button:last-child{border-right:0}
 
-  .powermeter{position:absolute;left:50%;bottom:78px;transform:translateX(-50%);width:min(520px,88vw);height:12px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden;border:1px solid rgba(255,255,255,.08);display:none}
+  .powermeter{position:absolute;left:50%;bottom:78px;transform:translateX(-50%);width:min(620px,92vw);height:12px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden;border:1px solid rgba(255,255,255,.08);display:none}
   .powermeter .fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent3),var(--accent));box-shadow:0 0 12px rgba(255,138,61,.25) inset}
   .powermeter[data-on="1"]{display:block}
 
@@ -72,7 +72,7 @@
 </style>
 </head>
 <body>
-  <div id="wrap"><canvas id="game" aria-label="Dusk Drive game canvas"></canvas></div>
+  <div id="wrap"><canvas id="game" aria-label="Dusk Drive side-view game canvas"></canvas></div>
 
   <!-- HUD -->
   <div class="hud" aria-live="polite">
@@ -106,7 +106,7 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🏌️‍♂️ Dusk Drive</h1>
-      <div class="sub">Silhouette golf with arcade physics. Drag to aim, hold to charge, release to shoot.</div>
+      <div class="sub">2D side‑view silhouette golf. Drag to aim, hold to charge, release to shoot.</div>
       <div class="grid">
         <div class="tag">Hold‑Release Meter</div>
         <div class="tag">Wind & Spin</div>
@@ -152,576 +152,351 @@
   <div id="landscapeHint"><div class="card small">For best experience, rotate to landscape.</div></div>
 
 <script>
-(() => {
-  const TAU = Math.PI*2;
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-  let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-
-  // ===== UI Elements
-  const elHole = document.getElementById('holeNum');
-  const elHolesTotal = document.getElementById('holesTotal');
-  const elPar = document.getElementById('parLabel');
-  const elStrokes = document.getElementById('strokes');
-  const elWindVal = document.getElementById('windVal');
-  const elWindArrow = document.getElementById('windArrow');
-  const elPowermeter = document.getElementById('powermeter');
-  const elPowerfill = document.getElementById('powerfill');
-  const clubSeg = document.getElementById('clubSeg');
-  const spinSeg = document.getElementById('spinSeg');
-
-  const screenIntro = document.getElementById('screenIntro');
-  const screenSummary = document.getElementById('screenSummary');
-  const screenSettings = document.getElementById('screenSettings');
-  const btnPlay = document.getElementById('btnPlay');
-  const btnPlayAgain = document.getElementById('btnPlayAgain');
-  const btnNewRound = document.getElementById('btnNewRound');
-  const btnSettings = document.getElementById('btnSettings');
-  const btnCloseSettings = document.getElementById('btnCloseSettings');
-  const chkReduced = document.getElementById('chkReduced');
-  const chkAudio = document.getElementById('chkAudio');
-  const chkWind = document.getElementById('chkWind');
-
-  const sumStrokes = document.getElementById('sumStrokes');
-  const sumPar = document.getElementById('sumPar');
-  const sumScore = document.getElementById('sumScore');
-  const holeBreakdown = document.getElementById('holeBreakdown');
-
-  // ===== Game Config & State
-  const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
-  const WORLD = { w: 3200, h: 900 }; // world logical size in px
-  let view = { x:0, y:0, w:0, h:0 };
-
-  const CLUBS = [
-    { id:'DRV', name:'Driver', loft:12, power:1.00, roll:1.00 },
-    { id:'3W',  name:'3W',     loft:15, power:0.92, roll:0.95 },
-    { id:'5I',  name:'5I',     loft:28, power:0.78, roll:0.85 },
-    { id:'7I',  name:'7I',     loft:34, power:0.70, roll:0.78 },
-    { id:'9I',  name:'9I',     loft:42, power:0.62, roll:0.70 },
-    { id:'WDG', name:'Wedge',  loft:56, power:0.50, roll:0.55 },
-    { id:'PUT', name:'Putter', loft:2,  power:0.35, roll:0.20 }
-  ];
-
-  // Surface behavior
-  const SURF = {
-    fairway: { fric: 420, rest: 0.35 },
-    rough:   { fric: 700, rest: 0.28, powerMul: 0.85 },
-    sand:    { fric: 980, rest: 0.18, powerMul: 0.65 },
-    green:   { fric: 260, rest: 0.30 },
-    rock:    { fric: 260, rest: 0.55 }
-  };
-
-  const GRAV = 3000;      // px/s^2 (arcade-y)
-  const AIR_DRAG = 0.002; // mild
-  let reducedMotion = false;
-
-  // Wind: ax in px/s^2 (can be negative)
-  let windOn = true; let windAx = 0; // set per-hole
-
-  // Spin: -1 back, 0 neutral, 1 top
-  let spinMode = 0;
-
-  // Audio (very minimal)
-  const AudioMini = (()=>{
-    let ctx=null, windNode=null, masterGain=null; let enabled=false;
-    function init(){
-      if(enabled) return;
-      ctx = new (window.AudioContext||window.webkitAudioContext)();
-      masterGain = ctx.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctx.destination);
-      // Simple airy pad (two detuned sines)
-      const o1 = ctx.createOscillator(); o1.type='sine'; o1.frequency.value=120;
-      const o2 = ctx.createOscillator(); o2.type='sine'; o2.frequency.value=240; o2.detune.value=-7;
-      const g = ctx.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
-      // Wind noise via noise buffer + lowpass
-      const buff = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
-      const data = buff.getChannelData(0); for(let i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*0.6;}
-      const noise = ctx.createBufferSource(); noise.buffer=buff; noise.loop=true;
-      const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=400;
-      const wg = ctx.createGain(); wg.gain.value=0.05; noise.connect(lp); lp.connect(wg); wg.connect(masterGain); noise.start();
-      windNode = wg; enabled=true; if(!windOn) wg.gain.value=0.0;
-    }
-    function setEnabled(on){ if(on){init();} else { if(masterGain){masterGain.gain.value=0;} } }
-    function thwack(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='triangle'; o.frequency.setValueAtTime(220, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(60, ctx.currentTime+0.15); g.gain.setValueAtTime(0.3, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.2);} 
-    function cup(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(990, ctx.currentTime+0.08); g.gain.setValueAtTime(0.2, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.3); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.35);} 
-    function setWind(on){ if(!enabled||!windNode) return; windNode.gain.value = on?0.05:0.0; }
-    return { setEnabled, thwack, cup, setWind };
-  })();
-
-  // Particles
-  const particles=[];
-  function spawnParticles(type, x, y, count){
-    for(let i=0;i<count;i++){
-      const a = Math.random()*TAU; const sp = (type==='spark'? 160 + Math.random()*160 : 80+Math.random()*120);
-      const vx = Math.cos(a)*sp, vy = Math.sin(a)*sp - (type==='spark'?0:200);
-      particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
-    }
+(function initWhenReady(){
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', main, { once:true });
+  } else {
+    main();
   }
 
-  // World data
-  let holeIndex=0, roundData=null; // {holes:[...], totals}
-  let hole=null; // current hole data
+  function main(){
+    const TAU = Math.PI*2;
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
-  // Ball
-  const ball = { x:0,y:0,vx:0,vy:0,r:7, atRest:true, onGround:true, lastSafe:{x:0,y:0} };
-  let strokes=0;
+    // ===== UI Elements
+    const elHole = document.getElementById('holeNum');
+    const elHolesTotal = document.getElementById('holesTotal');
+    const elPar = document.getElementById('parLabel');
+    const elStrokes = document.getElementById('strokes');
+    const elWindVal = document.getElementById('windVal');
+    const elWindArrow = document.getElementById('windArrow');
+    const elPowermeter = document.getElementById('powermeter');
+    const elPowerfill = document.getElementById('powerfill');
+    const clubSeg = document.getElementById('clubSeg');
+    const spinSeg = document.getElementById('spinSeg');
 
-  // Input/aim
-  let aiming=false; let aimAngle=0; let meter=0; let meterDir=1; let meterOn=false; let pointerId=null; let pointerPos={x:0,y:0};
-  const METER_SPEED=1.6; // cycles per second (ping-pong)
+    const screenIntro = document.getElementById('screenIntro');
+    const screenSummary = document.getElementById('screenSummary');
+    const screenSettings = document.getElementById('screenSettings');
+    const btnPlay = document.getElementById('btnPlay');
+    const btnPlayAgain = document.getElementById('btnPlayAgain');
+    const btnNewRound = document.getElementById('btnNewRound');
+    const btnSettings = document.getElementById('btnSettings');
+    const btnCloseSettings = document.getElementById('btnCloseSettings');
+    const chkReduced = document.getElementById('chkReduced');
+    const chkAudio = document.getElementById('chkAudio');
+    const chkWind = document.getElementById('chkWind');
 
-  // Camera
-  function centerCameraOnBall(){ view.x = clamp(ball.x - view.w*0.45, 0, WORLD.w - view.w); }
+    const sumStrokes = document.getElementById('sumStrokes');
+    const sumPar = document.getElementById('sumPar');
+    const sumScore = document.getElementById('sumScore');
+    const holeBreakdown = document.getElementById('holeBreakdown');
 
-  // Helpers
-  function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
-  function lerp(a,b,t){ return a + (b-a)*t; }
+    // ===== Game Config & State (side-view)
+    const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
+    const WORLD = { w: 3400, h: 950 }; // world size in px
+    let view = { x:0, y:0, w:0, h:0 };
 
-  // ===== Procedural hole generation (simple but reliable)
-  function genHole(){
-    // base dims may vary per hole
-    const w = WORLD.w, h = WORLD.h;
-    const baseY = h*0.72; // baseline
-    const points=[]; const step=40; let x=0; let seed = Math.random()*9999;
-    // Hills via layered sines
-    function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
-    const amp1 = 80 + nrand()*60, freq1 = 1/(600+ nrand()*300);
-    const amp2 = 35 + nrand()*25, freq2 = 1/(280 + nrand()*200);
+    const CLUBS = [
+      { id:'DRV', name:'Driver', loft:12, power:1.00, roll:1.00 },
+      { id:'3W',  name:'3W',     loft:15, power:0.92, roll:0.95 },
+      { id:'5I',  name:'5I',     loft:28, power:0.78, roll:0.85 },
+      { id:'7I',  name:'7I',     loft:34, power:0.70, roll:0.78 },
+      { id:'9I',  name:'9I',     loft:42, power:0.62, roll:0.70 },
+      { id:'WDG', name:'Wedge',  loft:56, power:0.50, roll:0.55 },
+      { id:'PUT', name:'Putter', loft:2,  power:0.35, roll:0.20 }
+    ];
 
-    for(x=0;x<=w;x+=step){
-      const y = baseY - Math.sin(x*freq1)*amp1 - Math.sin(x*freq2)*amp2;
-      points.push({x,y});
-    }
+    // Surface behavior (arcade)
+    const SURF = {
+      fairway: { fric: 420, rest: 0.35 },
+      rough:   { fric: 700, rest: 0.28, powerMul: 0.85 },
+      sand:    { fric: 980, rest: 0.18, powerMul: 0.65 },
+      green:   { fric: 260, rest: 0.30 },
+      rock:    { fric: 260, rest: 0.55 }
+    };
 
-    // Cup position to the right
-    const cupX = lerp(w*0.65, w*0.86, Math.random());
+    const GRAV = 3000;      // px/s^2 (arcade-y)
+    const AIR_DRAG = 0.002; // mild
+    let reducedMotion = false;
 
-    // Flatten a green area around cup
-    const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); // slight tilt
-    let greenY=0;
-    for(let i=0;i<points.length;i++){
-      if(points[i].x>=gx0 && points[i].x<=gx1){
-        const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40;
-        points[i].y = gy; greenY = gy; // approx
+    // Wind: ax in px/s^2 (can be negative)
+    let windOn = true; let windAx = 0; // set per-hole
+
+    // Spin: -1 back, 0 neutral, 1 top
+    let spinMode = 0;
+
+    // Audio (very minimal)
+    const AudioMini = (()=>{
+      let ctx=null, windNode=null, masterGain=null; let enabled=false;
+      function init(){
+        if(enabled) return;
+        ctx = new (window.AudioContext||window.webkitAudioContext)();
+        masterGain = ctx.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctx.destination);
+        // airy pad
+        const o1 = ctx.createOscillator(); o1.type='sine'; o1.frequency.value=120;
+        const o2 = ctx.createOscillator(); o2.type='sine'; o2.frequency.value=240; o2.detune.value=-7;
+        const g = ctx.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
+        // wind noise
+        const buff = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
+        const data = buff.getChannelData(0); for(let i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*0.6;}
+        const noise = ctx.createBufferSource(); noise.buffer=buff; noise.loop=true;
+        const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=400;
+        const wg = ctx.createGain(); wg.gain.value=0.05; noise.connect(lp); lp.connect(wg); wg.connect(masterGain); noise.start();
+        windNode = wg; enabled=true; if(!windOn) wg.gain.value=0.0;
+      }
+      function setEnabled(on){ if(on){init();} else { if(masterGain){masterGain.gain.value=0;} } }
+      function thwack(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='triangle'; o.frequency.setValueAtTime(220, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(60, ctx.currentTime+0.15); g.gain.setValueAtTime(0.3, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.2);} 
+      function cup(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(990, ctx.currentTime+0.08); g.gain.setValueAtTime(0.2, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.3); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.35);} 
+      function setWind(on){ if(!enabled||!windNode) return; windNode.gain.value = on?0.05:0.0; }
+      return { setEnabled, thwack, cup, setWind };
+    })();
+
+    // Particles
+    const particles=[];
+    function spawnParticles(type, x, y, count){
+      for(let i=0;i<count;i++){
+        const a = Math.random()*TAU; const sp = (type==='spark'? 160 + Math.random()*160 : 80+Math.random()*120);
+        const vx = Math.cos(a)*sp, vy = Math.sin(a)*sp - (type==='spark'?0:200);
+        particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
       }
     }
 
-    // Water hazard somewhere mid fairway (not too close to tee or cup)
-    const waterW = 220 + Math.random()*180; const waterX = lerp(w*0.28, cupX-380, Math.random());
-    const waterY = baseY - 30 + 10*Math.random();
-    const water = {x:waterX, y:waterY, w:waterW, h:h - waterY + 60};
+    // World data
+    let holeIndex=0, roundData=null; // {holes:[...], totals}
+    let hole=null; // current hole data
 
-    // Sand bunker near green
-    const sand = { x: cupX - 110 + Math.random()*160, y: greenY - 10, r: 60 + Math.random()*28 };
+    // Ball
+    const ball = { x:0,y:0,vx:0,vy:0,r:7, atRest:true, onGround:true, lastSafe:{x:0,y:0} };
+    let strokes=0;
 
-    // Tee
-    const teeX = 120; const teeIdx = Math.floor(teeX/step); const teeY = points[teeIdx].y;
+    // Input/aim
+    let aiming=false; let aimAngle=0; let meter=0; let meterDir=1; let meterOn=false; let pointerId=null; let pointerPos={x:0,y:0};
+    const METER_SPEED=1.6; // cycles per second (ping-pong)
 
-    // Estimate par by distance & hazards (very rough)
-    const dist = (cupX - teeX);
-    let par = 4; if(dist>1800) par=5; else if(dist<900) par=3;
-
-    return { w, h, points, step, cupX, green:{x0:gx0,x1:gx1,y:greenY}, water, sand, tee:{x:teeX,y:teeY}, par };
-  }
-
-  // Ground sampling (linear interp)
-  function groundYAt(x){
-    x = clamp(x, 0, hole.w);
-    const i = clamp(Math.floor(x/hole.step), 0, hole.points.length-2);
-    const p0 = hole.points[i], p1 = hole.points[i+1];
-    const t = (x - p0.x)/(p1.x - p0.x);
-    return lerp(p0.y, p1.y, t);
-  }
-
-  function surfaceAt(x){
-    // green band
-    if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
-    // sand circle
-    const dxSand = x - hole.sand.x;
-    const y = groundYAt(x);
-    if(Math.hypot(dxSand, y - hole.sand.y) <= hole.sand.r) return 'sand';
-    // rough edges: 60px band off baseline wiggles (quick rule)
-    return 'fairway';
-  }
-
-  function inWater(x,y){
-    const w = hole.water;
-    return x>=w.x && x<=w.x+w.w && y>=w.y;
-  }
-
-  // ===== Round setup
-  function newRound(){
-    holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 };
-    screenIntro.style.display='none'; screenSummary.style.display='none';
-    nextHole();
-  }
-
-  function nextHole(){
-    hole = genHole();
-    roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
-    elHole.textContent = (holeIndex+1);
-    elPar.textContent = hole.par;
-
-    // Wind per-hole
-    if(windOn){
-      windAx = (Math.random()*2 - 1) * 900; // px/s^2
-    } else { windAx = 0; }
-    updateWindUI();
-
-    // Place ball on tee
-    ball.x = hole.tee.x; ball.y = hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y};
-    strokes=0; elStrokes.textContent=strokes;
-
-    centerCameraOnBall();
-  }
-
-  function endHole(){
-    roundData.holes[holeIndex].strokes = strokes;
-    roundData.totalStrokes += strokes;
-    holeIndex++;
-    if(holeIndex>=HOLES_PER_ROUND){
-      // summary
-      sumStrokes.textContent = roundData.totalStrokes;
-      sumPar.textContent = roundData.totalPar;
-      const diff = roundData.totalStrokes - roundData.totalPar;
-      sumScore.textContent = diff===0? 'E' : (diff>0? '+'+diff : diff);
-      holeBreakdown.innerHTML = '';
-      roundData.holes.forEach((h,i)=>{
-        const div=document.createElement('div'); div.className='chip'; div.textContent=`Hole ${i+1}: ${h.strokes} (Par ${h.par})`;
-        holeBreakdown.appendChild(div);
-      });
-      screenSummary.style.display='grid';
-    } else {
-      nextHole();
-    }
-  }
-
-  // ===== UI build: clubs & spin
-  function buildClubs(){
-    clubSeg.innerHTML='';
-    CLUBS.forEach((c,idx)=>{
-      const b=document.createElement('button'); b.className='btn'; b.textContent=c.name; b.dataset.club=idx; b.setAttribute('aria-pressed', idx===2? 'true':'false');
-      b.addEventListener('click',()=>selectClub(idx));
-      clubSeg.appendChild(b);
-    });
-    selectClub(2); // default 7I
-  }
-  let currentClub = CLUBS[2];
-  function selectClub(i){
-    currentClub = CLUBS[i];
-    [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false'));
-  }
-  spinSeg.addEventListener('click', (e)=>{
-    const btn = e.target.closest('button'); if(!btn) return; 
-    spinMode = parseInt(btn.dataset.spin,10);
-    [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false'));
-  });
-
-  // ===== Wind UI
-  function updateWindUI(){
-    const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx);
-    elWindVal.textContent = (mag/900).toFixed(1)+'x';
-    elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`;
-  }
-
-  // ===== Input handling (drag aim + hold-release power ping-pong)
-  function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
-  function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
-
-  function onPointerDown(e){
-    if(!ball.atRest) return; // can only aim from rest
-    const p = getPoint(e); pointerId = p.id; pointerPos={x:p.x,y:p.y};
-    const w = screenToWorld(p.x, p.y);
-    const b = worldToScreen(ball.x, ball.y);
-    const dx = p.x - b.x, dy = p.y - b.y; const dist = Math.hypot(dx,dy);
-    // Allow starting aim anywhere; compute angle from ball to pointer
-    aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x));
-    aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1';
-    e.preventDefault();
-  }
-  function onPointerMove(e){
-    if(!aiming) return;
-    const p = getPoint(e); pointerPos={x:p.x,y:p.y};
-    const w = screenToWorld(p.x, p.y);
-    aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x));
-  }
-  function onPointerUp(e){
-    if(!aiming) return; aiming=false; meterOn=false; elPowermeter.dataset.on='0';
-    shoot(); pointerId=null;
-  }
-
-  function getPoint(e){
-    if(e.changedTouches){ const t=e.changedTouches[0]; return { id:t.identifier, x:t.clientX*DPR, y:t.clientY*DPR }; }
-    return { id:'mouse', x:e.clientX*DPR, y:e.clientY*DPR };
-  }
-
-  canvas.addEventListener('mousedown', onPointerDown);
-  window.addEventListener('mousemove', onPointerMove);
-  window.addEventListener('mouseup', onPointerUp);
-  canvas.addEventListener('touchstart', onPointerDown, {passive:false});
-  window.addEventListener('touchmove', onPointerMove, {passive:false});
-  window.addEventListener('touchend', onPointerUp);
-
-  // ===== Shooting
-  function shoot(){
-    if(!ball.atRest) return;
-    const club = currentClub;
-    // Disallow putter unless on green region near cup
-    if(club.id==='PUT' && !(ball.x>=hole.green.x0 && ball.x<=hole.green.x1)){
-      // auto switch to 7I if putter selected in non-green
-      selectClub(2);
-    }
-    const surface = surfaceAt(ball.x);
-    let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
-
-    const base = 1400; // base launch speed scaling
-    const power = (0.25 + 0.75*meter) * club.power * powerMul; // min quarter power
-    const speed = base * power;
-
-    const loftRad = club.loft * Math.PI/180;
-    const dir = aimAngle; // direction of shot
-    const cos = Math.cos(dir), sin = Math.sin(dir);
-
-    // Combine loft with aim: compute a 2D launch in x/y
-    const vxDir = Math.cos(dir);
-    const vyDir = Math.sin(dir);
-    // Launch: add upward component from loft (scaled by speed)
-    ball.vx = Math.cos(dir) * speed * Math.cos(loftRad);
-    ball.vy = Math.sin(dir) * speed * Math.cos(loftRad) - Math.sin(loftRad) * speed; // add upward (screen y down)
-
-    // Small randomness in rough/sand for arcade feel
-    if(surface!=='fairway' && surface!=='green'){
-      const jitter = 0.06; ball.vx *= (1 + (Math.random()*2-1)*jitter); ball.vy *= (1 + (Math.random()*2-1)*jitter);
+    // Camera follow (side-view)
+    function centerCameraOnBall(){
+      if(!hole){ return; }
+      view.x = clamp(ball.x - view.w*0.45, 0, WORLD.w - view.w);
+      view.y = clamp(groundYAt(ball.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
-    ball.atRest=false; ball.onGround=false;
-    strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes;
-    if(navigator.vibrate) navigator.vibrate(20);
-    AudioMini.thwack();
-  }
+    // Helpers
+    function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
+    function lerp(a,b,t){ return a + (b-a)*t; }
 
-  // ===== Physics update
-  function update(dt){
-    // power meter ping-pong while aiming
-    if(meterOn){
-      meter += meterDir * METER_SPEED * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1}
-      elPowerfill.style.width = (meter*100).toFixed(1)+'%';
+    // ===== Procedural hole generation (side-view friendly)
+    function genHole(){
+      const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0; let seed = Math.random()*9999;
+      function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
+      const amp1 = 90 + nrand()*70, freq1 = 1/(620+ nrand()*380);
+      const amp2 = 30 + nrand()*30, freq2 = 1/(260 + nrand()*200);
+
+      for(x=0;x<=w;x+=step){ const y = baseY - Math.sin(x*freq1)*amp1 - Math.sin(x*freq2)*amp2; points.push({x,y}); }
+
+      // Cup to right
+      const cupX = lerp(w*0.68, w*0.9, Math.random());
+
+      // Green platform: flatten and slightly tilt
+      const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); let greenY=0;
+      for(let i=0;i<points.length;i++){
+        if(points[i].x>=gx0 && points[i].x<=gx1){ const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40; points[i].y = gy; greenY = gy; }
+      }
+
+      // Water hazard mid field
+      const waterW = 220 + Math.random()*220; const waterX = lerp(w*0.28, cupX-420, Math.random()); const waterY = baseY - 28 + 10*Math.random();
+      const water = {x:waterX, y:waterY, w:waterW, h:h - waterY + 60};
+
+      // Sand near green
+      const sand = { x: cupX - 110 + Math.random()*160, y: greenY - 10, r: 60 + Math.random()*28 };
+
+      // Tee slight platform
+      const teeX = 120; const teeIdx = Math.floor(teeX/step); const teeY = points[teeIdx].y - 2; points[teeIdx].y = teeY;
+
+      // Ensure some cliffs/ledges (side-view feel): deepen a valley randomly
+      const valleyX = lerp(w*0.42, w*0.6, Math.random()); const vIdx = Math.floor(valleyX/step);
+      for(let i=-3;i<=3;i++){ const k=vIdx+i; if(points[k]) points[k].y += Math.abs(i)*22; }
+
+      // Par estimate
+      const dist = (cupX - teeX); let par = 4; if(dist>1900) par=5; else if(dist<950) par=3;
+
+      return { w, h, points, step, cupX, green:{x0:gx0,x1:gx1,y:greenY}, water, sand, tee:{x:teeX,y:teeY}, par };
     }
 
-    // particles
-    for(let i=particles.length-1;i>=0;i--){
-      const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; }
-      p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt;
+    // Ground sampling (linear interp)
+    function groundYAt(x){ x = clamp(x, 0, hole.w); const i = clamp(Math.floor(x/hole.step), 0, hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
+
+    function surfaceAt(x){
+      if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
+      const dxSand = x - hole.sand.x; const y = groundYAt(x); if(Math.hypot(dxSand, y - hole.sand.y) <= hole.sand.r) return 'sand';
+      return 'fairway';
+    }
+    function inWater(x,y){ const w = hole.water; return x>=w.x && x<=w.x+w.w && y>=w.y; }
+
+    // ===== Round setup
+    function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; screenIntro.style.display='none'; screenSummary.style.display='none'; nextHole(); }
+
+    function nextHole(){
+      hole = genHole(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par; elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
+      if(windOn){ windAx = (Math.random()*2 - 1) * 900; } else { windAx = 0; } updateWindUI();
+      ball.x = hole.tee.x; ball.y = hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; strokes=0; elStrokes.textContent=strokes;
+      centerCameraOnBall();
     }
 
-    if(!ball.atRest){
-      // Airborne?
-      if(!ball.onGround){
-        const ax = (windOn? windAx:0) - AIR_DRAG*ball.vx* Math.sign(ball.vx);
-        const ay = GRAV - AIR_DRAG*ball.vy* Math.sign(ball.vy);
-        ball.vx += ax*dt; ball.vy += ay*dt;
-        ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+    function endHole(){
+      roundData.holes[holeIndex].strokes = strokes; roundData.totalStrokes += strokes; holeIndex++;
+      if(holeIndex>=HOLES_PER_ROUND){
+        sumStrokes.textContent = roundData.totalStrokes; sumPar.textContent = roundData.totalPar; const diff = roundData.totalStrokes - roundData.totalPar; sumScore.textContent = diff===0? 'E' : (diff>0? '+'+diff : diff);
+        holeBreakdown.innerHTML = ''; roundData.holes.forEach((h,i)=>{ const div=document.createElement('div'); div.className='chip'; div.textContent=`Hole ${i+1}: ${h.strokes} (Par ${h.par})`; holeBreakdown.appendChild(div); });
+        screenSummary.style.display='grid';
+      } else { nextHole(); }
+    }
 
-        // Ground collision
-        const gy = groundYAt(ball.x);
-        if(ball.y + ball.r >= gy){
-          // impact
-          const surface = surfaceAt(ball.x);
-          const rest = SURF[surface]?.rest ?? 0.35;
-          ball.y = gy - ball.r - 0.01;
-          ball.onGround=true;
-          // bounce with restitution (vertical)
-          if(Math.abs(ball.vy) > 120){
-            // impact particles
-            if(surface==='sand') spawnParticles('sand', ball.x, ball.y+ball.r, 12);
-            else spawnParticles('dust', ball.x, ball.y+ball.r, 8);
+    // ===== UI build: clubs & spin
+    function buildClubs(){
+      clubSeg.innerHTML=''; CLUBS.forEach((c,idx)=>{ const b=document.createElement('button'); b.className='btn'; b.textContent=c.name; b.dataset.club=idx; b.setAttribute('aria-pressed', idx===2? 'true':'false'); b.addEventListener('click',()=>selectClub(idx)); clubSeg.appendChild(b); });
+      selectClub(2); // default 7I
+    }
+    let currentClub = CLUBS[2];
+    function selectClub(i){ currentClub = CLUBS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
+    spinSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; spinMode = parseInt(btn.dataset.spin,10); [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
+
+    // ===== Wind UI
+    function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag/900).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
+
+    // ===== Input (drag aim + hold-release meter)
+    function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
+    function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
+    function onPointerDown(e){ if(!hole || !ball.atRest) return; const p = getPoint(e); pointerId = p.id; pointerPos={x:p.x,y:p.y}; const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; e.preventDefault(); }
+    function onPointerMove(e){ if(!aiming) return; const p = getPoint(e); pointerPos={x:p.x,y:p.y}; const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); }
+    function onPointerUp(e){ if(!aiming) return; aiming=false; meterOn=false; elPowermeter.dataset.on='0'; shoot(); pointerId=null; }
+    function getPoint(e){ if(e.changedTouches){ const t=e.changedTouches[0]; return { id:t.identifier, x:t.clientX*DPR, y:t.clientY*DPR }; } return { id:'mouse', x:e.clientX*DPR, y:e.clientY*DPR }; }
+    canvas.addEventListener('mousedown', onPointerDown); window.addEventListener('mousemove', onPointerMove); window.addEventListener('mouseup', onPointerUp);
+    canvas.addEventListener('touchstart', onPointerDown, {passive:false}); window.addEventListener('touchmove', onPointerMove, {passive:false}); window.addEventListener('touchend', onPointerUp);
+
+    // ===== Shooting
+    function shoot(){
+      if(!hole || !ball.atRest) return; const club = currentClub;
+      if(club.id==='PUT' && !(ball.x>=hole.green.x0 && ball.x<=hole.green.x1)){ selectClub(2); }
+      const surface = surfaceAt(ball.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
+      const base = 1400; const power = (0.25 + 0.75*meter) * club.power * powerMul; const speed = base * power; const loftRad = club.loft * Math.PI/180; const dir = aimAngle;
+      ball.vx = Math.cos(dir) * speed * Math.cos(loftRad); ball.vy = Math.sin(dir) * speed * Math.cos(loftRad) - Math.sin(loftRad) * speed;
+      if(surface!=='fairway' && surface!=='green'){ const jitter = 0.06; ball.vx *= (1 + (Math.random()*2-1)*jitter); ball.vy *= (1 + (Math.random()*2-1)*jitter); }
+      ball.atRest=false; ball.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(20); AudioMini.thwack();
+    }
+
+    // ===== Physics update (GUARDED: skip until a hole exists)
+    function update(dt){
+      // power meter ping-pong
+      if(meterOn){ meter += meterDir * METER_SPEED * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
+      if(!hole){ return; }
+
+      // particles
+      for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
+
+      if(!ball.atRest){
+        if(!ball.onGround){
+          const ax = (windOn? windAx:0) - AIR_DRAG*ball.vx* Math.sign(ball.vx); const ay = GRAV - AIR_DRAG*ball.vy* Math.sign(ball.vy);
+          ball.vx += ax*dt; ball.vy += ay*dt; ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+          const gy = groundYAt(ball.x);
+          if(ball.y + ball.r >= gy){
+            const surface = surfaceAt(ball.x); const rest = SURF[surface]?.rest ?? 0.35; ball.y = gy - ball.r - 0.01; ball.onGround=true;
+            if(Math.abs(ball.vy) > 120){ if(surface==='sand') spawnParticles('sand', ball.x, ball.y+ball.r, 12); else spawnParticles('dust', ball.x, ball.y+ball.r, 8); }
+            ball.vy = -ball.vy * rest; if(spinMode!==0){ const spinBoost = (spinMode>0? 1 : -1) * 120; ball.vx += spinBoost; }
+            if(Math.abs(ball.vy) < 120){ ball.vy = 0; }
           }
-          ball.vy = -ball.vy * rest;
-
-          // apply spin on first few bounces
-          if(spinMode!==0){
-            const spinBoost = (spinMode>0? 1 : -1) * 120; // add/subtract forward velocity
-            ball.vx += Math.cos(0)*spinBoost; // aligned with x forward
+        } else {
+          const gy = groundYAt(ball.x); if(ball.y + ball.r < gy-0.5){ ball.onGround=false; } else {
+            ball.y = gy - ball.r; const surface = surfaceAt(ball.x); const fric = SURF[surface]?.fric ?? 420; const speed = Math.abs(ball.vx); const dec = fric * (surface==='green' && currentClub.id==='PUT'?0.7:1); const sgn = Math.sign(ball.vx); let newSpeed = speed - dec*dt; if(newSpeed<0) newSpeed=0; ball.vx = sgn * newSpeed; ball.x += ball.vx*dt; if(Math.abs(ball.vx) < 8){ ball.vx=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; }
           }
-
-          // If bounce is tiny, transition to roll
-          if(Math.abs(ball.vy) < 120){ ball.vy = 0; }
         }
+        if(inWater(ball.x, ball.y+ball.r*0.6)){ spawnParticles('splash', ball.x, ball.y, 16); if(navigator.vibrate) navigator.vibrate([40,40,30]); strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; ball.x = ball.lastSafe.x - 24; ball.y = groundYAt(ball.x)-ball.r; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; }
+        if(ball.x<0){ ball.x=0; ball.vx=0; } if(ball.x>hole.w){ ball.x=hole.w; ball.vx=0; }
+        const cx = hole.cupX; const dx = Math.abs(ball.x - cx);
+        if(dx < 10 && ball.onGround && Math.abs(ball.vx) < 160){ AudioMini.cup(); if(navigator.vibrate) navigator.vibrate([25,25,25]); ball.atRest=true; ball.vx=0; ball.vy=0; setTimeout(()=>{ endHole(); }, 550); }
       }
-      else {
-        // rolling on ground
-        const gy = groundYAt(ball.x);
-        if(ball.y + ball.r < gy-0.5){ ball.onGround=false; } // went airborne due to slope
-        else {
-          ball.y = gy - ball.r;
-
-          const surface = surfaceAt(ball.x);
-          const fric = SURF[surface]?.fric ?? 420;
-          // friction deceleration against velocity direction
-          const speed = Math.abs(ball.vx);
-          const dec = fric * (surface==='green' && currentClub.id==='PUT'?0.7:1);
-          const sgn = Math.sign(ball.vx);
-          let newSpeed = speed - dec*dt; if(newSpeed<0) newSpeed=0;
-          ball.vx = sgn * newSpeed;
-          ball.x += ball.vx*dt;
-
-          // stop threshold
-          if(Math.abs(ball.vx) < 8){ ball.vx=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; }
-        }
-      }
-
-      // Water check
-      if(inWater(ball.x, ball.y+ball.r*0.6)){
-        spawnParticles('splash', ball.x, ball.y, 16);
-        if(navigator.vibrate) navigator.vibrate([40,40,30]);
-        // penalty drop at last safe
-        strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes;
-        ball.x = ball.lastSafe.x - 24; ball.y = groundYAt(ball.x)-ball.r; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true;
-      }
-
-      // OB clamp
-      if(ball.x<0){ ball.x=0; ball.vx=0; }
-      if(ball.x>hole.w){ ball.x=hole.w; ball.vx=0; }
-
-      // Cup detection
-      const cx = hole.cupX; const cy = groundYAt(cx)-4;
-      const dx = Math.abs(ball.x - cx);
-      if(dx < 10 && ball.onGround && Math.abs(ball.vx) < 160){
-        // sink!
-        AudioMini.cup();
-        if(navigator.vibrate) navigator.vibrate([25,25,25]);
-        // small animation then next hole
-        ball.atRest=true; ball.vx=0; ball.vy=0; setTimeout(()=>{ endHole(); }, 550);
-      }
+      centerCameraOnBall();
     }
 
-    // camera follow
-    centerCameraOnBall();
-  }
-
-  // ===== Rendering
-  function draw(){
-    // clear
-    ctx.setTransform(DPR,0,0,DPR,0,0);
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    // parallax silhouettes (two distant hill bands)
-    drawParallax();
-
-    // water
-    const w = hole.water; ctx.fillStyle = '#0e2233';
-    ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
-
-    // ground silhouette
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg');
-    ctx.beginPath();
-    ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
-    for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
-    ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100);
-    ctx.closePath(); ctx.fill();
-
-    // sand bunker
-    ctx.fillStyle = '#1b160f';
-    ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
-
-    // green subtle overlay
-    ctx.fillStyle = 'rgba(60,140,85,.25)';
-    ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
-
-    // flag
-    const flagX = hole.cupX - view.x; const flagY = groundYAt(hole.cupX) - 60 - view.y;
-    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX, flagY+60); ctx.stroke();
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent2');
-    ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX+22, flagY+10); ctx.lineTo(flagX, flagY+18); ctx.closePath(); ctx.fill();
-
-    // particles
-    for(const p of particles){
-      let c = '#ffffff';
-      if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent');
-      else if(p.type==='sand') c = '#b48a5a';
-      else if(p.type==='dust') c = '#9aa2aa';
-      else if(p.type==='splash') c = '#49d0ff';
-      ctx.globalAlpha = Math.max(0, p.life/0.6);
-      ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
+    // ===== Rendering (GUARDED)
+    function draw(){
+      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawParallax(); drawGodRays();
+      if(!hole){ drawVignette(); return; }
+      // water
+      const w = hole.water; ctx.fillStyle = '#0e2233'; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
+      // ground silhouette path
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
+      for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
+      ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
+      // grass tufts (silhouette)
+      drawGrass();
+      // sand bunker
+      ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
+      // green subtle overlay
+      ctx.fillStyle = 'rgba(60,140,85,.25)'; ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
+      // flag
+      const flagX = hole.cupX - view.x; const flagY = groundYAt(hole.cupX) - 60 - view.y; ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX, flagY+60); ctx.stroke(); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent2'); ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX+22, flagY+10); ctx.lineTo(flagX, flagY+18); ctx.closePath(); ctx.fill();
+      // particles
+      for(const p of particles){ let c = '#ffffff'; if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent'); else if(p.type==='sand') c = '#b48a5a'; else if(p.type==='dust') c = '#9aa2aa'; else if(p.type==='splash') c = '#49d0ff'; ctx.globalAlpha = Math.max(0, p.life/0.6); ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1; }
+      // ball + trail
+      drawBall(); if(aiming){ drawAimArrow(); }
+      drawVignette();
     }
 
-    // ball + trail
-    drawBall();
-
-    // aim arrow & power meter overlay
-    if(aiming){ drawAimArrow(); }
-  }
-
-  function drawParallax(){
-    const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR);
-    const cs = getComputedStyle(document.documentElement);
-    skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim());
-    skyGrad.addColorStop(0.55, cs.getPropertyValue('--bg2').trim());
-    skyGrad.addColorStop(1, cs.getPropertyValue('--bg1').trim());
-    ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
-
-    // hills
-    const h1y = WORLD.h*0.78 - view.y*0.2; const h2y = WORLD.h*0.84 - view.y*0.1;
-    ctx.fillStyle = 'rgba(0,0,0,.35)'; drawHillBand(h1y, 0.35);
-    ctx.fillStyle = 'rgba(0,0,0,.18)'; drawHillBand(h2y, 0.20);
-  }
-  function drawHillBand(baseY, amp){
-    const w = canvas.width/DPR; const step=80; ctx.beginPath(); ctx.moveTo(0, canvas.height/DPR);
-    for(let x=0;x<=w;x+=step){ const wx = x + view.x*0.3; const y = baseY + Math.sin(wx*0.0012)*amp*120 + Math.sin(wx*0.00047)*amp*80; ctx.lineTo(x,y - view.y); }
-    ctx.lineTo(w, canvas.height/DPR); ctx.closePath(); ctx.fill();
-  }
-
-  function drawBall(){
-    const cs = getComputedStyle(document.documentElement);
-    const trailColor = cs.getPropertyValue('--accent');
-    // simple trail when moving fast
-    if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){
-      ctx.strokeStyle = trailColor; ctx.globalAlpha=0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y);
-      ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1;
+    function drawParallax(){
+      const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
+      skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim()); skyGrad.addColorStop(0.55, cs.getPropertyValue('--bg2').trim()); skyGrad.addColorStop(1, cs.getPropertyValue('--bg1').trim()); ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
+      const h1y = WORLD.h*0.78 - view.y*0.2; const h2y = WORLD.h*0.84 - view.y*0.1; ctx.fillStyle = 'rgba(0,0,0,.35)'; drawHillBand(h1y, 0.35); ctx.fillStyle = 'rgba(0,0,0,.18)'; drawHillBand(h2y, 0.20);
     }
-    // ball
-    ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke();
+    function drawHillBand(baseY, amp){ const w = canvas.width/DPR; const step=80; ctx.beginPath(); ctx.moveTo(0, canvas.height/DPR); for(let x=0;x<=w;x+=step){ const wx = x + view.x*0.3; const y = baseY + Math.sin(wx*0.0012)*amp*120 + Math.sin(wx*0.00047)*amp*80; ctx.lineTo(x,y - view.y); } ctx.lineTo(w, canvas.height/DPR); ctx.closePath(); ctx.fill(); }
+
+    function drawGodRays(){ // vertical light columns behind foreground (side‑view mood)
+      const w = canvas.width/DPR; const h = canvas.height/DPR; ctx.save(); ctx.globalCompositeOperation='screen'; const count=8; for(let i=0;i<count;i++){ const colW = 40 + Math.random()*80; const x = (i/count)*w + (Math.sin((performance.now()*0.0002+i)*2)*30); const grad = ctx.createLinearGradient(0,0,0,h); grad.addColorStop(0,'rgba(180,220,255,0.05)'); grad.addColorStop(0.5,'rgba(220,255,255,0.09)'); grad.addColorStop(1,'rgba(180,220,255,0.04)'); ctx.fillStyle=grad; ctx.fillRect(x,0,colW,h); } ctx.restore(); }
+
+    function drawGrass(){ // tiny spikes along top surface for silhouette vibe
+      if(!hole){ return; }
+      ctx.save(); ctx.fillStyle='rgba(0,0,0,.9)'; const step=28; for(let x=view.x-40;x<view.x+view.w+40;x+=step){ const gx = clamp(x,0,hole.w); const gy = groundYAt(gx) - view.y; if(gy> -40 && gy < canvas.height/DPR){ const h=6+Math.random()*8; ctx.beginPath(); ctx.moveTo(gx - view.x, gy); ctx.lineTo(gx - view.x + 3, gy - h); ctx.lineTo(gx - view.x + 6, gy); ctx.closePath(); ctx.fill(); } } ctx.restore(); }
+
+    function drawBall(){ const cs = getComputedStyle(document.documentElement); const trailColor = cs.getPropertyValue('--accent'); if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){ ctx.strokeStyle = trailColor; ctx.globalAlpha=0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y); ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1; } ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke(); }
+
+    function drawAimArrow(){ const b = worldToScreen(ball.x, ball.y); const len = 80 + meter*160; const x2 = b.x + Math.cos(aimAngle)*len; const y2 = b.y + Math.sin(aimAngle)*len; ctx.save(); ctx.scale(DPR,DPR); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent3'); ctx.lineWidth=3; ctx.globalAlpha=0.9; ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke(); const a=aimAngle; const ah = 10; const aw = 7; ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR); ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR); ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill(); ctx.restore(); }
+
+    function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
+
+    // ===== Resize
+    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; }
+    window.addEventListener('resize', resize); resize();
+
+    // ===== Main loop
+    let last=0; function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; update(dt); draw(); requestAnimationFrame(loop); } requestAnimationFrame(loop);
+
+    // ===== UI wiring
+    btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
+    btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; newRound(); });
+    btnNewRound.addEventListener('click', ()=>{ newRound(); });
+    btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
+    btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
+    chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
+    chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
+    chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
+
+    // Build initial UI
+    buildClubs(); updateWindUI();
+
+    // ====== Self-tests (run manually in console: DuskDriveTests.run())
+    window.DuskDriveTests = {
+      run(){
+        let ok=0, fail=0;
+        function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
+        test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
+        test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
+        console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
+      }
+    };
   }
-
-  function drawAimArrow(){
-    const b = worldToScreen(ball.x, ball.y);
-    const len = 80 + meter*160;
-    const x2 = b.x + Math.cos(aimAngle)*len; const y2 = b.y + Math.sin(aimAngle)*len;
-    ctx.save(); ctx.scale(DPR,DPR);
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent3'); ctx.lineWidth=3; ctx.globalAlpha=0.9;
-    ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke();
-    // arrow head
-    const a=aimAngle; const ah = 10; const aw = 7; 
-    ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR); ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR); ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill();
-    ctx.restore();
-  }
-
-  // ===== Resize
-  function resize(){
-    DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
-    canvas.width = Math.floor(window.innerWidth * DPR);
-    canvas.height = Math.floor(window.innerHeight * DPR);
-    view.w = canvas.width/DPR; view.h = canvas.height/DPR;
-  }
-  window.addEventListener('resize', resize);
-  resize();
-
-  // ===== Main loop
-  let last=0; function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; update(dt); draw(); requestAnimationFrame(loop); }
-  requestAnimationFrame(loop);
-
-  // ===== UI wiring
-  btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
-  btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; newRound(); });
-  btnNewRound.addEventListener('click', ()=>{ newRound(); });
-  btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
-  btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
-  chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
-  chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
-  chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
-
-  // Build initial UI
-  buildClubs(); updateWindUI();
 })();
 </script>
 </body>
