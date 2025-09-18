@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v1.9)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v1.9.1)</title>
 <style>
   :root{
     --bg1:#0a1222;            /* night sky bottom */
@@ -183,7 +183,8 @@
     const screenSettings = document.getElementById('screenSettings');
     const btnPlay = document.getElementById('btnPlay');
     const btnPlayAgain = document.getElementById('btnPlayAgain');
-    const btnNewRound = document.getElementById('btnNewRound');
+    theBtnNewRound = document.getElementById('btnNewRound'); // keep name stable
+    const btnNewRound = theBtnNewRound;
     const btnSettings = document.getElementById('btnSettings');
     const btnCloseSettings = document.getElementById('btnCloseSettings');
     const chkReduced = document.getElementById('chkReduced');
@@ -229,7 +230,7 @@
     // Spin: -1 back, 0 neutral, 1 top
     let spinMode = 0;
 
-    // ---------- Deterministic helpers (to stop jitter) ----------
+    // ---------- Deterministic helpers ----------
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
@@ -269,24 +270,14 @@
     }
 
     // World data
-    let holeIndex=0, roundData=null; // {holes:[...], totals}
-    let hole=null; // current hole data
+    let holeIndex=0, roundData=null;
+    let hole=null;
 
     // Backdrop + Sky
-    const backdrop = { seed:(Math.random()*1e9)|0, rays:[], mountains:[], stars:[], clouds:[], moon:null, landmarks:[] };
+    const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], stars:[], clouds:[], moon:null, landmarks:[] };
 
     // ===== SKY / BACKDROP BUILD =====
     function buildBackdrop(){
-      // Rays (kept for subtle depth; columns fixed in space; only opacity breathes)
-      backdrop.rays.length=0; const rc=7;
-      for(let i=0;i<rc;i++){
-        const u = (i+0.5)/rc + (rand01(backdrop.seed,i)-0.5)*0.12; // normalized x
-        const wU = 0.04 + rand01(backdrop.seed,i*3+1)*0.08;       // normalized width
-        const phase = rand01(backdrop.seed,i*5+2)*TAU;
-        const amp = 0.05 + rand01(backdrop.seed,i*7+3)*0.06;
-        backdrop.rays.push({u,wU,phase,amp});
-      }
-      // Mountain layers (far->near)
       backdrop.mountains = [
         makeLayer(0.18, 0.50, 90, 40, 0.0011, 0.00047, 0.06),
         makeLayer(0.28, 0.60, 120, 52, 0.0015, 0.00063, 0.08),
@@ -313,27 +304,27 @@
         const u = rand01(starSeed, i*3+1);
         const v = rand01(starSeed, i*3+2);
         const x = Math.floor(u * WORLD.w);
-        const y = Math.floor(v * WORLD.h*0.48); // upper half
+        const y = Math.floor(v * WORLD.h*0.48);
         const r = 0.6 + rand01(starSeed, i*5+3)*1.1;
         const phase = rand01(starSeed, i*7+4)*TAU;
-        const rate = 0.25 + rand01(starSeed, i*11+5)*0.45; // Hz-ish
-        const base = 0.10 + rand01(starSeed, i*13+6)*0.10; // faint base alpha
+        const rate = 0.25 + rand01(starSeed, i*11+5)*0.45;
+        const base = 0.10 + rand01(starSeed, i*13+6)*0.10;
         backdrop.stars.push({x,y,r,phase,rate,base});
       }
-      // Moon (seeded position, very slow drift)
+      // Moon
       const mSeed = backdrop.seed ^ 0xC0FEE;
-      const mu = 0.25 + rand01(mSeed,1)*0.5;  // 0.25..0.75
-      const mv = 0.08 + rand01(mSeed,2)*0.16; // 0.08..0.24
+      const mu = 0.25 + rand01(mSeed,1)*0.5;
+      const mv = 0.08 + rand01(mSeed,2)*0.16;
       const mr = 22 + rand01(mSeed,3)*12;
       const phase = rand01(mSeed,4)*TAU;
       backdrop.moon = { x: mu*WORLD.w, y: mv*WORLD.h, r: mr, phase };
-      // Clouds: 1–2 slow bands
+      // Clouds: 1–2 bands
       const cSeed = backdrop.seed ^ 0xA11D;
       const bands = (rand01(cSeed,1) < 0.6) ? 2 : 1;
       backdrop.clouds = [];
       for(let i=0;i<bands;i++){
-        const yFrac = 0.18 + rand01(cSeed, 10+i)*0.26; // height in sky
-        const speed = 8 + rand01(cSeed, 20+i)*12; // px/s base
+        const yFrac = 0.18 + rand01(cSeed, 10+i)*0.26;
+        const speed = 8 + rand01(cSeed, 20+i)*12;
         const par = 0.22 + rand01(cSeed,30+i)*0.18;
         const puffSeed = cSeed ^ hash32(1000+i);
         backdrop.clouds.push({ yFrac, speed, parallax:par, puffSeed });
@@ -341,12 +332,11 @@
     }
 
     function buildLandmarks(){
-      // Occasional windmills, lone trees, lighthouse, distant city — seeded and stable for the hole
       const L = [];
       const lSeed = backdrop.seed ^ 0x1AND;
-      const count = 4 + Math.floor(rand01(lSeed,1)*3); // 4–6
+      const count = 4 + Math.floor(rand01(lSeed,1)*3);
       for(let i=0;i<count;i++){
-        const u = 0.15 + (i+1)/(count+1)*0.7 + (rand01(lSeed,10+i)-0.5)*0.08; // spread across world
+        const u = 0.15 + (i+1)/(count+1)*0.7 + (rand01(lSeed,10+i)-0.5)*0.08;
         const x = clamp(u*WORLD.w, 120, WORLD.w-120);
         const typeRand = rand01(lSeed, 100+i);
         let type = 'tree';
@@ -365,9 +355,9 @@
 
     // Input/aim
     let aiming=false; let aimAngle=0; let meter=0; let meterDir=1; let meterOn=false; let pointerId=null; let pointerPos={x:0,y:0};
-    const METER_SPEED=1.6; // cycles per second (ping-pong)
+    const METER_SPEED=1.6;
 
-    // Camera follow (side-view)
+    // Camera follow
     function centerCameraOnBall(){
       if(!hole){ return; }
       view.x = clamp(ball.x - view.w*0.45, 0, WORLD.w - view.w);
@@ -378,47 +368,39 @@
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
 
-    // ===== Procedural hole generation (side-view friendly)
+    // ===== Procedural hole generation
     function genHole(){
-      const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0; let s = (Math.random()*1e9)|0;
-      // keep seed on hole for determinism of sky/landmarks
-      const seed = s;
+      const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0;
+      let s = (Math.random()*1e9)|0; const seed = s;
       function nrand(){ s = Math.sin(s)*10000; return s - Math.floor(s); }
       const amp1 = 90 + nrand()*70, freq1 = 1/(620+ nrand()*380);
       const amp2 = 30 + nrand()*30, freq2 = 1/(260 + nrand()*200);
 
       for(x=0;x<=w;x+=step){ const y = baseY - Math.sin(x*freq1)*amp1 - Math.sin(x*freq2)*amp2; points.push({x,y}); }
 
-      // Cup to right
       const cupX = lerp(w*0.68, w*0.9, Math.random());
 
-      // Green platform: flatten and slightly tilt
       const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); let greenY=0;
       for(let i=0;i<points.length;i++){
         if(points[i].x>=gx0 && points[i].x<=gx1){ const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40; points[i].y = gy; greenY = gy; }
       }
 
-      // Water hazard mid field
       const waterW = 220 + Math.random()*220; const waterX = lerp(w*0.28, cupX-420, Math.random()); const waterY = baseY - 28 + 10*Math.random();
       const water = {x:waterX, y:waterY, w:waterW, h:h - waterY + 60};
 
-      // Sand near green
       const sand = { x: cupX - 110 + Math.random()*160, y: greenY - 10, r: 60 + Math.random()*28 };
 
-      // Tee slight platform
       const teeX = 120; const teeIdx = Math.floor(teeX/step); const teeY = points[teeIdx].y - 2; points[teeIdx].y = teeY;
 
-      // Ensure some cliffs/ledges (side-view feel): deepen a valley randomly
       const valleyX = lerp(w*0.42, w*0.6, Math.random()); const vIdx = Math.floor(valleyX/step);
       for(let i=-3;i<=3;i++){ const k=vIdx+i; if(points[k]) points[k].y += Math.abs(i)*22; }
 
-      // Par estimate
       const dist = (cupX - teeX); let par = 4; if(dist>1900) par=5; else if(dist<950) par=3;
 
       return { w, h, points, step, cupX, green:{x0:gx0,x1:gx1,y:greenY}, water, sand, tee:{x:teeX,y:teeY}, par, seed };
     }
 
-    // Ground sampling (linear interp)
+    // Ground sampling
     function groundYAt(x){ x = clamp(x, 0, hole.w); const i = clamp(Math.floor(x/hole.step), 0, hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
 
     function surfaceAt(x){
@@ -433,13 +415,9 @@
 
     function nextHole(){
       hole = genHole(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par; elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
-      // Wind
-      if(windOn){ windAx = (Math.random()*2 - 1) * 900; } else { windAx = 0; } updateWindUI();
-      // Position ball
+      if(windOn){ windAx = (Math.random()*2 - 1) * 900; } else { windAx = 0; } updateWindUI(); AudioMini.setWind(windOn);
       ball.x = hole.tee.x; ball.y = hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; strokes=0; elStrokes.textContent=strokes;
-      // Seed backdrop/sky from hole seed for stability
-      backdrop.seed = (hole.seed ^ 0x5EA)|0;
-      buildBackdrop();
+      backdrop.seed = (hole.seed ^ 0x5EA)|0; buildBackdrop();
       centerCameraOnBall();
     }
 
@@ -455,7 +433,7 @@
     // ===== UI build: clubs & spin
     function buildClubs(){
       clubSeg.innerHTML=''; CLUBS.forEach((c,idx)=>{ const b=document.createElement('button'); b.className='btn'; b.textContent=c.name; b.dataset.club=idx; b.setAttribute('aria-pressed', idx===2? 'true':'false'); b.addEventListener('click',()=>selectClub(idx)); clubSeg.appendChild(b); });
-      selectClub(2); // default 7I
+      selectClub(2);
     }
     let currentClub = CLUBS[2];
     function selectClub(i){ currentClub = CLUBS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
@@ -464,7 +442,7 @@
     // ===== Wind UI
     function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag/900).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
 
-    // ===== Input (drag aim + hold-release meter)
+    // ===== Input
     function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
     function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
     function onPointerDown(e){ if(!hole || !ball.atRest) return; const p = getPoint(e); pointerId = p.id; pointerPos={x:p.x,y:p.y}; const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; e.preventDefault(); }
@@ -487,14 +465,11 @@
 
     // ===== Physics update
     function update(dt){
-      // time
       globalTime += dt;
 
-      // power meter ping-pong
       if(meterOn){ meter += meterDir * METER_SPEED * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
       if(!hole){ return; }
 
-      // particles
       for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
 
       if(!ball.atRest){
@@ -530,23 +505,22 @@
       drawClouds();
       drawMountains();
       if(!hole){ drawVignette(); return; }
+
       // water
       const w = hole.water; ctx.fillStyle = '#0e2233'; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
-      // ground silhouette path
+
+      // ground silhouette
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
-      // ambient landmarks on ground
-      drawLandmarks();
 
-      // grass
+      drawLandmarks();
       drawGrass();
-      // sand bunker
+
+      // sand + green
       ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
-      // green subtle overlay
       ctx.fillStyle = 'rgba(60,140,85,.25)'; ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
 
-      // flag (with wind flutter)
       drawFlag(hole.cupX - view.x, groundYAt(hole.cupX) - 60 - view.y);
 
       // particles
@@ -560,7 +534,6 @@
         ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
       }
 
-      // ball + aim
       drawBall(); if(aiming){ drawAimArrow(); }
       drawVignette();
     }
@@ -572,10 +545,10 @@
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
 
-    // --- Stars (fixed-seed, faint sine twinkle)
+    // --- Stars
     function drawStars(){
       if(!backdrop.stars) return;
-      const par = 0.06; // very slow parallax
+      const par = 0.06;
       for(const s of backdrop.stars){
         const x = s.x - view.x*par;
         const y = s.y - view.y*par*0.3;
@@ -590,32 +563,29 @@
       ctx.globalAlpha=1;
     }
 
-    // --- Moon with subtle halo and very slow drift
+    // --- Moon
     function drawMoon(){
       if(!backdrop.moon) return;
       const m = backdrop.moon;
-      const driftX = Math.sin(globalTime*0.02 + m.phase)*12; // very slow
+      const driftX = Math.sin(globalTime*0.02 + m.phase)*12;
       const driftY = Math.cos(globalTime*0.015 + m.phase*0.7)*4;
       const par = 0.08;
       const mx = (m.x + driftX) - view.x*par;
       const my = (m.y + driftY) - view.y*par*0.3;
 
-      // Halo
       const g = ctx.createRadialGradient(mx,my, m.r*0.4, mx,my, m.r*3.2);
       g.addColorStop(0,'rgba(255,255,255,0.25)');
       g.addColorStop(1,'rgba(255,255,255,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(mx,my, m.r*3.2, 0, TAU); ctx.fill();
 
-      // Moon disk
       ctx.fillStyle = '#f8fafc';
       ctx.beginPath(); ctx.arc(mx,my, m.r, 0, TAU); ctx.fill();
 
-      // Slight shading crescent
       ctx.fillStyle = 'rgba(0,0,0,0.08)';
       ctx.beginPath(); ctx.arc(mx+m.r*0.15, my, m.r*0.95, 0, TAU); ctx.fill();
     }
 
-    // --- Clouds (1–2 parallax bands, backlit & semi-transparent)
+    // --- Clouds
     function drawClouds(){
       for(const B of backdrop.clouds){
         const y = WORLD.h*B.yFrac - view.y*B.parallax*0.4;
@@ -623,7 +593,6 @@
         const offset = (globalTime*speed) % (view.w+400);
         const alpha = 0.08;
         const light = 'rgba(255,255,255,'+alpha+')';
-        // Draw repeated puffs across width
         for(let x=-400; x<view.w+400; x+=120){
           const px = x - offset - view.x*B.parallax*0.6;
           drawCloudPuff(px, y, 120, 38, light, B.puffSeed, x);
@@ -631,7 +600,6 @@
       }
     }
     function drawCloudPuff(cx, cy, w, h, color, seed, idx){
-      // a few overlapping ellipses, deterministic offsets
       ctx.fillStyle = color;
       for(let i=0;i<5;i++){
         const u = (rand01(seed, idx*31+i)-0.5)*0.8;
@@ -639,15 +607,12 @@
         const rx = w*(0.42 + 0.18*rand01(seed, idx*59+i));
         const ry = h*(0.55 + 0.2*rand01(seed, idx*61+i));
         ctx.beginPath();
-        roundedEllipse(cx + u*w*0.5, cy + v*h*0.5, rx, ry);
+        ctx.ellipse(cx + u*w*0.5, cy + v*h*0.5, rx, ry, 0, 0, TAU);
         ctx.fill();
       }
     }
-    function roundedEllipse(x,y,rx,ry){
-      ctx.ellipse(x,y,rx,ry,0,0,TAU);
-    }
 
-    // --- Mountains (3 parallax layers)
+    // --- Mountains
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR; const step=8;
       backdrop.mountains.forEach((L, idx)=>{
@@ -658,9 +623,9 @@
       });
     }
 
-    // --- Grass (curved blades, deterministic; avoids shimmer)
-    const GRASS_STEP = 26;      // spacing between clusters
-    const GRASS_DENSITY = 3;    // blades per cluster
+    // --- Grass
+    const GRASS_STEP = 26;
+    const GRASS_DENSITY = 3;
     function drawGrass(){
       if(!hole){ return; }
       ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
@@ -678,7 +643,7 @@
       ctx.restore();
     }
 
-    // --- Landmarks (seeded, stable)
+    // --- Landmarks
     function drawLandmarks(){
       const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg');
       ctx.fillStyle = fg; ctx.strokeStyle = fg; ctx.lineWidth = 2;
@@ -694,25 +659,16 @@
     }
     function drawTree(x, y, s){
       const h = 46 + rand01(s,1)*24;
-      // trunk
       ctx.fillRect(x-3, y-h*0.6, 6, h*0.6);
-      // canopy
-      ctx.beginPath();
-      ctx.arc(x, y-h*0.75, h*0.35, 0, TAU); ctx.fill();
-      ctx.beginPath();
-      ctx.arc(x-12, y-h*0.62, h*0.28, 0, TAU); ctx.fill();
-      ctx.beginPath();
-      ctx.arc(x+12, y-h*0.62, h*0.28, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y-h*0.75, h*0.35, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x-12, y-h*0.62, h*0.28, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x+12, y-h*0.62, h*0.28, 0, TAU); ctx.fill();
     }
     function drawWindmill(x, y, s){
       const h = 70 + rand01(s,2)*30;
-      // tower
-      ctx.beginPath();
-      ctx.moveTo(x-8, y); ctx.lineTo(x, y-h); ctx.lineTo(x+8, y); ctx.closePath(); ctx.fill();
-      // hub
+      ctx.beginPath(); ctx.moveTo(x-8, y); ctx.lineTo(x, y-h); ctx.lineTo(x+8, y); ctx.closePath(); ctx.fill();
       const hubY = y - h; const hubR = 3.5;
       ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
-      // blades rotate with wind magnitude + base
       const windMag = Math.abs(windAx)/900;
       const omega = (0.4 + 1.2*windMag) * (windAx>=0?1:-1);
       const ang = globalTime*omega;
@@ -730,11 +686,8 @@
     }
     function drawLighthouse(x,y,s){
       const h = 86 + rand01(s,3)*24;
-      // base
       ctx.fillRect(x-6, y-h*0.55, 12, h*0.55);
-      // top cap
       ctx.fillRect(x-8, y-h*0.70, 16, 6);
-      // tiny rotating beam (very subtle, backlit feel)
       const beamAng = (globalTime*0.4 + s)%TAU;
       const bx0 = x, by0 = y-h*0.68;
       ctx.save();
@@ -749,16 +702,13 @@
       ctx.restore();
     }
     function drawCitySil(x,y,s){
-      // cluster of boxes behind immediate ground line
       const n = 4 + Math.floor(rand01(s,4)*4);
-      ctx.save();
       for(let i=0;i<n;i++){
         const w = 12 + rand01(s,50+i)*18;
         const h = 30 + rand01(s,60+i)*38;
         const dx = -40 + i*(w+6) + (rand01(s,70+i)-0.5)*10;
         ctx.fillRect(x+dx, y-h, w, h);
       }
-      ctx.restore();
     }
 
     function drawBall(){ const cs = getComputedStyle(document.documentElement); const trailColor = cs.getPropertyValue('--accent'); if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){ ctx.strokeStyle = trailColor; ctx.globalAlpha = 0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y); ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1; } ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke(); }
@@ -766,11 +716,9 @@
     function drawAimArrow(){ const b = worldToScreen(ball.x, ball.y); const len = 80 + meter*160; const x2 = b.x + Math.cos(aimAngle)*len; const y2 = b.y + Math.sin(aimAngle)*len; ctx.save(); ctx.scale(DPR,DPR); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent3'); ctx.lineWidth=3; ctx.globalAlpha=0.9; ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke(); const a=aimAngle; const ah = 10; const aw = 7; ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR); ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR); ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill(); ctx.restore(); }
 
     function drawFlag(flagX, flagY){
-      // pole
       ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX, flagY+60); ctx.stroke();
 
-      // cloth with wind flutter (Bezier chain)
       const dir = (windAx>=0)? 1 : -1;
       const mag = Math.min(1, Math.abs(windAx)/900);
       const len = 26 + mag*10;
@@ -792,7 +740,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // little tip triangle for sharpness
       ctx.beginPath();
       ctx.moveTo(p2.x, p2.y);
       ctx.lineTo(tip.x, tip.y+4);
@@ -804,7 +751,7 @@
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
 
     // ===== Resize
-    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; /* keep seed, just rebuild geometry */ buildBackdrop(); }
+    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
     window.addEventListener('resize', resize); resize();
 
     // ===== Main loop
@@ -823,7 +770,7 @@
     // Build initial UI
     buildClubs(); updateWindUI();
 
-    // ====== Self-tests (run manually in console: DuskDriveTests.run())
+    // ====== Quick self-checks (optional: run in console)
     window.DuskDriveTests = {
       run(){
         let ok=0, fail=0;
