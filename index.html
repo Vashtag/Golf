@@ -271,11 +271,11 @@
     let holeIndex=0, roundData=null; // {holes:[...], totals}
     let hole=null; // current hole data
 
-    // Backdrop (parallax mountains + moon + clouds)
+    // Backdrop (parallax mountains + moon + sparse cloud field)
     const backdrop = { seed:(Math.random()*1e9)|0, rays:[], mountains:[], moon:null, clouds:[] };
 
     function buildBackdrop(){
-      // Rays config exists but is not drawn (kept as-is)
+      // Rays config (not drawn, retained for compatibility)
       backdrop.rays.length=0; const rc=7;
       for(let i=0;i<rc;i++){
         const u = (i+0.5)/rc + (rand01(backdrop.seed,i)-0.5)*0.12;
@@ -291,30 +291,30 @@
         makeLayer(0.42, 0.68, 140, 64, 0.0019, 0.00085, 0.10)
       ];
       // Moon (seeded position, subtle drift)
-      const u = 0.18 + rand01(backdrop.seed,101)*0.64;
-      const v = 0.08 + rand01(backdrop.seed,102)*0.20;
+      const u = 0.18 + rand01(backdrop.seed,101)*0.64; // across sky
+      const v = 0.08 + rand01(backdrop.seed,102)*0.20; // height
       const phase = rand01(backdrop.seed,103)*TAU;
-      const baseR = 18 + Math.floor(rand01(backdrop.seed,104)*10);
+      const baseR = 18 + Math.floor(rand01(backdrop.seed,104)*10); // px
       backdrop.moon = { u, v, phase, baseR };
 
-      // Clouds: 1–2 bands, semi-transparent, backlit, slow scroll, different speeds
-      buildCloudBands();
+      // Sparse cloud field
+      buildCloudField();
     }
-    function buildCloudBands(){
+    function buildCloudField(){
       backdrop.clouds.length = 0;
-      const count = rand01(backdrop.seed,200) < 0.5 ? 1 : 2;
+      const count = 6 + Math.floor(rand01(backdrop.seed,300)*6); // 6–11 clouds
       for(let i=0;i<count;i++){
-        const s = hash32(backdrop.seed ^ (0xC0FFEE + i*977));
-        const v = 0.18 + rand01(s,1)*0.22 + i*0.10;             // vertical placement
-        const parX = 0.05 + i*0.03;                              // far parallax
-        const parY = 0.02 + i*0.01;
-        const dir = rand01(s,2)<0.5 ? -1 : 1;
-        const speed = dir * (6 + rand01(s,3)*6) * (i===0?1:1.35); // px/s slow drift
-        const alpha = 0.09 + rand01(s,4)*0.07;                   // subtle
-        const spacing = 120 + Math.floor(rand01(s,5)*40);        // puff spacing
-        const spreadY = 14 + Math.floor(rand01(s,6)*10);         // vertical jitter
-        const scale = 1.0 + rand01(s,7)*0.25;                    // size variance
-        backdrop.clouds.push({ seed:s, v, parX, parY, speed, alpha, spacing, spreadY, scale });
+        const s = hash32(backdrop.seed ^ (0xA11C10 + i*131));
+        const u = rand01(s,1);                                   // across world (0..1)
+        const baseV = 0.14 + (i+1)/(count+1) * 0.45;             // distributed heights
+        const v = baseV + (rand01(s,2)-0.5)*0.06;                // slight jitter
+        const parX = 0.04 + rand01(s,3)*0.05;                    // far parallax
+        const parY = 0.015 + rand01(s,4)*0.02;
+        const dir = rand01(s,5) < 0.5 ? -1 : 1;
+        const speed = dir * (4 + rand01(s,6)*6);                 // 4–10 px/s
+        const alpha = 0.07 + rand01(s,7)*0.10;                   // subtle backlight
+        const scale = 0.8 + rand01(s,8)*1.8;                     // varied sizes
+        backdrop.clouds.push({ seed:s, u, v, parX, parY, speed, alpha, scale });
       }
     }
     function makeLayer(parallax, baseFrac, a1, a2, f1, f2, shade){
@@ -482,8 +482,8 @@
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
       drawSkyGradient();
-      drawMoon();           // stays behind mountains
-      drawClouds();         // new: parallax cloud bands, behind mountains
+      drawMoon();           // behind mountains
+      drawClouds();         // sparse cloud field behind mountains
       drawMountains();
       if(!hole){ drawVignette(); return; }
       // water
@@ -517,8 +517,8 @@
     // --- Moon (seeded position, subtle halo, very slow drift)
     function drawMoon(){
       const m = backdrop.moon; if(!m) return;
-      const parX = 0.05, parY = 0.02;
-      const drift = Math.sin(clock*0.05 + m.phase) * 12;
+      const parX = 0.05, parY = 0.02;      // very far parallax
+      const drift = Math.sin(clock*0.05 + m.phase) * 12; // slow ±12px horizontal drift
       const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
       const x = (xw - view.x*parX) + drift;
       const y = (yw - view.y*parY);
@@ -541,54 +541,44 @@
       ctx.restore();
     }
 
-    // --- Clouds (1–2 parallax bands, backlit, semi-transparent, slow scroll)
+    // --- Clouds (sparse, varied sizes & heights, slow parallax drift)
     function drawClouds(){
       const w = canvas.width / DPR;
-      const buffer = 120;
-      backdrop.clouds.forEach(B=>{
-        const baseY = WORLD.h * B.v;
-        const worldBase = view.x * B.parX;
-        const shift = clock * B.speed;
-        const yScreenBase = (baseY - view.y * B.parY);
+      const span = WORLD.w; // wrapping span
 
-        // Determine index range to cover screen with some buffer
-        const startIdx = Math.floor((worldBase - buffer + shift)/B.spacing) - 1;
-        const endIdx   = Math.floor((worldBase + w + buffer + shift)/B.spacing) + 1;
+      backdrop.clouds.forEach(C=>{
+        const baseX = WORLD.w * C.u - clock * C.speed;   // drift over time
+        const y = WORLD.h * C.v - view.y * C.parY;
 
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = B.alpha;
+        // draw wrapped copies to cover the screen
+        for(let k=-1; k<=1; k++){
+          const x = baseX + k*span - view.x * C.parX;
+          if(x < -220 || x > w + 220) continue;
 
-        for(let j=startIdx; j<=endIdx; j++){
-          const x = j*B.spacing - worldBase - shift; // screen x
-          const yOff = (rand01(B.seed, j*7)-0.5) * B.spreadY;
-          const y = yScreenBase + yOff;
-          const r = (22 + rand01(B.seed, j*13)*18) * B.scale;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';       // backlit look
+          ctx.globalAlpha = C.alpha;
+          drawCloudAt(x, y, C.scale, C.seed);
+          ctx.restore();
+        }
+      });
 
-          // Main puff
-          let g = ctx.createRadialGradient(x, y, r*0.4, x, y, r*1.4);
+      function drawCloudAt(x, y, s, seed){
+        const puffCount = 3 + Math.floor(rand01(seed,11)*3); // 3..5 puffs
+        for(let i=0;i<puffCount;i++){
+          const r  = (18 + rand01(seed,20+i)*26) * s;
+          const ox = (rand01(seed,30+i)-0.5) * r * 1.2;
+          const oy = (rand01(seed,40+i)-0.5) * r * 0.4;
+          const cx = x + ox, cy = y + oy;
+
+          const g = ctx.createRadialGradient(cx, cy, r*0.35, cx, cy, r*1.3);
           g.addColorStop(0,'rgba(255,255,255,0.45)');
           g.addColorStop(1,'rgba(255,255,255,0.00)');
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(x, y, r*1.4, 0, TAU); ctx.fill();
 
-          // Side puffs for a banded look
-          const r2 = r*0.75, x2 = x - r*0.6, y2 = y + r*0.12;
-          g = ctx.createRadialGradient(x2, y2, r2*0.4, x2, y2, r2*1.3);
-          g.addColorStop(0,'rgba(255,255,255,0.38)');
-          g.addColorStop(1,'rgba(255,255,255,0.00)');
           ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(x2, y2, r2*1.3, 0, TAU); ctx.fill();
-
-          const r3 = r*0.68, x3 = x + r*0.65, y3 = y + r*0.05;
-          g = ctx.createRadialGradient(x3, y3, r3*0.4, x3, y3, r3*1.3);
-          g.addColorStop(0,'rgba(255,255,255,0.35)');
-          g.addColorStop(1,'rgba(255,255,255,0.00)');
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(x3, y3, r3*1.3, 0, TAU); ctx.fill();
+          ctx.beginPath(); ctx.arc(cx, cy, r*1.3, 0, TAU); ctx.fill();
         }
-        ctx.restore();
-      });
+      }
     }
 
     // --- Mountains (3 parallax layers)
@@ -633,14 +623,8 @@
     window.addEventListener('resize', resize); resize();
 
     // ===== Main loop
-    let last=0; let clock=0; // clock for slow drift (moon + clouds)
-    function loop(t){
-      const now=t/1000;
-      const dt = Math.min(0.033, last? now-last: 0.016);
-      last=now; clock += dt;
-      update(dt); draw();
-      requestAnimationFrame(loop);
-    }
+    let last=0; let clock=0; // clock for slow moon/cloud drift
+    function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt; update(dt); draw(); requestAnimationFrame(loop); }
     requestAnimationFrame(loop);
 
     // ===== UI wiring
