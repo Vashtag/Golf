@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v1.9.1)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v1.9.2)</title>
 <style>
   :root{
     /* sunset sky inspired by reference image */
@@ -300,11 +300,11 @@
     };
 
     function buildBackdrop(){
-      // Dune layers (far->near) — smoother/rounder & longer wavelengths
+      // Dune layers (far->near): smooth but curvy
       backdrop.mountains = [
-        makeLayer(0.16, 0.56, 60, 30, 0.00055, 0.00022, 0.05),
-        makeLayer(0.26, 0.66, 80, 38, 0.00075, 0.00030, 0.07),
-        makeLayer(0.40, 0.74, 96, 44, 0.00095, 0.00038, 0.09)
+        makeLayer(0.16, 0.56, 80, 38, 0.00080, 0.00032, 0.05),
+        makeLayer(0.26, 0.66, 104, 48, 0.00100, 0.00042, 0.07),
+        makeLayer(0.40, 0.74, 126, 58, 0.00125, 0.00052, 0.09)
       ];
       // Sun
       const u = 0.22 + rand01(backdrop.seed,101)*0.56;
@@ -335,11 +335,25 @@
     }
     function makeLayer(parallax, baseFrac, a1, a2, f1, f2, shade){
       const s = (backdrop.seed ^ hash32((parallax*1000)|0))>>>0;
-      const base = WORLD.h*baseFrac; const ph = rand01(s,1)*TAU;
-      return { parallax, base, a1, a2, f1, f2, ph, shade };
+      const base = WORLD.h*baseFrac;
+      const ph   = rand01(s,1)*TAU;
+      // extra gentle curvature
+      const curv = {
+        a: 12 + rand01(s,3)*18,            // amplitude 12–30
+        f: 0.0013 + rand01(s,4)*0.0006,    // frequency
+        ph: rand01(s,2)*TAU
+      };
+      return { parallax, base, a1, a2, f1, f2, ph, shade, curv };
     }
     function mountainYAt(L, wx){
-      return L.base - Math.sin(wx*L.f1)*L.a1 - Math.sin(wx*L.f2 + L.ph)*L.a2;
+      let y = L.base
+            - Math.sin(wx*L.f1)*L.a1
+            - Math.sin(wx*L.f2 + L.ph)*L.a2;
+      if(L.curv){
+        y -= Math.sin(wx*L.curv.f   + L.curv.ph)      * L.curv.a;
+        y -= Math.sin(wx*L.curv.f*2 + L.curv.ph*1.3) * (L.curv.a*0.45);
+      }
+      return y;
     }
 
     // ---- Ambient Landmarks (seeded, FAR only; city removed) ----
@@ -348,7 +362,6 @@
       backdrop.landmarksNear = [];
       if(!hole) return;
 
-      // helper to avoid awkward spots
       const exRanges = [
         [hole.green.x0-160, hole.green.x1+160],
         [hole.water.x-140, hole.water.x+hole.water.w+140]
@@ -367,7 +380,7 @@
         return 200 + (k%10)*260;
       }
 
-      // FAR windmills (0–2), tiny parallax
+      // FAR windmills (0–2)
       const wmCount = Math.floor(rand01(backdrop.seed, 921) * 2.2);
       for(let i=0;i<wmCount;i++){
         const x = pickX(20+i);
@@ -377,7 +390,7 @@
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:0.06, parY:0.01 });
       }
 
-      // FAR lighthouse (0–1) near water; city removed
+      // FAR lighthouse (0–1) near water
       if(rand01(backdrop.seed, 951) < 0.35){
         let x = hole.water.x + (rand01(backdrop.seed, 952)<0.5 ? -120 : hole.water.w+120);
         x = Math.min(Math.max(80, x), WORLD.w-80);
@@ -762,7 +775,7 @@
 
     // --- Dunes (3 parallax layers)
     function drawMountains(){
-      const w = canvas.width/DPR, h = canvas.height/DPR; const step=12; // larger step (cheaper)
+      const w = canvas.width/DPR, h = canvas.height/DPR; const step=10; // denser than 12 to keep curvature
       backdrop.mountains.forEach((L, idx)=>{
         ctx.fillStyle = `rgba(0,0,0,${0.25 + L.shade})`;
         ctx.beginPath(); ctx.moveTo(0,h);
