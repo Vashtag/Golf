@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.0)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.1)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -205,10 +205,19 @@
       rock:    { fric: 460, rest: 0.22 }
     };
 
-    const GRAV = 3000;
-    const AIR_DRAG = 0.0012; // quadratic-ish (applied via v*component)
-    const LIFT_K   = 0.0009; // lift magnitude vs v^2 and AoA
-    const TURN_K   = 40;     // horizontal curve factor (turn/fade)
+    // ==== DISC PHYSICS 2.0 constants ====
+    const GRAV = 2800;        // a touch lighter so lift matters
+    const AIR_DRAG = 0.0010;  // base quadratic drag
+    const LIFT_K   = 0.0016;  // lift coefficient scale
+    const TURN_K   = 54;      // horizontal curving acceleration scale
+    const VREF     = 1400;    // reference speed for turn/fade mixing
+    const CAMBER   = 0.06;    // ~3.4°: discs make lift even with slight nose-down
+    const NOSE_FAST_DEG = -6; // nose bias at high speed (down)
+    const NOSE_SLOW_DEG =  7; // nose bias as it slows (up)
+    const SPIN_DECAY = 0.35;  // spin exponential decay rate
+    const BANK_INIT_DEG = 16; // initial roll from hyzer/anhyzer
+    // ====================================
+
     let reducedMotion = false;
 
     // Wind
@@ -226,6 +235,9 @@
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
+    const clamp=(v,min,max)=> v<min?min:(v>max?max:v);
+    const lerp=(a,b,t)=> a + (b-a)*t;
+    const smoothstep=(a,b,x)=>{ const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
 
     // Audio (minimal)
     const AudioMini = (()=>{
@@ -442,7 +454,7 @@
       }
     }
 
-    // ===== Flocks (reuse from your version)
+    // ===== Flocks
     function buildFlocks(){
       backdrop.flocks.length = 0;
       if(!backdrop.mountains.length) return;
@@ -527,17 +539,15 @@
     }
 
     // ===== World / Hole
-    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0 };
+    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0,
+                   // DISC PHYSICS 2.0 extras:
+                   spin:0, spin0:1, bank:0 };
     let strokes=0;
     let holeIndex=0, roundData=null;
     let hole=null;
 
     // Aim/meter state
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
-
-    function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
-    function lerp(a,b,t){ return a + (b-a)*t; }
-    function sgn(v){ return v<0? -1 : 1; }
 
     function genHole(){
       const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0; let seed = Math.random()*9999;
@@ -594,7 +604,7 @@
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
       windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI();
-      disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; strokes=0; elStrokes.textContent=strokes;
+      disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
     }
 
@@ -643,13 +653,26 @@
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
       const base = 1400; const power = (0.25 + 0.75*meter) * d.speed * powerMul; const speed = base * power;
       const dir = aimAngle; // pure release direction in 2D
+
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
-      disc.orient = dir + (-4 * Math.PI/180); // slight nose-down by default
+
+      // DISC PHYSICS 2.0: initialize aerodynamic state
+      disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180);       // slight nose-down when ripping it
+      disc.spin0  = 14 + 20*power;                             // arbitrary units
+      disc.spin   = disc.spin0;
+      disc.bank   = (releaseMode * BANK_INIT_DEG) * Math.PI/180;
+
       disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16); AudioMini.thwack();
     }
 
     // ===== Physics update
+    function normalizeAngle(a){
+      while(a > Math.PI) a -= TAU;
+      while(a < -Math.PI) a += TAU;
+      return a;
+    }
+
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
 
@@ -665,22 +688,33 @@
         if(!disc.onGround){
           const v = Math.hypot(disc.vx, disc.vy) || 0.0001;
           const vx = disc.vx, vy = disc.vy;
-
-          // Drag (approx quadratic)
-          const dragX = -AIR_DRAG * v * vx;
-          const dragY = -AIR_DRAG * v * vy;
-
-          // Lift from glide + angle of attack (relative to velocity)
           const vAngle = Math.atan2(vy, vx);
-          const rel = normalizeAngle((disc.orient) - vAngle); // AoA
-          const aoa = clamp(rel, -0.6, 0.6); // clamp to ±~34°
-          const lift = LIFT_K * currentDisc.glide * v*v * aoa; // upward for +aoa
 
-          // Turn/Fade horizontal curve
-          const vRef = 1400;
-          const tPow = clamp(v / vRef, 0, 1); // 1 at high speed, 0 at stop
-          const curve = spinSign() * (currentDisc.turn * tPow - currentDisc.fade * (1 - tPow));
-          const curveAx = TURN_K * curve;
+          // ---- DISC PHYSICS 2.0: aero forces
+          // Speed-normalized blending for turn/fade + nose behavior
+          const tPow = clamp(v / VREF, 0, 1);
+          const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
+
+          // Drag grows with |AoA|
+          const aoaRaw = normalizeAngle(disc.orient - vAngle);
+          const aoa = clamp(aoaRaw + CAMBER, -0.6, 0.6); // camber bias gives lift even slightly nose-down
+          const dragMag = AIR_DRAG * v * (1 + 0.7*Math.abs(aoa));
+          const dragX = -dragMag * vx;
+          const dragY = -dragMag * vy;
+
+          // Lift proportional to v^2 and AoA
+          const lift = LIFT_K * currentDisc.glide * v*v * aoa;
+
+          // Turn (early) vs Fade (late) with spin + hyzer/anhy influence
+          const turnPhase = tPow*tPow;                       // emphasize at high speed
+          const fadePhase = (1 - tPow);                      // engages as it slows
+          const hyz = releaseMode;                           // -1 hyzer, 0 flat, +1 anhy
+          let turnAmt = currentDisc.turn * turnPhase * (0.7 + 0.6*spinNorm) * (1 + 0.35*hyz);
+          let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
+          // slight extra bias from remaining bank
+          const bankBias = 0.12 * Math.sin(disc.bank);
+          const curve = (turnAmt - fadeAmt + bankBias);
+          const curveAx = TURN_K * curve * spinSign();
 
           // Wind + aero + gravity
           const ax = (windOn? windAx:0) + dragX + curveAx;
@@ -689,17 +723,23 @@
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          // gentle orient settle toward release (adds stability feel)
-          const targetOrient = aimAngle + (releaseDeg()*Math.PI/180) * spinSign();
-          disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*1.8));
+          // Spin & bank decay (spin resists bank relaxing)
+          disc.spin *= Math.exp(-SPIN_DECAY*dt);
+          const bankRelax = 0.2 + 0.9*(1 - spinNorm);
+          disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
+
+          // Nose tracks airflow: nose-down when fast, noses up when slow
+          const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
+          const targetOrient = vAngle + noseBias;
+          disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
           // ground collision
           const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
             const surface = surfaceAt(disc.x); const rest = SURF[surface]?.rest ?? 0.18; disc.y = gy - disc.r - 0.01; disc.onGround=true;
             if(Math.abs(disc.vy) > 120){ if(surface==='sand') spawnParticles('sand', disc.x, disc.y+disc.r, 12); else spawnParticles('dust', disc.x, disc.y+disc.r, 8); }
+            // Skippy but not bouncy: shallow hits keep some forward, vertical damped
             disc.vy = -disc.vy * rest;
-            // tiny ground slide damping
             disc.vx *= 0.86;
             if(Math.abs(disc.vy) < 120){ disc.vy = 0; }
           }
@@ -736,12 +776,6 @@
         if(disc.x<0){ disc.x=0; disc.vx=0; } if(disc.x>hole.w){ disc.x=hole.w; disc.vx=0; }
       }
       centerCameraOnDisc();
-    }
-
-    function normalizeAngle(a){
-      while(a > Math.PI) a -= TAU;
-      while(a < -Math.PI) a += TAU;
-      return a;
     }
 
     // Camera follow
@@ -820,6 +854,8 @@
       const x = (xw - view.x*parX) + drift;
       const y = (yw - view.y*parY);
       const r = m.baseR;
+
+      if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(r)) return; // safety
 
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -982,7 +1018,7 @@
       ctx.rotate(disc.orient);
       ctx.fillStyle = '#f8fafc';
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
-      const R = disc.r, T = 2.6;
+      const R = disc.r;
       ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
       // rim hint
       ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
