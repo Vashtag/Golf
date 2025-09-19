@@ -239,10 +239,10 @@
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
 
     // Small helpers
+    const TAU_LOCAL = Math.PI*2; // (not used, but here if needed)
     function deg(n){ return n * Math.PI / 180; }
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
-    function sgn(v){ return v<0? -1 : 1; }
     function normalizeAngle(a){
       while(a > Math.PI) a -= TAU;
       while(a < -Math.PI) a += TAU;
@@ -446,8 +446,7 @@
       const wmCount = Math.floor(rand01(backdrop.seed, 921) * 2.2);
       for(let i=0;i<wmCount;i++){
         const x = pickX(20+i);
-        theScale = 0.85 + rand01(backdrop.seed, 931+i)*0.45;
-        const sc = theScale;
+        const sc = 0.85 + rand01(backdrop.seed, 931+i)*0.45; // FIXED: removed undefined theScale
         const varSeed = hash32(backdrop.seed ^ (0x91AA + i));
         const spin = 0.25 + rand01(backdrop.seed, 941+i)*0.35;
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:farPar, parY:0 });
@@ -745,7 +744,7 @@
           const noseCmdDeg = lerp(noseLo, noseHi, 1 - Math.pow(tPow, 1.5)) + (releaseDeg() * spinSign());
 
           // Target orientation = align to relative wind plus commanded nose
-          const targetOrient = F.vAngle + deg(noseCmdDeg);
+          const targetOrient = Math.atan2(F.vy, F.vx) + deg(noseCmdDeg);
 
           // Critically damped approach to target orientation
           disc.orient += normalizeAngle(targetOrient - disc.orient) * (1 - Math.exp(-dt * 4.5));
@@ -954,7 +953,7 @@
       });
 
       function drawFluffyCloud(x, y, s, seed, alpha){
-        let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+        let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=Infinity*-1;
         ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
         const baseR = 18 + rand01(seed,50)*22;
         const puffCount = 4 + Math.floor(rand01(seed,11)*4); // 4–7
@@ -1129,7 +1128,7 @@
     window.DuskDriveTests = {
       run(){
         let ok=0, fail=0;
-        function test(name, fn){ try{ fn(); console.log('%c✔ '+name','color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
+        function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } } // FIXED: quote
         test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
         test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
         test('Backdrop builds and draws', ()=>{ buildBackdrop(); });
