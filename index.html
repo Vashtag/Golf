@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v1.8)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v1.9)</title>
 <style>
   :root{
     --bg1:#0a1222;            /* night sky bottom (default) */
@@ -274,17 +274,13 @@
 
     // === Themes (Level colorways) ===
     const THEMES = {
-      egypt: {           // warm golden dusk
-        bg1:'#c7922c', bg2:'#6a4313', bg3:'#2b1a0a', water:'#1e1a12'
-      },
-      paris: {           // amethyst dusk
-        bg1:'#7b6fa3', bg2:'#343a6e', bg3:'#1f2240', water:'#2a3b6a'
-      },
-      nyc: {             // cool steel-blue dusk
-        bg1:'#1f477a', bg2:'#152c54', bg3:'#0b1424', water:'#0e2233'
-      }
+      egypt: { bg1:'#c7922c', bg2:'#6a4313', bg3:'#2b1a0a', water:'#1e1a12' },   // warm golden dusk
+      paris: { bg1:'#7b6fa3', bg2:'#343a6e', bg3:'#1f2240', water:'#2a3b6a' },   // amethyst dusk
+      nyc:   { bg1:'#1f477a', bg2:'#152c54', bg3:'#0b1424', water:'#0e2233' }    // cool steel-blue dusk
     };
     const LEVELS = ['egypt','paris','nyc'];
+    let THEME_ORDER = [...LEVELS]; // randomized per round
+
     function applyTheme(name){
       const t = THEMES[name] || {};
       const root = document.documentElement.style;
@@ -294,15 +290,27 @@
       if(t.water) root.setProperty('--water', t.water);
     }
 
-    // Backdrop (parallax mountains + moon + sparse cloud field)
-    const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], moon:null, clouds:[], cloudDir:1 };
+    // Seeded shuffle (stable within a round)
+    function shuffleSeeded(arr, seed){
+      const a = [...arr];
+      for(let i=a.length-1;i>0;i--){
+        const r = rand01(seed, i);
+        const j = Math.floor(r*(i+1));
+        const tmp = a[i]; a[i]=a[j]; a[j]=tmp;
+      }
+      return a;
+    }
 
-    function buildBackdrop(){
+    // Backdrop (parallax mountains + moon + sparse cloud field + landmarks)
+    const backdrop = { seed:(Math.random()*1e9)|0, levelSeed:0, mountains:[], moon:null, clouds:[], cloudDir:1, landmarks:[], city:null };
+
+    function buildBackdrop(levelSeed){
+      backdrop.levelSeed = levelSeed;
       // Mountain layers (far->near)
       backdrop.mountains = [
-        makeLayer(0.18, 0.50, 90, 40, 0.0011, 0.00047, 0.06),
-        makeLayer(0.28, 0.60, 120, 52, 0.0015, 0.00063, 0.08),
-        makeLayer(0.42, 0.68, 140, 64, 0.0019, 0.00085, 0.10)
+        makeLayer(0.18, 0.50, 90, 40, 0.0011, 0.00047, 0.06), // far
+        makeLayer(0.28, 0.60, 120, 52, 0.0015, 0.00063, 0.08), // mid
+        makeLayer(0.42, 0.68, 140, 64, 0.0019, 0.00085, 0.10)  // near
       ];
       // Moon (seeded position, subtle drift)
       const u = 0.18 + rand01(backdrop.seed,101)*0.64;
@@ -314,25 +322,69 @@
       // All clouds share direction (seeded)
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
 
-      // Sparse fluffy cloud field
+      // Clouds & Landmarks
       buildCloudField();
+      buildLandmarks();
     }
+
     function buildCloudField(){
       backdrop.clouds.length = 0;
       const count = 6 + Math.floor(rand01(backdrop.seed,300)*6); // 6–11 clouds
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xA11C10 + i*131));
-        const u = rand01(s,1);                                   // across world (0..1)
-        const baseV = 0.14 + (i+1)/(count+1) * 0.45;             // distributed heights
-        const v = baseV + (rand01(s,2)-0.5)*0.06;                // slight jitter
-        const parX = 0.04 + rand01(s,3)*0.05;                    // far parallax
+        const u = rand01(s,1);
+        const baseV = 0.14 + (i+1)/(count+1) * 0.45;
+        const v = baseV + (rand01(s,2)-0.5)*0.06;
+        const parX = 0.04 + rand01(s,3)*0.05;     // far parallax
         const parY = 0.015 + rand01(s,4)*0.02;
-        const speed = backdrop.cloudDir * (5 + rand01(s,6)*6);    // 5–11 px/s, same direction
-        const alpha = 0.07 + rand01(s,7)*0.10;                   // subtle backlight
-        const scale = 0.9 + rand01(s,8)*1.8;                     // varied sizes
+        const speed = backdrop.cloudDir * (5 + rand01(s,6)*6);
+        const alpha = 0.07 + rand01(s,7)*0.10;
+        const scale = 0.9 + rand01(s,8)*1.8;
         backdrop.clouds.push({ seed:s, u, v, parX, parY, speed, alpha, scale });
       }
     }
+
+    function buildLandmarks(){
+      // Clear
+      backdrop.landmarks = [];
+      backdrop.city = null;
+
+      const s = backdrop.levelSeed || (backdrop.seed ^ 0x5151);
+      // --- City silhouette (distant) 0..1
+      if(rand01(s,1) < 0.7){
+        const x = WORLD.w * (0.25 + rand01(s,2)*0.5);
+        const width = 520 + rand01(s,3)*520;
+        // baseline sits just in front of far mountains
+        const baseY = mountainYAt(backdrop.mountains[0], x) - 8;
+        const parX = 0.12, parY = 0.03;
+        const density = 14 + Math.floor(rand01(s,4)*10); // building count
+        backdrop.city = { x, baseY, width, parX, parY, density, seed: hash32(s ^ 0xC1TY) };
+      }
+
+      // --- Windmill (0..1)
+      if(rand01(s,10) < 0.55){
+        const x = WORLD.w * (0.35 + rand01(s,11)*0.5);
+        const scale = 0.9 + rand01(s,12)*0.7;
+        backdrop.landmarks.push({ type:'windmill', x, scale, seed:hash32(s ^ 0xW1ND) });
+      }
+
+      // --- Lone trees (0–2)
+      const treeCount = (rand01(s,20) < 0.7) ? (1 + Math.floor(rand01(s,21)*2)) : 0;
+      for(let i=0;i<treeCount;i++){
+        const x = WORLD.w * (0.16 + rand01(s,22+i)*0.68);
+        const scale = 0.8 + rand01(s,30+i)*1.2;
+        backdrop.landmarks.push({ type:'tree', x, scale, seed:hash32(s ^ (0x7REE + i)) });
+      }
+
+      // --- Lighthouse near water (if present)
+      if(hole && hole.water && rand01(s,40) < 0.6){
+        const w = hole.water;
+        const x = w.x + 40 + rand01(s,41)*(w.w-80);
+        const scale = 0.9 + rand01(s,42)*0.6;
+        backdrop.landmarks.push({ type:'lighthouse', x, scale, seed:hash32(s ^ 0xL1TE) });
+      }
+    }
+
     function makeLayer(parallax, baseFrac, a1, a2, f1, f2, shade){
       const s = (backdrop.seed ^ hash32((parallax*1000)|0))>>>0;
       const base = WORLD.h*baseFrac; const ph = rand01(s,1)*TAU;
@@ -410,13 +462,28 @@
     function inWater(x,y){ const w = hole.water; return x>=w.x && x<=w.x+w.w && y>=w.y; }
 
     // ===== Round setup
-    function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; screenIntro.style.display='none'; screenSummary.style.display='none'; nextHole(); }
+    let roundSeed = (Math.random()*1e9)|0;
+    function newRound(){
+      holeIndex=0;
+      roundData={ holes:[], totalPar:0, totalStrokes:0 };
+      screenIntro.style.display='none'; screenSummary.style.display='none';
+
+      // Randomize theme order (seeded so it stays fixed this round)
+      THEME_ORDER = shuffleSeeded(LEVELS, roundSeed);
+      nextHole();
+    }
 
     function nextHole(){
-      const themeName = LEVELS[holeIndex % LEVELS.length]; // cycle Egypt → Paris → NYC
+      const themeName = THEME_ORDER[holeIndex % THEME_ORDER.length];
       applyTheme(themeName);
 
-      hole = genHole(); buildBackdrop();
+      hole = genHole();
+
+      // levelSeed combines backdrop.seed, holeIndex, and theme to keep it stable for this level
+      const themeHash = hash32(themeName.charCodeAt(0) + (themeName.charCodeAt(1)||0) + (themeName.charCodeAt(2)||0));
+      const levelSeed = hash32(backdrop.seed ^ (holeIndex+1)*1337 ^ themeHash);
+      buildBackdrop(levelSeed);
+
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
@@ -452,7 +519,7 @@
     function onPointerDown(e){ if(!hole || !ball.atRest) return; const p = getPoint(e); pointerId = p.id; pointerPos={x:p.x,y:p.y}; const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; e.preventDefault(); }
     function onPointerMove(e){ if(!aiming) return; const p = getPoint(e); pointerPos={x:p.x,y:p.y}; const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); }
     function onPointerUp(e){ if(!aiming) return; aiming=false; meterOn=false; elPowermeter.dataset.on='0'; shoot(); pointerId=null; }
-    function getPoint(e){ if(e.changedTouches){ const t=e.changedTouches[0]; return { id:t.identifier, x:t.clientX*DPR, y:t.clientY*DPR }; } return { id:'mouse', x:e.clientX*DPR, y:e.clientY*DPR }; }
+    function getPoint(e){ if(e.changedTouches){ const t=e.changedTouches[0]; return { id:t.identifier, x:t.clientX*DPR, y:t.clientY*DPR }; } return { id:'mouse', x=e.clientX*DPR, y:e.clientY*DPR }; }
     canvas.addEventListener('mousedown', onPointerDown); window.addEventListener('mousemove', onPointerMove); window.addEventListener('mouseup', onPointerUp);
     canvas.addEventListener('touchstart', onPointerDown, {passive:false}); window.addEventListener('touchmove', onPointerMove, {passive:false}); window.addEventListener('touchend', onPointerUp);
 
@@ -500,13 +567,18 @@
       centerCameraOnBall();
     }
 
-    // ===== Rendering (clouds behind all mountains)
+    // ===== Rendering (clouds behind all mountains; city between far & mid mountains; FG landmarks on ground)
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
       drawSkyGradient();  // sky background
       drawMoon();         // sky element
-      drawClouds();       // << clouds first
-      drawMountains();    // << mountains on top of clouds
+      drawClouds();       // clouds first (behind ALL mountains)
+
+      // mountains split for city depth
+      drawMountainLayer(0);   // far
+      drawCitySilhouette();   // distant, in front of far, behind mid/near
+      drawMountainLayer(1);   // mid
+      drawMountainLayer(2);   // near
 
       if(!hole){ drawVignette(); return; }
 
@@ -519,6 +591,9 @@
       ctx.fillStyle = cs.getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
+
+      // ambient landmarks on ground (silhouette)
+      drawForegroundLandmarks();
 
       // grass
       drawGrass();
@@ -645,15 +720,138 @@
       }
     }
 
-    // --- Mountains (3 parallax layers)
-    function drawMountains(){
+    // --- Mountains helpers
+    function drawMountainLayer(idx){
+      const L = backdrop.mountains[idx];
       const w = canvas.width/DPR, h = canvas.height/DPR; const step=8;
-      backdrop.mountains.forEach((L, idx)=>{
-        ctx.fillStyle = `rgba(0,0,0,${0.25 + L.shade})`;
-        ctx.beginPath(); ctx.moveTo(0,h);
-        for(let x=0;x<=w;x+=step){ const wx = view.x*L.parallax + x; const y = mountainYAt(L, wx) - view.y*0.08*idx; ctx.lineTo(x, y); }
-        ctx.lineTo(w,h); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = `rgba(0,0,0,${0.25 + L.shade})`;
+      ctx.beginPath(); ctx.moveTo(0,h);
+      for(let x=0;x<=w;x+=step){ const wx = view.x*L.parallax + x; const y = mountainYAt(L, wx) - view.y*0.08*idx; ctx.lineTo(x, y); }
+      ctx.lineTo(w,h); ctx.closePath(); ctx.fill();
+    }
+
+    function drawCitySilhouette(){
+      const C = backdrop.city; if(!C) return;
+      const xStart = C.x - view.x*C.parX;
+      const baseY = C.baseY - view.y*C.parY;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.24)'; // distant haze
+      const n = C.density; const seed=C.seed;
+      let x = xStart - C.width/2;
+      for(let i=0;i<n;i++){
+        const w = 14 + Math.floor(rand01(seed, i*7+1)*28);
+        const h = 40 + Math.floor(rand01(seed, i*7+2)*130);
+        // slight varied gaps
+        x += 4 + rand01(seed, i*7+3)*12;
+        ctx.fillRect(x, baseY - h, w, h);
+        // antenna / spire occasionally
+        if(rand01(seed, i*7+4) < 0.2){
+          const sp = 8 + rand01(seed, i*7+5)*24;
+          ctx.beginPath();
+          ctx.moveTo(x+w*0.5, baseY - h - sp);
+          ctx.lineTo(x+w*0.5, baseY - h);
+          ctx.strokeStyle='rgba(0,0,0,0.28)';
+          ctx.lineWidth=2;
+          ctx.stroke();
+        }
+        x += w;
+        if(x > xStart + C.width/2) break;
+      }
+      ctx.restore();
+    }
+
+    // --- Foreground ambient landmarks (windmill, tree, lighthouse)
+    function drawForegroundLandmarks(){
+      const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg');
+      backdrop.landmarks.forEach(L=>{
+        if(L.type==='tree') drawTree(L.x, L.scale, fg);
+        else if(L.type==='windmill') drawWindmill(L.x, L.scale, fg, L.seed);
+        else if(L.type==='lighthouse') drawLighthouse(L.x, L.scale, fg);
       });
+    }
+
+    function drawTree(wx, s, color){
+      const baseY = groundYAt(wx);
+      const x = wx - view.x, y = baseY - view.y;
+      ctx.save();
+      ctx.fillStyle = color.trim();
+      // trunk
+      const h = 80*s, w = Math.max(8, 10*s);
+      ctx.fillRect(x - w*0.5, y - h, w, h);
+      // canopy (clustered puffs)
+      const r = 24*s;
+      ctx.beginPath();
+      const puffs = [
+        [x-1.2*r, y-h+0.2*r, 1.0*r],
+        [x,       y-h-0.1*r, 1.2*r],
+        [x+1.2*r, y-h+0.2*r, 1.0*r],
+        [x-0.5*r, y-h-0.9*r, 0.9*r],
+        [x+0.6*r, y-h-0.95*r,0.85*r],
+      ];
+      puffs.forEach(([cx,cy,rr])=>{ ctx.moveTo(cx+rr,cy); ctx.arc(cx,cy,rr,0,TAU); });
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawWindmill(wx, s, color, seed){
+      const baseY = groundYAt(wx);
+      const x = wx - view.x, y = baseY - view.y;
+      ctx.save();
+      ctx.fillStyle = color.trim();
+      ctx.strokeStyle = color.trim();
+
+      // tower
+      const h = 120*s, w = Math.max(10, 14*s);
+      ctx.fillRect(x - w*0.5, y - h, w, h);
+
+      // head
+      const headY = y - h - 10*s;
+      ctx.beginPath();
+      ctx.arc(x, headY, 8*s, 0, TAU); ctx.fill();
+
+      // blades (slow rotation)
+      const rot = clock*0.8 + (seed%1000)*0.001;
+      ctx.translate(x, headY);
+      ctx.rotate(rot);
+      for(let i=0;i<4;i++){
+        ctx.rotate(TAU/4);
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.lineTo(0, -42*s);
+        ctx.lineWidth = Math.max(3, 4*s);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawLighthouse(wx, s, color){
+      const baseY = groundYAt(wx);
+      const x = wx - view.x, y = baseY - view.y;
+      ctx.save();
+      ctx.fillStyle = color.trim();
+
+      const h = 130*s;
+      const wBase = 30*s, wTop = 18*s;
+
+      // tapered body
+      ctx.beginPath();
+      ctx.moveTo(x - wBase*0.5, y);
+      ctx.lineTo(x - wTop*0.5,  y - h);
+      ctx.lineTo(x + wTop*0.5,  y - h);
+      ctx.lineTo(x + wBase*0.5, y);
+      ctx.closePath(); ctx.fill();
+
+      // lantern room
+      ctx.fillRect(x - 14*s, y - h - 12*s, 28*s, 12*s);
+      // tiny cap
+      ctx.beginPath();
+      ctx.moveTo(x - 16*s, y - h - 12*s);
+      ctx.lineTo(x + 16*s, y - h - 12*s);
+      ctx.lineTo(x,        y - h - 20*s);
+      ctx.closePath(); ctx.fill();
+
+      ctx.restore();
     }
 
     // --- Grass (curved blades, deterministic; avoids shimmer)
@@ -683,7 +881,13 @@
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
 
     // ===== Resize
-    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
+    function resize(){
+      DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+      canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR);
+      view.w = canvas.width/DPR; view.h = canvas.height/DPR;
+      // rebuild visuals using the same levelSeed so landmarks/clouds/mountains stay stable
+      buildBackdrop(backdrop.levelSeed || hash32(backdrop.seed ^ (holeIndex+1)*1337));
+    }
     window.addEventListener('resize', resize); resize();
 
     // ===== Main loop
@@ -692,9 +896,9 @@
     requestAnimationFrame(loop);
 
     // ===== UI wiring
-    btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
-    btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; newRound(); });
-    btnNewRound.addEventListener('click', ()=>{ newRound(); });
+    btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; roundSeed = (Math.random()*1e9)|0; newRound(); });
+    btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; roundSeed = (Math.random()*1e9)|0; newRound(); });
+    btnNewRound.addEventListener('click', ()=>{ roundSeed = (Math.random()*1e9)|0; newRound(); });
     btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
     btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
     chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
@@ -711,7 +915,7 @@
         function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
         test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
         test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
-        test('Backdrop builds and draws', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); });
+        test('Backdrop builds and draws', ()=>{ buildBackdrop(backdrop.levelSeed||1234); drawSkyGradient(); drawMountainLayer(0); drawCitySilhouette(); drawMountainLayer(1); drawMountainLayer(2); });
         console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
       }
     };
