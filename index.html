@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v2.3.1)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v2.3.2)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -349,7 +349,7 @@
       const baseR = 20 + Math.floor(rand01(backdrop.seed,104)*12);
       backdrop.sun = { u, v, phase, baseR };
 
-      // Clouds (sparse for perf)
+      // Clouds
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
       if(hole) buildLandmarks();
@@ -447,14 +447,16 @@
         const birds = [];
         const n = 6 + Math.floor(rand01(s,4)*10); // 6–15 birds
 
-        // V-formation offsets
+        // V-formation offsets + flap params
         for(let k=0;k<n;k++){
           const row = (k>>1) + 1;
           const wing = (k%2===0)? -1 : 1;
           const ox = wing * row * (10 + rand01(s,10+k)*4);
           const oy = row * (6 + rand01(s,20+k)*2);
           const sc = 0.65 + rand01(s,30+k)*0.5;
-          birds.push({ ox, oy, sc });
+          const ph = rand01(s,60+k)*TAU;              // seeded phase
+          const baseHz = 2.2 + rand01(s,70+k)*2.0;    // 2.2–4.2 Hz
+          birds.push({ ox, oy, sc, ph, baseHz });
         }
 
         backdrop.flocks.push({
@@ -506,30 +508,48 @@
       ctx.lineWidth = 1.2;
       ctx.strokeStyle = 'rgba(0,0,0,0.48)';
 
+      const w = canvas.width / DPR, h = canvas.height / DPR;
+
       for(const F of backdrop.flocks){
-        const angle = Math.atan2(F.vy, F.vx || 0.0001);
-        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+        const angle = Math.atan2(F.vy, (F.vx||0.0001)); // flight heading
         const cx = F.x - view.x * F.parX;
         const cy = F.y - view.y * F.parY;
 
-        // Cull if offscreen
-        const w = canvas.width / DPR, h = canvas.height / DPR;
+        // cull
         if(cx < -180 || cx > w + 180 || cy < -120 || cy > h + 120) continue;
 
+        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+
         for(const b of F.birds){
-          // rotate formation offset by current heading
+          // rotate formation offsets to follow heading
           const rx = b.ox * cosA - b.oy * sinA;
           const ry = b.ox * sinA + b.oy * cosA;
           const bx = cx + rx * 0.8;
           const by = cy + ry * 0.8;
 
-          // tiny chevron strokes for bird silhouette
-          const size = 5.5 * b.sc;
+          // flap (Hz -> rad/s via TAU)
+          const hz = b.baseHz * (reducedMotion ? 0.45 : 1.0);
+          const flap = Math.sin(clock * hz * TAU + b.ph);
+
+          // wing open angle and length
+          const baseOpen = 0.45;                 // ~26°
+          const flapAmp  = reducedMotion ? 0.18 : 0.42;
+          const open = baseOpen + flap * flapAmp;
+
+          const len = 6.0 * b.sc;                // tiny silhouettes
+
+          // wings trail slightly behind the heading
+          const leftDir  = angle + Math.PI - open;
+          const rightDir = angle + Math.PI + open;
+
+          const lx = bx + Math.cos(leftDir)  * len;
+          const ly = by + Math.sin(leftDir)  * len;
+          const rx2 = bx + Math.cos(rightDir) * len;
+          const ry2 = by + Math.sin(rightDir) * len;
+
           ctx.beginPath();
-          ctx.moveTo(bx, by);
-          ctx.quadraticCurveTo(bx - size*0.55, by - size*0.45, bx - size, by);
-          ctx.moveTo(bx, by);
-          ctx.quadraticCurveTo(bx + size*0.55, by - size*0.45, bx + size, by);
+          ctx.moveTo(bx, by); ctx.lineTo(lx, ly);
+          ctx.moveTo(bx, by); ctx.lineTo(rx2, ry2);
           ctx.stroke();
         }
       }
@@ -901,7 +921,7 @@
       }
     }
 
-    // --- Clouds (sparse, in front of landmarks)
+    // --- Clouds (in front of landmarks)
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -1006,7 +1026,7 @@
     btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
     chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
     chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
-    chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); }); /* <-- fixed */
+    chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
 
     // Build initial UI
     buildClubs(); updateWindUI();
