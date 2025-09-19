@@ -6,9 +6,10 @@
 <title>Dusk Drive — Side-View Silhouette Golf (v1.8)</title>
 <style>
   :root{
-    --bg1:#0a1222;            /* night sky bottom */
-    --bg2:#121d3c;            /* night sky mid    */
-    --bg3:#1e2b58;            /* night sky top    */
+    --bg1:#0a1222;            /* night sky bottom (default) */
+    --bg2:#121d3c;            /* night sky mid    (default) */
+    --bg3:#1e2b58;            /* night sky top    (default) */
+    --water:#0e2233;          /* water tint (themeable) */
     --fg:#050607;             /* silhouette foreground */
     --text:#e6edf3;           /* text */
     --muted:#a9b1ba;          
@@ -271,19 +272,32 @@
     let holeIndex=0, roundData=null; // {holes:[...], totals}
     let hole=null; // current hole data
 
+    // === Themes (Level colorways) ===
+    const THEMES = {
+      egypt: {           // warm golden dusk
+        bg1:'#c7922c', bg2:'#6a4313', bg3:'#2b1a0a', water:'#1e1a12'
+      },
+      paris: {           // amethyst dusk
+        bg1:'#7b6fa3', bg2:'#343a6e', bg3:'#1f2240', water:'#2a3b6a'
+      },
+      nyc: {             // cool steel-blue dusk
+        bg1:'#1f477a', bg2:'#152c54', bg3:'#0b1424', water:'#0e2233'
+      }
+    };
+    const LEVELS = ['egypt','paris','nyc'];
+    function applyTheme(name){
+      const t = THEMES[name] || {};
+      const root = document.documentElement.style;
+      if(t.bg1) root.setProperty('--bg1', t.bg1);
+      if(t.bg2) root.setProperty('--bg2', t.bg2);
+      if(t.bg3) root.setProperty('--bg3', t.bg3);
+      if(t.water) root.setProperty('--water', t.water);
+    }
+
     // Backdrop (parallax mountains + moon + sparse cloud field)
-    const backdrop = { seed:(Math.random()*1e9)|0, rays:[], mountains:[], moon:null, clouds:[], cloudDir:1 };
+    const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], moon:null, clouds:[], cloudDir:1 };
 
     function buildBackdrop(){
-      // Rays (kept for compatibility, unused visually here)
-      backdrop.rays.length=0; const rc=7;
-      for(let i=0;i<rc;i++){
-        const u = (i+0.5)/rc + (rand01(backdrop.seed,i)-0.5)*0.12;
-        const wU = 0.04 + rand01(backdrop.seed,i*3+1)*0.08;
-        const phase = rand01(backdrop.seed,i*5+2)*TAU;
-        const amp = 0.05 + rand01(backdrop.seed,i*7+3)*0.06;
-        backdrop.rays.push({u,wU,phase,amp});
-      }
       // Mountain layers (far->near)
       backdrop.mountains = [
         makeLayer(0.18, 0.50, 90, 40, 0.0011, 0.00047, 0.06),
@@ -297,7 +311,7 @@
       const baseR = 18 + Math.floor(rand01(backdrop.seed,104)*10);
       backdrop.moon = { u, v, phase, baseR };
 
-      // All clouds move the same (seeded) direction
+      // All clouds share direction (seeded)
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
 
       // Sparse fluffy cloud field
@@ -399,7 +413,13 @@
     function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; screenIntro.style.display='none'; screenSummary.style.display='none'; nextHole(); }
 
     function nextHole(){
-      hole = genHole(); buildBackdrop(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par; elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
+      const themeName = LEVELS[holeIndex % LEVELS.length]; // cycle Egypt → Paris → NYC
+      applyTheme(themeName);
+
+      hole = genHole(); buildBackdrop();
+      roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
+      elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
+
       if(windOn){ windAx = (Math.random()*2 - 1) * 900; } else { windAx = 0; } updateWindUI();
       ball.x = hole.tee.x; ball.y = hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnBall();
@@ -480,35 +500,44 @@
       centerCameraOnBall();
     }
 
-    // ===== Rendering
-function draw(){
-  ctx.setTransform(DPR,0,0,DPR,0,0);
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+    // ===== Rendering (clouds behind all mountains)
+    function draw(){
+      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawSkyGradient();  // sky background
+      drawMoon();         // sky element
+      drawClouds();       // << clouds first
+      drawMountains();    // << mountains on top of clouds
 
-  drawSkyGradient();  // background
-  drawMoon();         // sky element
-  drawClouds();       // << clouds (behind all mountains)
-  drawMountains();    // mountains drawn last, on top
+      if(!hole){ drawVignette(); return; }
 
-  if(!hole){ drawVignette(); return; }
       // water
-      const w = hole.water; ctx.fillStyle = '#0e2233'; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
+      const cs = getComputedStyle(document.documentElement);
+      ctx.fillStyle = cs.getPropertyValue('--water').trim() || '#0e2233';
+      const w = hole.water; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
+
       // ground silhouette path
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
+      ctx.fillStyle = cs.getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
+
       // grass
       drawGrass();
+
       // sand bunker
       ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
+
       // green subtle overlay
       ctx.fillStyle = 'rgba(60,140,85,.25)'; ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
+
       // flag
       const flagX = hole.cupX - view.x; const flagY = groundYAt(hole.cupX) - 60 - view.y; ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX, flagY+60); ctx.stroke(); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent2'); ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX+22, flagY+10); ctx.lineTo(flagX, flagY+18); ctx.closePath(); ctx.fill();
+
       // particles
       for(const p of particles){ let c = '#ffffff'; if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent'); else if(p.type==='sand') c = '#b48a5a'; else if(p.type==='dust') c = '#9aa2aa'; else if(p.type==='splash') c = '#49d0ff'; ctx.globalAlpha = Math.max(0, p.life/0.6); ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1; }
+
       // ball + trail
       drawBall(); if(aiming){ drawAimArrow(); }
+
       drawVignette();
     }
 
@@ -522,8 +551,8 @@ function draw(){
     // --- Moon (seeded position, subtle halo, very slow drift)
     function drawMoon(){
       const m = backdrop.moon; if(!m) return;
-      const parX = 0.05, parY = 0.02;
-      const drift = Math.sin(clock*0.05 + m.phase) * 12;
+      const parX = 0.05, parY = 0.02;      // very far parallax
+      const drift = Math.sin(clock*0.05 + m.phase) * 12; // slow ±12px horizontal drift
       const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
       const x = (xw - view.x*parX) + drift;
       const y = (yw - view.y*parY);
@@ -564,10 +593,9 @@ function draw(){
       });
 
       function drawFluffyCloud(x, y, s, seed, alpha){
-        // --- build a fluffy "metaball" of puffs (brighter core, soft edges)
+        // Build a fluffy "metaball" of puffs (bright core, soft edges)
         let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
 
-        // Base brightness puffs (additive for backlit feel)
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         ctx.globalAlpha = alpha;
@@ -581,7 +609,7 @@ function draw(){
           const oy = (rand01(seed,40+i)-0.5) * r * 0.25;
           const cx = x + ox, cy = y + oy;
 
-          // update bounds
+          // bounds
           minX = Math.min(minX, cx - r*1.3); maxX = Math.max(maxX, cx + r*1.3);
           minY = Math.min(minY, cy - r*1.2); maxY = Math.max(maxY, cy + r*1.2);
 
@@ -592,7 +620,7 @@ function draw(){
           ctx.beginPath(); ctx.arc(cx, cy, r*1.3, 0, TAU); ctx.fill();
         }
 
-        // Gentle core glow to unify the shape
+        // Core glow to unify shape
         const cxMid = (minX+maxX)/2, cyMid = (minY+maxY)/2;
         const rMax = (maxX-minX)*0.42;
         const core = ctx.createRadialGradient(cxMid, cyMid, rMax*0.1, cxMid, cyMid, rMax);
@@ -602,7 +630,7 @@ function draw(){
         ctx.beginPath(); ctx.arc(cxMid, cyMid, rMax, 0, TAU); ctx.fill();
         ctx.restore();
 
-        // Subtle underside shadow to add volume (does not change gameplay colors)
+        // Subtle underside shadow for volume
         ctx.save();
         ctx.globalCompositeOperation = 'source-over';
         const shadowR = (maxX - minX) * 0.65;
@@ -612,7 +640,6 @@ function draw(){
         sh.addColorStop(0, 'rgba(0,0,0,0.06)');
         sh.addColorStop(1, 'rgba(0,0,0,0.00)');
         ctx.fillStyle = sh;
-        // draw a soft blob; no path clipping needed due to very low opacity
         ctx.beginPath(); ctx.arc(sx, sy, shadowR*1.2, 0, TAU); ctx.fill();
         ctx.restore();
       }
@@ -684,7 +711,7 @@ function draw(){
         function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
         test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
         test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
-        test('Backdrop builds and draws (no rays)', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); });
+        test('Backdrop builds and draws', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); });
         console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
       }
     };
