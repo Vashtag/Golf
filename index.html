@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v1.9)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v1.9.1)</title>
 <style>
   :root{
     /* sunset sky inspired by reference image */
@@ -272,7 +272,7 @@
     let holeIndex=0, roundData=null;
     let hole=null;
 
-    // === Single sunset theme (applies to all holes) ===
+    // === Single sunset theme ===
     const THEMES = { sunset:{ bg1:getComputedStyle(document.documentElement).getPropertyValue('--bg1'),
                               bg2:getComputedStyle(document.documentElement).getPropertyValue('--bg2'),
                               bg3:getComputedStyle(document.documentElement).getPropertyValue('--bg3'),
@@ -295,25 +295,24 @@
       sun:null,
       clouds:[],
       cloudDir:1,
-      landmarksFar:[],   // far: windmills + lighthouse (behind clouds & mountains)
-      landmarksNear:[]   // kept for future, currently empty
+      landmarksFar:[],   // far: windmills + lighthouse (behind clouds & dunes)
+      landmarksNear:[]
     };
 
     function buildBackdrop(){
-      // Dune layers (far->near) — smoother than mountains
+      // Dune layers (far->near) — smoother/rounder & longer wavelengths
       backdrop.mountains = [
-        makeLayer(0.16, 0.56, 70, 36, 0.0010, 0.00044, 0.06),
-        makeLayer(0.26, 0.64, 95,  46, 0.0014, 0.00060, 0.08),
-        makeLayer(0.40, 0.72, 120, 56, 0.0018, 0.00080, 0.10)
+        makeLayer(0.16, 0.56, 60, 30, 0.00055, 0.00022, 0.05),
+        makeLayer(0.26, 0.66, 80, 38, 0.00075, 0.00030, 0.07),
+        makeLayer(0.40, 0.74, 96, 44, 0.00095, 0.00038, 0.09)
       ];
-      // Sun (seeded position + mild drift)
+      // Sun
       const u = 0.22 + rand01(backdrop.seed,101)*0.56;
       const v = 0.18 + rand01(backdrop.seed,102)*0.18;
       const phase = rand01(backdrop.seed,103)*TAU;
       const baseR = 20 + Math.floor(rand01(backdrop.seed,104)*12);
       backdrop.sun = { u, v, phase, baseR };
 
-      // Cloud direction
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
 
       buildCloudField();
@@ -321,7 +320,7 @@
     }
     function buildCloudField(){
       backdrop.clouds.length = 0;
-      const count = 6 + Math.floor(rand01(backdrop.seed,300)*6);
+      const count = 3 + Math.floor(rand01(backdrop.seed,300)*4); // 3–6 clouds
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xA11C10 + i*131));
         const u = rand01(s,1);
@@ -329,8 +328,8 @@
         const parX = 0.04 + rand01(s,3)*0.05;
         const parY = 0.015 + rand01(s,4)*0.02;
         const speed = backdrop.cloudDir * (4 + rand01(s,6)*6);
-        const alpha = 0.07 + rand01(s,7)*0.10;
-        const scale = 0.9 + rand01(s,8)*1.8;
+        const alpha = 0.05 + rand01(s,7)*0.08;       // slightly dimmer
+        const scale = 0.9 + rand01(s,8)*1.6;
         backdrop.clouds.push({ seed:s, u, v, parX, parY, speed, alpha, scale });
       }
     }
@@ -349,7 +348,7 @@
       backdrop.landmarksNear = [];
       if(!hole) return;
 
-      // helper to avoid awkward spots (still loosely used, even though FAR)
+      // helper to avoid awkward spots
       const exRanges = [
         [hole.green.x0-160, hole.green.x1+160],
         [hole.water.x-140, hole.water.x+hole.water.w+140]
@@ -378,12 +377,12 @@
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:0.06, parY:0.01 });
       }
 
-      // FAR lighthouse (0–1) near water x but far layer; city removed entirely
+      // FAR lighthouse (0–1) near water; city removed
       if(rand01(backdrop.seed, 951) < 0.35){
         let x = hole.water.x + (rand01(backdrop.seed, 952)<0.5 ? -120 : hole.water.w+120);
         x = Math.min(Math.max(80, x), WORLD.w-80);
         if(allowedX(x)){
-          const sc = 0.55 + rand01(backdrop.seed, 953)*0.25; // small in distance
+          const sc = 0.55 + rand01(backdrop.seed, 953)*0.25;
           const varSeed = hash32(backdrop.seed ^ 0xC0A5);
           backdrop.landmarksFar.push({ type:'lighthouse', x, scale:sc, seed:varSeed, parX:0.06, parY:0.01 });
         }
@@ -465,8 +464,7 @@
       applyTheme(themeName);
 
       hole = genHole();
-      // New per-hole seed so far elements are stable during a hole
-      backdrop.seed = (Math.random()*1e9)|0;
+      backdrop.seed = (Math.random()*1e9)|0; // stable per-hole
       buildBackdrop();
       buildLandmarks(themeName);
 
@@ -568,13 +566,11 @@
       ctx.fillStyle = cs.getPropertyValue('--water').trim() || '#30160f';
       const w = hole.water; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
 
-      // ground silhouette
+      // ground silhouette path
       ctx.fillStyle = cs.getPropertyValue('--fg');
       ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
-
-      // (no near landmarks now, lighthouse is far)
 
       // grass
       drawGrass();
@@ -723,7 +719,7 @@
         ctx.globalAlpha = alpha;
 
         const baseR = 18 + rand01(seed,50)*22;
-        const puffCount = 6 + Math.floor(rand01(seed,11)*5);
+        const puffCount = 4 + Math.floor(rand01(seed,11)*4); // 4–7 puffs per cloud
 
         for(let i=0;i<puffCount;i++){
           const r  = (baseR + rand01(seed,20+i)*22) * s;
@@ -766,7 +762,7 @@
 
     // --- Dunes (3 parallax layers)
     function drawMountains(){
-      const w = canvas.width/DPR, h = canvas.height/DPR; const step=8;
+      const w = canvas.width/DPR, h = canvas.height/DPR; const step=12; // larger step (cheaper)
       backdrop.mountains.forEach((L, idx)=>{
         ctx.fillStyle = `rgba(0,0,0,${0.25 + L.shade})`;
         ctx.beginPath(); ctx.moveTo(0,h);
