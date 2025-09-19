@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v2.1)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v2.2)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -404,6 +404,8 @@
         return 200 + (k%10)*260;
       }
 
+      const farPar = currentBiome.layers[0].par; // match far ridge parallax
+
       // FAR windmills (0–2) — bigger gallery style
       const wmCount = Math.floor(rand01(backdrop.seed, 921) * 2.2);
       for(let i=0;i<wmCount;i++){
@@ -411,7 +413,7 @@
         const sc = 0.85 + rand01(backdrop.seed, 931+i)*0.45; // ~0.85–1.30
         const varSeed = hash32(backdrop.seed ^ (0x91AA + i));
         const spin = 0.25 + rand01(backdrop.seed, 941+i)*0.35;
-        backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:0.06, parY:0.01 });
+        backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:farPar, parY:0 });
       }
 
       // FAR lighthouse (0–1) near water
@@ -421,7 +423,7 @@
         if(allowedX(x)){
           const sc = 0.55 + rand01(backdrop.seed, 953)*0.25;
           const varSeed = hash32(backdrop.seed ^ 0xC0A5);
-          backdrop.landmarksFar.push({ type:'lighthouse', x, scale:sc, seed:varSeed, parX:0.06, parY:0.01 });
+          backdrop.landmarksFar.push({ type:'lighthouse', x, scale:sc, seed:varSeed, parX:farPar, parY:0 });
         }
       }
     }
@@ -588,7 +590,7 @@
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
       drawSkyGradient();
       drawSun();
-      drawFarLandmarks();   // FAR landmarks (behind clouds & dunes)
+      drawFarLandmarks();   // FAR landmarks (behind clouds & dunes, anchored to ridge)
       drawClouds();
       drawMountains();
 
@@ -672,19 +674,28 @@
       ctx.restore();
     }
 
-    // --- FAR landmarks (behind clouds & mountains)
+    // --- FAR landmarks (behind clouds & mountains), anchored to far ridge
     function drawFarLandmarks(){
       if(!backdrop.landmarksFar.length) return;
-      const L0 = backdrop.mountains[0]; // farthest dune layer
+
+      const L0 = backdrop.mountains[0];       // farthest layer
+      const EMBED = 1.5;                      // push a touch into ridge to avoid gap
+
       for(const lm of backdrop.landmarksFar){
-        const x = lm.x - view.x*lm.parX;
-        const ridgeY = mountainYAt(L0, lm.x);
-        const baselineY = ridgeY - 12;
-        if(lm.type==='windmill') drawWindmillFar(x, baselineY, lm.scale, lm.seed, lm.spin);
-        else if(lm.type==='lighthouse') drawLighthouseFar(x, baselineY, lm.scale, lm.seed);
+        // screen x with the landmark's parallax
+        const xScreen = lm.x - view.x * lm.parX;
+
+        // convert back to the world-x the far ridge samples at this screen x
+        const ridgeWorldX = view.x * L0.parallax + xScreen;
+
+        // baseline sits on the ridge (slightly embedded)
+        const baselineY = mountainYAt(L0, ridgeWorldX) + EMBED;
+
+        if(lm.type==='windmill') drawWindmillFar(xScreen, baselineY, lm.scale, lm.seed, lm.spin);
+        else if(lm.type==='lighthouse') drawLighthouseFar(xScreen, baselineY, lm.scale, lm.seed);
       }
 
-      // — Windmill (gallery style, bigger, lattice sails)
+      // — Windmill (gallery style, larger, lattice sails)
       function drawWindmillFar(x, baselineY, s, seed, spin){
         const colBody = 'rgba(0,0,0,0.36)';
         const colDetail = 'rgba(0,0,0,0.42)';
