@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side‑View Silhouette Golf (v1.8)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v1.8)</title>
 <style>
   :root{
     --bg1:#0a1222;            /* night sky bottom */
@@ -106,14 +106,14 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🏌️‍♂️ Dusk Drive</h1>
-      <div class="sub">2D side‑view silhouette golf. Drag to aim, hold to charge, release to shoot.</div>
+      <div class="sub">2D side-view silhouette golf. Drag to aim, hold to charge, release to shoot.</div>
       <div class="grid">
-        <div class="tag">Hold‑Release Meter</div>
+        <div class="tag">Hold-Release Meter</div>
         <div class="tag">Wind & Spin</div>
         <div class="tag">Procedural Holes</div>
-        <div class="tag">3‑Hole Burst</div>
+        <div class="tag">3-Hole Burst</div>
       </div>
-      <p class="small" style="margin-top:.7rem">Best in landscape • Mobile‑friendly • Haptics on impact</p>
+      <p class="small" style="margin-top:.7rem">Best in landscape • Mobile-friendly • Haptics on impact</p>
       <div style="margin-top:.7rem"><button class="btn" id="btnPlay">Start Round</button></div>
     </div>
   </div>
@@ -271,8 +271,9 @@
     let holeIndex=0, roundData=null; // {holes:[...], totals}
     let hole=null; // current hole data
 
-    // Backdrop (parallax mountains + rays)
-    const backdrop = { seed:(Math.random()*1e9)|0, rays:[], mountains:[] };
+    // Backdrop (parallax mountains + rays + moon)
+    const backdrop = { seed:(Math.random()*1e9)|0, rays:[], mountains:[], moon:null };
+
     function buildBackdrop(){
       // Rays (columns fixed in space; only opacity breathes)
       backdrop.rays.length=0; const rc=7;
@@ -289,6 +290,12 @@
         makeLayer(0.28, 0.60, 120, 52, 0.0015, 0.00063, 0.08),
         makeLayer(0.42, 0.68, 140, 64, 0.0019, 0.00085, 0.10)
       ];
+      // Moon (seeded position, subtle drift)
+      const u = 0.18 + rand01(backdrop.seed,101)*0.64; // across sky (left→right)
+      const v = 0.08 + rand01(backdrop.seed,102)*0.20; // height (closer to top)
+      const phase = rand01(backdrop.seed,103)*TAU;
+      const baseR = 18 + Math.floor(rand01(backdrop.seed,104)*10); // px
+      backdrop.moon = { u, v, phase, baseR };
     }
     function makeLayer(parallax, baseFrac, a1, a2, f1, f2, shade){
       const s = (backdrop.seed ^ hash32((parallax*1000)|0))>>>0;
@@ -455,6 +462,7 @@
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
       drawSkyGradient();
+      drawMoon();           // <-- Moon behind mountains
       drawMountains();
       if(!hole){ drawVignette(); return; }
       // water
@@ -483,6 +491,33 @@
       const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
       skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim()); skyGrad.addColorStop(0.55, cs.getPropertyValue('--bg2').trim()); skyGrad.addColorStop(1, cs.getPropertyValue('--bg1').trim());
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
+    }
+
+    // --- Moon (seeded position, subtle halo, very slow drift)
+    function drawMoon(){
+      const m = backdrop.moon; if(!m) return;
+      const parX = 0.05, parY = 0.02;      // very far parallax
+      const drift = Math.sin(clock*0.05 + m.phase) * 12; // slow ±12px horizontal drift
+      const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
+      const x = (xw - view.x*parX) + drift;
+      const y = (yw - view.y*parY);
+      const r = m.baseR; // px; intentionally modest
+
+      // Halo
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const halo = ctx.createRadialGradient(x, y, r*0.8, x, y, r*3.6);
+      halo.addColorStop(0, 'rgba(255,255,255,0.12)');
+      halo.addColorStop(1, 'rgba(255,255,255,0.00)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(x, y, r*3.6, 0, TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+
+      // Disk
+      ctx.fillStyle = '#f3f8ff';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
     }
 
     // --- Mountains (3 parallax layers)
@@ -527,7 +562,15 @@
     window.addEventListener('resize', resize); resize();
 
     // ===== Main loop
-    let last=0; function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; update(dt); draw(); requestAnimationFrame(loop); } requestAnimationFrame(loop);
+    let last=0; let clock=0; // <- clock for slow moon drift
+    function loop(t){
+      const now=t/1000;
+      const dt = Math.min(0.033, last? now-last: 0.016);
+      last=now; clock += dt;
+      update(dt); draw();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
 
     // ===== UI wiring
     btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
@@ -549,7 +592,7 @@
         function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
         test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
         test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
-       test('Backdrop builds and draws (no rays)', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); });
+        test('Backdrop builds and draws (no rays)', ()=>{ buildBackdrop(); drawSkyGradient(); drawMountains(); });
         console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
       }
     };
