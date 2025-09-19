@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v2.3)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v2.3.1)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -313,7 +313,7 @@
       clouds:[],
       cloudDir:1,
       landmarksFar:[],
-      flocks:[]            // << NEW
+      flocks:[]
     };
 
     // Shape helpers
@@ -354,7 +354,7 @@
       buildCloudField();
       if(hole) buildLandmarks();
 
-      // Flocks (seeded per hole)  << NEW
+      // Flocks (seeded per hole)
       buildFlocks();
     }
 
@@ -385,7 +385,7 @@
       return y;
     }
 
-    // ---- Ambient Landmarks (far only; city/trees removed) ----
+    // ---- Ambient Landmarks (far only)
     function buildLandmarks(){
       backdrop.landmarksFar = [];
       if(!hole) return;
@@ -432,7 +432,7 @@
       }
     }
 
-    // ===== Flocks (far sky, seeded, wind-driven) =====  << NEW
+    // ===== Flocks (far sky, seeded, wind-driven)
     function buildFlocks(){
       backdrop.flocks.length = 0;
       if(!backdrop.mountains.length) return;
@@ -442,13 +442,12 @@
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xF10C + i*97));
         const x = WORLD.w * rand01(s,1);
-        // Sky band (above far ridge, below clouds top)
         const y = WORLD.h * (0.18 + rand01(s,2)*0.26);
         const dir = rand01(s,3) < 0.5 ? -1 : 1; // fallback heading when no wind
         const birds = [];
         const n = 6 + Math.floor(rand01(s,4)*10); // 6–15 birds
 
-        // V-formation offsets (unrotated); spacing scaled small (far)
+        // V-formation offsets
         for(let k=0;k<n;k++){
           const row = (k>>1) + 1;
           const wing = (k%2===0)? -1 : 1;
@@ -659,7 +658,7 @@
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
 
-      // Update flocks regardless of hole presence (nice on intro too)
+      // Update flocks (also visible on intro)
       updateFlocks(dt);
 
       if(!hole){ return; }
@@ -704,7 +703,7 @@
       drawSkyGradient();
       drawSun();
       drawFarLandmarks();
-      drawFlocks();          // << NEW: birds in far sky, before clouds
+      drawFlocks();          // birds in far sky, before clouds
       drawClouds();
       drawMountains();
 
@@ -796,30 +795,18 @@
       const EMBED = 1.5;                      // push a touch into ridge to avoid gap
 
       for(const lm of backdrop.landmarksFar){
-        // screen x with the landmark's parallax
         const xScreen = lm.x - view.x * lm.parX;
-
-        // convert back to the world-x the far ridge samples at this screen x
         const ridgeWorldX = view.x * L0.parallax + xScreen;
-
-        // baseline sits on the ridge (slightly embedded)
         const baselineY = mountainYAt(L0, ridgeWorldX) + EMBED;
 
         if(lm.type==='windmill') drawWindmillFar(xScreen, baselineY, lm.scale, lm.seed, lm.spin);
         else if(lm.type==='lighthouse') drawLighthouseFar(xScreen, baselineY, lm.scale, lm.seed);
       }
 
-      // — Windmill (gallery style, larger, lattice sails)
       function drawWindmillFar(x, baselineY, s, seed, spin){
         const colBody = 'rgba(0,0,0,0.36)';
         const colDetail = 'rgba(0,0,0,0.42)';
-
-        const towerH = 110*s;
-        const wBot   = 46*s;
-        const wTop   = 26*s;
-        const roofH  = 22*s;
-        const stageY = baselineY - towerH*0.55;
-        const legOut = 10*s;
+        const towerH = 110*s, wBot=46*s, wTop=26*s, roofH=22*s, stageY=baselineY - towerH*0.55, legOut=10*s;
 
         // tower
         ctx.fillStyle = colBody;
@@ -846,8 +833,7 @@
         ctx.closePath(); ctx.fill();
 
         // gallery deck + rails
-        const stageW  = wBot * 1.35;
-        const deckH   = 5*s;
+        const stageW = wBot * 1.35, deckH=5*s;
         ctx.fillStyle = colDetail;
         ctx.fillRect(x - stageW/2, stageY - deckH/2, stageW, deckH);
         ctx.fillRect(x - stageW/2, stageY - deckH - 2*s, stageW, 1.2*s);
@@ -866,8 +852,7 @@
         ctx.closePath(); ctx.fill();
 
         // hub
-        const hubY = baselineY - towerH - roofH*0.25;
-        const hubR = 3.2*s;
+        const hubY = baselineY - towerH - roofH*0.25, hubR=3.2*s;
         ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
 
         // sails
@@ -898,8 +883,7 @@
 
       function drawLighthouseFar(x, baselineY, s){
         ctx.save();
-        const h = 46*s;
-        const baseW = 10*s, topW = 7*s;
+        const h = 46*s, baseW=10*s, topW=7*s;
         ctx.fillStyle = 'rgba(0,0,0,0.32)';
         ctx.beginPath();
         ctx.moveTo(x - baseW/2, baselineY);
@@ -1022,7 +1006,7 @@
     btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
     chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
     chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
-    chkWind addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
+    chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); }); /* <-- fixed */
 
     // Build initial UI
     buildClubs(); updateWindUI();
