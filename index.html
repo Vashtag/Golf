@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Golf (v1.9.2)</title>
+<title>Dusk Drive — Side-View Silhouette Golf (v1.9.3)</title>
 <style>
   :root{
     --bg1:#0a1222; --bg2:#121d3c; --bg3:#1e2b58;
@@ -42,7 +42,7 @@
   .powermeter[data-on="1"]{display:block}
 
   /* Screens */
-  .screen{position:fixed;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.72),rgba(10,10,10,.6));display:grid;place-items:center;z-index:2}
+  .screen{position:fixed;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.72),rgba(10,10,10,.6));display:grid;place-items:center;z-index:3}
   .card{background:var(--panel);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:1rem 1.2rem;max-width:720px;width:min(720px,92vw);text-align:center}
   h1,h2{margin:.2rem 0 .6rem 0} h1{font-size:1.6rem}
   .sub{opacity:.85;margin:.3rem 0 1rem 0}
@@ -51,7 +51,7 @@
   .small{font-size:.9rem;color:var(--muted)}
 
   /* Orientation helper */
-  #landscapeHint{position:fixed;inset:auto 0 0 0;display:none;justify-content:center}
+  #landscapeHint{position:fixed;inset:auto 0 0 0;display:none;justify-content:center;z-index:4}
   #landscapeHint .card{margin:0 auto 12px auto}
   @media (orientation:portrait){ #landscapeHint{display:flex} }
 </style>
@@ -92,7 +92,7 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🏌️‍♂️ Dusk Drive</h1>
-      <div class="sub">2D side-view silhouette golf. Drag to aim, hold to charge, release to shoot.</div>
+      <div class="sub">Drag to aim, hold to charge, release to shoot.</div>
       <div class="grid">
         <div class="tag">Hold-Release Meter</div>
         <div class="tag">Wind & Spin</div>
@@ -101,6 +101,7 @@
       </div>
       <p class="small" style="margin-top:.7rem">Best in landscape • Mobile-friendly • Haptics on impact</p>
       <div style="margin-top:.7rem"><button class="btn" id="btnPlay">Start Round</button></div>
+      <p class="small" style="margin-top:.6rem;opacity:.8">Tip: press <kbd>Enter</kbd> or <kbd>S</kbd> to start</p>
     </div>
   </div>
 
@@ -135,52 +136,41 @@
   <div id="landscapeHint"><div class="card small">For best experience, rotate to landscape.</div></div>
 
 <script>
+/* ===== Robust bootstrap ===== */
 (function initWhenReady(){
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', main, { once:true });
-  } else {
-    main();
+  const onReady = () => { try{ main(); } catch(e){ console.error('[DuskDrive] fatal during main()', e); showSoftError(e); } };
+  if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', onReady, { once:true }); }
+  else { onReady(); }
+
+  function showSoftError(e){
+    const el = document.createElement('div');
+    el.style.cssText='position:fixed;inset:auto 0 0 0;background:rgba(0,0,0,.6);color:#fff;padding:.5rem .8rem;font:12px/1.3 system-ui;z-index:9999';
+    el.textContent = 'DuskDrive encountered an error. Open DevTools → Console for details.';
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 6000);
   }
 
   function main(){
+    /* ======= Core ======= */
     const TAU = Math.PI*2;
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
+    if(!ctx){ throw new Error('2D canvas context not available'); }
     let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     let globalTime = 0;
 
-    // ===== UI Elements
-    const elHole = document.getElementById('holeNum');
-    const elHolesTotal = document.getElementById('holesTotal');
-    const elPar = document.getElementById('parLabel');
-    const elStrokes = document.getElementById('strokes');
-    const elWindVal = document.getElementById('windVal');
-    const elWindArrow = document.getElementById('windArrow');
-    const elPowermeter = document.getElementById('powermeter');
-    const elPowerfill = document.getElementById('powerfill');
-    const clubSeg = document.getElementById('clubSeg');
-    const spinSeg = document.getElementById('spinSeg');
+    // --- UI refs (guarded)
+    const $ = id => document.getElementById(id);
+    const elHole=$('holeNum'), elHolesTotal=$('holesTotal'), elPar=$('parLabel'), elStrokes=$('strokes');
+    const elWindVal=$('windVal'), elWindArrow=$('windArrow'), elPowermeter=$('powermeter'), elPowerfill=$('powerfill');
+    const clubSeg=$('clubSeg'), spinSeg=$('spinSeg');
+    const screenIntro=$('screenIntro'), screenSummary=$('screenSummary'), screenSettings=$('screenSettings');
+    const btnPlay=$('btnPlay'), btnPlayAgain=$('btnPlayAgain'), btnNewRound=$('btnNewRound'), btnSettings=$('btnSettings'), btnCloseSettings=$('btnCloseSettings');
+    const chkReduced=$('chkReduced'), chkAudio=$('chkAudio'), chkWind=$('chkWind');
+    const sumStrokes=$('sumStrokes'), sumPar=$('sumPar'), sumScore=$('sumScore'), holeBreakdown=$('holeBreakdown');
 
-    const screenIntro = document.getElementById('screenIntro');
-    const screenSummary = document.getElementById('screenSummary');
-    const screenSettings = document.getElementById('screenSettings');
-
-    const btnPlay = document.getElementById('btnPlay');
-    const btnPlayAgain = document.getElementById('btnPlayAgain');
-    const btnNewRound = document.getElementById('btnNewRound'); // FIX: properly declared
-    const btnSettings = document.getElementById('btnSettings');
-    const btnCloseSettings = document.getElementById('btnCloseSettings');
-    const chkReduced = document.getElementById('chkReduced');
-    const chkAudio = document.getElementById('chkAudio');
-    const chkWind = document.getElementById('chkWind');
-
-    const sumStrokes = document.getElementById('sumStrokes');
-    const sumPar = document.getElementById('sumPar');
-    const sumScore = document.getElementById('sumScore');
-    const holeBreakdown = document.getElementById('holeBreakdown');
-
-    // ===== Game Config & State
-    const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
+    // --- Game config/state
+    const HOLES_PER_ROUND = 3; if(elHolesTotal) elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
@@ -193,562 +183,361 @@
       { id:'WDG', name:'Wedge',  loft:56, power:0.50, roll:0.55 },
       { id:'PUT', name:'Putter', loft:2,  power:0.35, roll:0.20 }
     ];
-
     const SURF = {
-      fairway: { fric: 420, rest: 0.35 },
-      rough:   { fric: 700, rest: 0.28, powerMul: 0.85 },
-      sand:    { fric: 980, rest: 0.18, powerMul: 0.65 },
-      green:   { fric: 260, rest: 0.30 },
-      rock:    { fric: 260, rest: 0.55 }
+      fairway:{ fric:420, rest:0.35 }, rough:{ fric:700, rest:0.28, powerMul:0.85 },
+      sand:{ fric:980, rest:0.18, powerMul:0.65 }, green:{ fric:260, rest:0.30 }, rock:{ fric:260, rest:0.55 }
     };
-
-    const GRAV = 3000;
-    const AIR_DRAG = 0.002;
+    const GRAV=3000, AIR_DRAG=0.002;
     let reducedMotion = false;
-
-    // Wind
-    let windOn = true; let windAx = 0;
-
-    // Spin
+    let windOn = true, windAx = 0;
     let spinMode = 0;
 
-    // ---------- Deterministic helpers ----------
+    // RNG helpers
     const RAND_MAX = 4294967295;
-    function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
-    function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
+    function hash32(x){ x|=0; x^=x>>>16; x=Math.imul(x,0x7feb352d); x^=x>>>15; x=Math.imul(x,0x846ca68b); x^=x>>>16; return x>>>0; }
+    function rand01(seed,i){ return hash32((seed^(i|0))>>>0)/RAND_MAX; }
 
-    // Audio (minimal)
-    const AudioMini = (()=>{
-      let ctxA=null, windNode=null, masterGain=null; let enabled=false;
-      function init(){
-        if(enabled) return;
+    // Audio (lazy/optional)
+    const AudioMini = (()=>{ let ctxA=null, windNode=null, masterGain=null, enabled=false;
+      function init(){ if(enabled) return;
         ctxA = new (window.AudioContext||window.webkitAudioContext)();
         masterGain = ctxA.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctxA.destination);
-        const o1 = ctxA.createOscillator(); o1.type='sine'; o1.frequency.value=120;
-        const o2 = ctxA.createOscillator(); o2.type='sine'; o2.frequency.value=240; o2.detune.value=-7;
-        const g = ctxA.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
-        const buff = ctxA.createBuffer(1, ctxA.sampleRate*2, ctxA.sampleRate);
-        const data = buff.getChannelData(0); for(let i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*0.6;}
-        const noise = ctxA.createBufferSource(); noise.buffer=buff; noise.loop=true;
-        const lp = ctxA.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=400;
-        const wg = ctxA.createGain(); wg.gain.value=0.05; noise.connect(lp); lp.connect(wg); wg.connect(masterGain); noise.start();
-        windNode = wg; enabled=true; if(!windOn) wg.gain.value=0.0;
+        const o1=ctxA.createOscillator(), o2=ctxA.createOscillator(); o1.type='sine'; o2.type='sine'; o1.frequency.value=120; o2.frequency.value=240; o2.detune.value=-7;
+        const g=ctxA.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
+        const buff=ctxA.createBuffer(1, ctxA.sampleRate*2, ctxA.sampleRate), data=buff.getChannelData(0);
+        for(let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*0.6;
+        const noise=ctxA.createBufferSource(); noise.buffer=buff; noise.loop=true;
+        const lp=ctxA.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=400;
+        const wg=ctxA.createGain(); wg.gain.value=0.05; noise.connect(lp); lp.connect(wg); wg.connect(masterGain); noise.start();
+        windNode=wg; enabled=true; if(!windOn) wg.gain.value=0;
       }
-      function setEnabled(on){ if(on){init();} else { if(masterGain){masterGain.gain.value=0;} } }
-      function thwack(){ if(!enabled) return; const o=ctxA.createOscillator(); const g=ctxA.createGain(); o.type='triangle'; o.frequency.setValueAtTime(220, ctxA.currentTime); o.frequency.exponentialRampToValueAtTime(60, ctxA.currentTime+0.15); g.gain.setValueAtTime(0.3, ctxA.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime+0.18); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctxA.currentTime+0.2);} 
-      function cup(){ if(!enabled) return; const o=ctxA.createOscillator(); const g=ctxA.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctxA.currentTime); o.frequency.exponentialRampToValueAtTime(990, ctxA.currentTime+0.08); g.gain.setValueAtTime(0.2, ctxA.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime+0.3); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctxA.currentTime+0.35);} 
-      function setWind(on){ if(!enabled||!windNode) return; windNode.gain.value = on?0.05:0.0; }
+      function setEnabled(on){ try{ if(on){init();} else if(masterGain){masterGain.gain.value=0;} }catch{} }
+      function thwack(){ try{ if(!masterGain) return; const o=ctxA.createOscillator(), g=ctxA.createGain(); o.type='triangle'; o.frequency.setValueAtTime(220, ctxA.currentTime); o.frequency.exponentialRampToValueAtTime(60, ctxA.currentTime+0.15); g.gain.setValueAtTime(0.3, ctxA.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime+0.18); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctxA.currentTime+0.2); }catch{} }
+      function cup(){ try{ if(!masterGain) return; const o=ctxA.createOscillator(), g=ctxA.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctxA.currentTime); o.frequency.exponentialRampToValueAtTime(990, ctxA.currentTime+0.08); g.gain.setValueAtTime(0.2, ctxA.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime+0.3); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctxA.currentTime+0.35); }catch{} }
+      function setWind(on){ try{ if(windNode) windNode.gain.value = on?0.05:0; }catch{} }
       return { setEnabled, thwack, cup, setWind };
     })();
 
     // Particles
     const particles=[];
-    function spawnParticles(type, x, y, count){
-      for(let i=0;i<count;i++){
-        const a = Math.random()*TAU; const sp = (type==='spark'? 160 + Math.random()*160 : 80+Math.random()*120);
-        const vx = Math.cos(a)*sp, vy = Math.sin(a)*sp - (type==='spark'?0:200);
-        particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
-      }
-    }
+    function spawnParticles(type,x,y,count){ for(let i=0;i<count;i++){ const a=Math.random()*TAU, sp=(type==='spark'?160+Math.random()*160:80+Math.random()*120); const vx=Math.cos(a)*sp, vy=Math.sin(a)*sp-(type==='spark'?0:200); particles.push({type,x,y,vx,vy,life:type==='spark'?0.25:(type==='sand'?0.5:0.6)}); } }
 
-    // World data
-    let holeIndex=0, roundData=null;
-    let hole=null;
+    // World / round
+    let holeIndex=0, roundData=null, hole=null;
 
-    // Backdrop + Sky
-    const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], stars:[], clouds:[], moon:null, landmarks:[] };
+    // Backdrop
+    const backdrop={ seed:(Math.random()*1e9)|0, mountains:[], stars:[], clouds:[], moon:null, landmarks:[] };
 
-    // ===== SKY / BACKDROP BUILD =====
-    function buildBackdrop(){
-      backdrop.mountains = [
-        makeLayer(0.18, 0.50, 90, 40, 0.0011, 0.00047, 0.06),
-        makeLayer(0.28, 0.60, 120, 52, 0.0015, 0.00063, 0.08),
-        makeLayer(0.42, 0.68, 140, 64, 0.0019, 0.00085, 0.10)
-      ];
-      buildSkyElements();
-      buildLandmarks();
-    }
     function makeLayer(parallax, baseFrac, a1, a2, f1, f2, shade){
-      const s = (backdrop.seed ^ hash32((parallax*1000)|0))>>>0;
-      const base = WORLD.h*baseFrac; const ph = rand01(s,1)*TAU;
+      const s=(backdrop.seed ^ hash32((parallax*1000)|0))>>>0;
+      const base=WORLD.h*baseFrac, ph=rand01(s,1)*TAU;
       return { parallax, base, a1, a2, f1, f2, ph, shade };
     }
-    function mountainYAt(L, wx){
-      return L.base - Math.sin(wx*L.f1)*L.a1 - Math.sin(wx*L.f2 + L.ph)*L.a2;
-    }
+    function mountainYAt(L,wx){ return L.base - Math.sin(wx*L.f1)*L.a1 - Math.sin(wx*L.f2 + L.ph)*L.a2; }
 
-    function buildSkyElements(){
-      // Stars
-      const starSeed = backdrop.seed ^ 0x51A5;
-      const count = 200;
-      backdrop.stars = [];
-      for(let i=0;i<count;i++){
-        const u = rand01(starSeed, i*3+1);
-        const v = rand01(starSeed, i*3+2);
-        const x = Math.floor(u * WORLD.w);
-        const y = Math.floor(v * WORLD.h*0.48);
-        const r = 0.6 + rand01(starSeed, i*5+3)*1.1;
-        const phase = rand01(starSeed, i*7+4)*TAU;
-        const rate = 0.25 + rand01(starSeed, i*11+5)*0.45;
-        const base = 0.10 + rand01(starSeed, i*13+6)*0.10;
-        backdrop.stars.push({x,y,r,phase,rate,base});
+    function buildBackdrop(){
+      backdrop.mountains=[ makeLayer(0.18,0.50,90,40,0.0011,0.00047,0.06),
+                           makeLayer(0.28,0.60,120,52,0.0015,0.00063,0.08),
+                           makeLayer(0.42,0.68,140,64,0.0019,0.00085,0.10)];
+      // Stars (sine twinkle, fixed seed)
+      const starSeed=backdrop.seed ^ 0x51A5, count=200; backdrop.stars.length=0;
+      for(let i=0;i<count;i++){ const u=rand01(starSeed,i*3+1), v=rand01(starSeed,i*3+2);
+        backdrop.stars.push({ x:Math.floor(u*WORLD.w), y:Math.floor(v*WORLD.h*0.48), r:0.6+rand01(starSeed,i*5+3)*1.1, phase:rand01(starSeed,i*7+4)*TAU, rate:0.25+rand01(starSeed,i*11+5)*0.45, base:0.10+rand01(starSeed,i*13+6)*0.10 });
       }
-      // Moon
-      const mSeed = backdrop.seed ^ 0xC0FEE;
-      const mu = 0.25 + rand01(mSeed,1)*0.5;
-      const mv = 0.08 + rand01(mSeed,2)*0.16;
-      const mr = 22 + rand01(mSeed,3)*12;
-      const phase = rand01(mSeed,4)*TAU;
-      backdrop.moon = { x: mu*WORLD.w, y: mv*WORLD.h, r: mr, phase };
-      // Clouds: 1–2 bands
-      const cSeed = backdrop.seed ^ 0xA11D;
-      const bands = (rand01(cSeed,1) < 0.6) ? 2 : 1;
-      backdrop.clouds = [];
-      for(let i=0;i<bands;i++){
-        const yFrac = 0.18 + rand01(cSeed, 10+i)*0.26;
-        const speed = 8 + rand01(cSeed, 20+i)*12;
-        const par = 0.22 + rand01(cSeed,30+i)*0.18;
-        const puffSeed = cSeed ^ hash32(1000+i);
+      // Moon (seeded position, very slow drift)
+      const mSeed=backdrop.seed ^ 0xC0FEE, mu=0.25+rand01(mSeed,1)*0.5, mv=0.08+rand01(mSeed,2)*0.16, mr=22+rand01(mSeed,3)*12, phase=rand01(mSeed,4)*TAU;
+      backdrop.moon={ x:mu*WORLD.w, y:mv*WORLD.h, r:mr, phase };
+      // Clouds: 1–2 bands (parallax)
+      const cSeed=backdrop.seed ^ 0xA11D, bands=(rand01(cSeed,1)<0.6)?2:1; backdrop.clouds.length=0;
+      for(let i=0;i<bands;i++){ const yFrac=0.18+rand01(cSeed,10+i)*0.26, speed=8+rand01(cSeed,20+i)*12, par=0.22+rand01(cSeed,30+i)*0.18, puffSeed=cSeed ^ hash32(1000+i);
         backdrop.clouds.push({ yFrac, speed, parallax:par, puffSeed });
       }
-    }
-
-    function buildLandmarks(){
-      const L = [];
-      const lSeed = backdrop.seed ^ 0x1AND;
-      const count = 4 + Math.floor(rand01(lSeed,1)*3);
-      for(let i=0;i<count;i++){
-        const u = 0.15 + (i+1)/(count+1)*0.7 + (rand01(lSeed,10+i)-0.5)*0.08;
-        const x = clamp(u*WORLD.w, 120, WORLD.w-120);
-        const typeRand = rand01(lSeed, 100+i);
-        let type = 'tree';
-        if(typeRand < 0.25) type='windmill';
-        else if(typeRand < 0.45) type='lighthouse';
-        else if(typeRand < 0.62) type='city';
-        L.push({ x, type, seed: (lSeed ^ hash32(i+3))>>>0 });
+      // Landmarks (seeded & stable)
+      const L=[], lSeed=backdrop.seed ^ 0x1AND, n=4+Math.floor(rand01(lSeed,1)*3);
+      for(let i=0;i<n;i++){ const u=0.15+(i+1)/(n+1)*0.7 + (rand01(lSeed,10+i)-0.5)*0.08, x=Math.max(120, Math.min(WORLD.w-120, u*WORLD.w)); const p=rand01(lSeed,100+i);
+        let type='tree'; if(p<0.25) type='windmill'; else if(p<0.45) type='lighthouse'; else if(p<0.62) type='city';
+        L.push({ x, type, seed:(lSeed ^ hash32(i+3))>>>0 });
       }
-      backdrop.landmarks = L;
+      backdrop.landmarks=L;
     }
 
     // Ball
-    const ball = { x:0,y:0,vx:0,vy:0,r:7, atRest:true, onGround:true, lastSafe:{x:0,y:0} };
+    const ball={ x:0,y:0,vx:0,vy:0,r:7, atRest:true, onGround:true, lastSafe:{x:0,y:0} };
     let strokes=0;
 
-    // Input/aim
-    let aiming=false; let aimAngle=0; let meter=0; let meterDir=1; let meterOn=false;
+    // Aim / power
+    let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
     const METER_SPEED=1.6;
 
     // Camera
-    function centerCameraOnBall(){
-      if(!hole){ return; }
-      view.x = clamp(ball.x - view.w*0.45, 0, WORLD.w - view.w);
-      view.y = clamp(groundYAt(ball.x) - view.h*0.65, 0, WORLD.h - view.h);
-    }
+    function centerCameraOnBall(){ if(!hole) return; view.x = clamp(ball.x - view.w*0.45, 0, WORLD.w - view.w); view.y = clamp(groundYAt(ball.x) - view.h*0.65, 0, WORLD.h - view.h); }
 
     // Helpers
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
+    function worldToScreen(x,y){ return { x:(x - view.x)*DPR, y:(y - view.y)*DPR }; }
 
-    // ===== Procedural hole
+    // Hole gen
     function genHole(){
-      const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0;
-      let s = (Math.random()*1e9)|0; const seed = s;
-      function nrand(){ s = Math.sin(s)*10000; return s - Math.floor(s); }
-      const amp1 = 90 + nrand()*70, freq1 = 1/(620+ nrand()*380);
-      const amp2 = 30 + nrand()*30, freq2 = 1/(260 + nrand()*200);
-
-      for(x=0;x<=w;x+=step){ const y = baseY - Math.sin(x*freq1)*amp1 - Math.sin(x*freq2)*amp2; points.push({x,y}); }
-
-      const cupX = lerp(w*0.68, w*0.9, Math.random());
-
-      const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); let greenY=0;
-      for(let i=0;i<points.length;i++){
-        if(points[i].x>=gx0 && points[i].x<=gx1){ const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40; points[i].y = gy; greenY = gy; }
-      }
-
-      const waterW = 220 + Math.random()*220; const waterX = lerp(w*0.28, cupX-420, Math.random()); const waterY = baseY - 28 + 10*Math.random();
-      const water = {x:waterX, y:waterY, w:waterW, h:h - waterY + 60};
-
-      const sand = { x: cupX - 110 + Math.random()*160, y: greenY - 10, r: 60 + Math.random()*28 };
-
-      const teeX = 120; const teeIdx = Math.floor(teeX/step); const teeY = points[teeIdx].y - 2; points[teeIdx].y = teeY;
-
-      const valleyX = lerp(w*0.42, w*0.6, Math.random()); const vIdx = Math.floor(valleyX/step);
+      const w=WORLD.w, h=WORLD.h, step=40, baseY=h*0.72, points=[]; let x=0; let s=(Math.random()*1e9)|0; const seed=s;
+      function n(){ s=Math.sin(s)*10000; return s - Math.floor(s); }
+      const amp1=90+n()*70, freq1=1/(620+n()*380), amp2=30+n()*30, freq2=1/(260+n()*200);
+      for(x=0;x<=w;x+=step){ points.push({x, y: baseY - Math.sin(x*freq1)*amp1 - Math.sin(x*freq2)*amp2}); }
+      const cupX=lerp(w*0.68, w*0.9, Math.random());
+      const gWidth=260, gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope=(Math.random()*0.6-0.3); let greenY=baseY-30;
+      for(let i=0;i<points.length;i++){ if(points[i].x>=gx0 && points[i].x<=gx1){ const t=(points[i].x-gx0)/gWidth; const gy=(baseY-30) + slope*(t-0.5)*40; points[i].y=gy; greenY=gy; } }
+      const waterW=220+Math.random()*220, waterX=lerp(w*0.28, cupX-420, Math.random()), waterY=baseY-28+10*Math.random();
+      const sand={ x: cupX - 110 + Math.random()*160, y: greenY - 10, r: 60 + Math.random()*28 };
+      const teeX=120, teeIdx=Math.floor(teeX/step), teeY=points[teeIdx].y-2; points[teeIdx].y=teeY;
+      const valleyX=lerp(w*0.42, w*0.6, Math.random()), vIdx=Math.floor(valleyX/step);
       for(let i=-3;i<=3;i++){ const k=vIdx+i; if(points[k]) points[k].y += Math.abs(i)*22; }
-
-      const dist = (cupX - teeX); let par = 4; if(dist>1900) par=5; else if(dist<950) par=3;
-
-      return { w, h, points, step, cupX, green:{x0:gx0,x1:gx1,y:greenY}, water, sand, tee:{x:teeX,y:teeY}, par, seed };
+      const dist=(cupX-teeX); let par=4; if(dist>1900) par=5; else if(dist<950) par=3;
+      return { w,h,points,step,cupX, green:{x0:gx0,x1:gx1,y:greenY}, water:{x:waterX,y:waterY,w:waterW,h:h-waterY+60}, sand, tee:{x:teeX,y:teeY}, par, seed };
     }
 
-    // Ground sampling
-    function groundYAt(x){ x = clamp(x, 0, hole.w); const i = clamp(Math.floor(x/hole.step), 0, hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
+    function groundYAt(x){ x=clamp(x,0,hole.w); const i=clamp(Math.floor(x/hole.step),0,hole.points.length-2); const p0=hole.points[i], p1=hole.points[i+1]; const t=(x-p0.x)/(p1.x-p0.x); return lerp(p0.y,p1.y,t); }
+    function surfaceAt(x){ if(x>=hole.green.x0 && x<=hole.green.x1) return 'green'; const dx=x-hole.sand.x, y=groundYAt(x); if(Math.hypot(dx, y-hole.sand.y)<=hole.sand.r) return 'sand'; return 'fairway'; }
+    function inWater(x,y){ const w=hole.water; return x>=w.x && x<=w.x+w.w && y>=w.y; }
 
-    function surfaceAt(x){
-      if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
-      const dxSand = x - hole.sand.x; const y = groundYAt(x); if(Math.hypot(dxSand, y - hole.sand.y) <= hole.sand.r) return 'sand';
-      return 'fairway';
-    }
-    function inWater(x,y){ const w = hole.water; return x>=w.x && x<=w.x+w.w && y>=w.y; }
-
-    // ===== Round setup
-    function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; screenIntro.style.display='none'; screenSummary.style.display='none'; nextHole(); }
-
+    // Round flow
+    function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; hideIntro(); hideSummary(); nextHole(); }
     function nextHole(){
-      hole = genHole(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par; elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
+      hole = genHole(); roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
+      if(elHole) elHole.textContent = (holeIndex+1); if(elPar) elPar.textContent = hole.par;
       windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI(); AudioMini.setWind(windOn);
-      ball.x = hole.tee.x; ball.y = hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; strokes=0; elStrokes.textContent=strokes;
+      ball.x=hole.tee.x; ball.y=hole.tee.y - ball.r - 1; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y};
+      strokes=0; if(elStrokes) elStrokes.textContent=strokes;
       backdrop.seed = (hole.seed ^ 0x5EA)|0; buildBackdrop();
       centerCameraOnBall();
     }
-
     function endHole(){
-      roundData.holes[holeIndex].strokes = strokes; roundData.totalStrokes += strokes; holeIndex++;
+      roundData.holes[holeIndex].strokes=strokes; roundData.totalStrokes += strokes; holeIndex++;
       if(holeIndex>=HOLES_PER_ROUND){
-        sumStrokes.textContent = roundData.totalStrokes; sumPar.textContent = roundData.totalPar; const diff = roundData.totalStrokes - roundData.totalPar; sumScore.textContent = diff===0? 'E' : (diff>0? '+'+diff : diff);
-        holeBreakdown.innerHTML = ''; roundData.holes.forEach((h,i)=>{ const div=document.createElement('div'); div.className='chip'; div.textContent=`Hole ${i+1}: ${h.strokes} (Par ${h.par})`; holeBreakdown.appendChild(div); });
-        screenSummary.style.display='grid';
+        if(sumStrokes) sumStrokes.textContent = roundData.totalStrokes;
+        if(sumPar) sumPar.textContent = roundData.totalPar;
+        if(sumScore){ const diff=roundData.totalStrokes - roundData.totalPar; sumScore.textContent = diff===0? 'E' : (diff>0? '+'+diff : diff); }
+        if(holeBreakdown){ holeBreakdown.innerHTML=''; roundData.holes.forEach((h,i)=>{ const div=document.createElement('div'); div.className='chip'; div.textContent=`Hole ${i+1}: ${h.strokes} (Par ${h.par})`; holeBreakdown.appendChild(div); }); }
+        showSummary();
       } else { nextHole(); }
     }
 
-    // ===== UI build: clubs & spin
+    // UI: clubs & spin
+    let currentClub = CLUBS[2];
     function buildClubs(){
-      clubSeg.innerHTML=''; CLUBS.forEach((c,idx)=>{ const b=document.createElement('button'); b.className='btn'; b.textContent=c.name; b.dataset.club=idx; b.setAttribute('aria-pressed', idx===2? 'true':'false'); b.addEventListener('click',()=>selectClub(idx)); clubSeg.appendChild(b); });
+      if(!clubSeg) return;
+      clubSeg.innerHTML='';
+      CLUBS.forEach((c,idx)=>{ const b=document.createElement('button'); b.className='btn'; b.textContent=c.name; b.dataset.club=idx; b.setAttribute('aria-pressed', idx===2? 'true':'false'); b.addEventListener('click',()=>selectClub(idx)); clubSeg.appendChild(b); });
       selectClub(2);
     }
-    let currentClub = CLUBS[2];
-    function selectClub(i){ currentClub = CLUBS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
-    spinSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; spinMode = parseInt(btn.dataset.spin,10); [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
+    function selectClub(i){ currentClub = CLUBS[i]; if(!clubSeg) return; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
+    if(spinSeg) spinSeg.addEventListener('click', e=>{ const btn=e.target.closest('button'); if(!btn) return; spinMode=parseInt(btn.dataset.spin,10); [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
 
-    // ===== Wind UI
-    function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag/900).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
+    // Wind UI
+    function updateWindUI(){ const dir=windAx>=0?1:-1, mag=Math.abs(windAx); if(elWindVal) elWindVal.textContent=(mag/900).toFixed(1)+'x'; if(elWindArrow) elWindArrow.style.transform=`rotate(${dir>0?0:180}deg)`; }
 
-    // ===== Input
-    function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
-    function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
-    function onPointerDown(e){ if(!hole || !ball.atRest) return; const p = getPoint(e); const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; e.preventDefault(); }
-    function onPointerMove(e){ if(!aiming) return; const p = getPoint(e); const w = screenToWorld(p.x, p.y); aimAngle = Math.atan2((w.y - ball.y), (w.x - ball.x)); }
-    function onPointerUp(){ if(!aiming) return; aiming=false; meterOn=false; elPowermeter.dataset.on='0'; shoot(); }
-    function getPoint(e){ if(e.changedTouches){ const t=e.changedTouches[0]; return { x:t.clientX*DPR, y:t.clientY*DPR }; } return { x:e.clientX*DPR, y:e.clientY*DPR }; }
+    // Input
+    function screenToWorld(x,y){ return { x:x/DPR + view.x, y:y/DPR + view.y }; }
+    function onPointerDown(e){ if(!hole || !ball.atRest) return; const pt = e.changedTouches? e.changedTouches[0] : e; const w=screenToWorld(pt.clientX*DPR, pt.clientY*DPR); aimAngle=Math.atan2((w.y - ball.y),(w.x - ball.x)); aiming=true; meterOn=true; meter=0; meterDir=1; if(elPowermeter) elPowermeter.dataset.on='1'; e.preventDefault?.(); }
+    function onPointerMove(e){ if(!aiming) return; const pt = e.changedTouches? e.changedTouches[0] : e; const w=screenToWorld(pt.clientX*DPR, pt.clientY*DPR); aimAngle=Math.atan2((w.y - ball.y),(w.x - ball.x)); }
+    function onPointerUp(){ if(!aiming) return; aiming=false; meterOn=false; if(elPowermeter) elPowermeter.dataset.on='0'; shoot(); }
     canvas.addEventListener('mousedown', onPointerDown); window.addEventListener('mousemove', onPointerMove); window.addEventListener('mouseup', onPointerUp);
     canvas.addEventListener('touchstart', onPointerDown, {passive:false}); window.addEventListener('touchmove', onPointerMove, {passive:false}); window.addEventListener('touchend', onPointerUp);
 
-    // ===== Shooting
     function shoot(){
-      if(!hole || !ball.atRest) return; const club = currentClub;
+      if(!hole || !ball.atRest) return;
+      const club=currentClub;
       if(club.id==='PUT' && !(ball.x>=hole.green.x0 && ball.x<=hole.green.x1)){ selectClub(2); }
-      const surface = surfaceAt(ball.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
-      const base = 1400; const power = (0.25 + 0.75*meter) * club.power * powerMul; const speed = base * power; const loftRad = club.loft * Math.PI/180; const dir = aimAngle;
-      ball.vx = Math.cos(dir) * speed * Math.cos(loftRad); ball.vy = Math.sin(dir) * speed * Math.cos(loftRad) - Math.sin(loftRad) * speed;
-      if(surface!=='fairway' && surface!=='green'){ const jitter = 0.06; ball.vx *= (1 + (Math.random()*2-1)*jitter); ball.vy *= (1 + (Math.random()*2-1)*jitter); }
-      ball.atRest=false; ball.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(20); AudioMini.thwack();
+      const surface=surfaceAt(ball.x); let powerMul=1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul=SURF[surface].powerMul;
+      const base=1400, power=(0.25 + 0.75*meter) * club.power * powerMul, speed=base*power, loftRad=club.loft*Math.PI/180, dir=aimAngle;
+      ball.vx = Math.cos(dir)*speed*Math.cos(loftRad); ball.vy = Math.sin(dir)*speed*Math.cos(loftRad) - Math.sin(loftRad)*speed;
+      if(surface!=='fairway' && surface!=='green'){ const jitter=0.06; ball.vx *= (1 + (Math.random()*2-1)*jitter); ball.vy *= (1 + (Math.random()*2-1)*jitter); }
+      ball.atRest=false; ball.onGround=false; strokes++; if(elStrokes) elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes=strokes; navigator.vibrate?.(20); AudioMini.thwack();
     }
 
-    // ===== Physics update
+    // Update
     function update(dt){
       globalTime += dt;
-
-      if(meterOn){ meter += meterDir * METER_SPEED * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
-      if(!hole){ return; }
+      if(meterOn){ meter += meterDir*METER_SPEED*dt; if(meter>1){meter=1; meterDir=-1} else if(meter<0){meter=0; meterDir=1} if(elPowerfill) elPowerfill.style.width=(meter*100).toFixed(1)+'%'; }
+      if(!hole) return;
 
       for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
 
       if(!ball.atRest){
         if(!ball.onGround){
-          const ax = (windOn? windAx:0) - AIR_DRAG*ball.vx* Math.sign(ball.vx); const ay = GRAV - AIR_DRAG*ball.vy* Math.sign(ball.vy);
+          const ax=(windOn?windAx:0) - AIR_DRAG*ball.vx*Math.sign(ball.vx), ay=GRAV - AIR_DRAG*ball.vy*Math.sign(ball.vy);
           ball.vx += ax*dt; ball.vy += ay*dt; ball.x += ball.vx*dt; ball.y += ball.vy*dt;
-          const gy = groundYAt(ball.x);
+          const gy=groundYAt(ball.x);
           if(ball.y + ball.r >= gy){
-            const surface = surfaceAt(ball.x); const rest = SURF[surface]?.rest ?? 0.35; ball.y = gy - ball.r - 0.01; ball.onGround=true;
+            const surface=surfaceAt(ball.x), rest= SURF[surface]?.rest ?? 0.35;
+            ball.y = gy - ball.r - 0.01; ball.onGround=true;
             if(Math.abs(ball.vy) > 120){ if(surface==='sand') spawnParticles('sand', ball.x, ball.y+ball.r, 12); else spawnParticles('dust', ball.x, ball.y+ball.r, 8); }
-            ball.vy = -ball.vy * rest; if(spinMode!==0){ const spinBoost = (spinMode>0? 1 : -1) * 120; ball.vx += spinBoost; }
-            if(Math.abs(ball.vy) < 120){ ball.vy = 0; }
+            ball.vy = -ball.vy*rest; if(spinMode!==0){ const spinBoost=(spinMode>0?1:-1)*120; ball.vx += spinBoost; }
+            if(Math.abs(ball.vy) < 120){ ball.vy=0; }
           }
         } else {
-          const gy = groundYAt(ball.x); if(ball.y + ball.r < gy-0.5){ ball.onGround=false; } else {
-            ball.y = gy - ball.r; const surface = surfaceAt(ball.x); const fric = SURF[surface]?.fric ?? 420; const speed = Math.abs(ball.vx); const dec = fric * (surface==='green' && currentClub.id==='PUT'?0.7:1); const sgn = Math.sign(ball.vx); let newSpeed = speed - dec*dt; if(newSpeed<0) newSpeed=0; ball.vx = sgn * newSpeed; ball.x += ball.vx*dt; if(Math.abs(ball.vx) < 8){ ball.vx=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; }
+          const gy=groundYAt(ball.x);
+          if(ball.y + ball.r < gy-0.5){ ball.onGround=false; }
+          else {
+            ball.y = gy - ball.r; const surface=surfaceAt(ball.x), fric= SURF[surface]?.fric ?? 420;
+            const dec = fric * (surface==='green' && currentClub.id==='PUT'?0.7:1), sgn=Math.sign(ball.vx);
+            let speed=Math.abs(ball.vx) - dec*dt; if(speed<0) speed=0; ball.vx = sgn*speed; ball.x += ball.vx*dt;
+            if(Math.abs(ball.vx) < 8){ ball.vx=0; ball.atRest=true; ball.onGround=true; ball.lastSafe={x:ball.x,y:ball.y}; }
           }
         }
-        if(inWater(ball.x, ball.y+ball.r*0.6)){ spawnParticles('splash', ball.x, ball.y, 16); if(navigator.vibrate) navigator.vibrate([40,40,30]); strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; ball.x = ball.lastSafe.x - 24; ball.y = groundYAt(ball.x)-ball.r; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; }
+        if(inWater(ball.x, ball.y+ball.r*0.6)){ spawnParticles('splash', ball.x, ball.y, 16); navigator.vibrate?.([40,40,30]); strokes++; if(elStrokes) elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes=strokes; ball.x=ball.lastSafe.x-24; ball.y=groundYAt(ball.x)-ball.r; ball.vx=0; ball.vy=0; ball.atRest=true; ball.onGround=true; }
         if(ball.x<0){ ball.x=0; ball.vx=0; } if(ball.x>hole.w){ ball.x=hole.w; ball.vx=0; }
-        const cx = hole.cupX; const dx = Math.abs(ball.x - cx);
-        if(dx < 10 && ball.onGround && Math.abs(ball.vx) < 160){ AudioMini.cup(); if(navigator.vibrate) navigator.vibrate([25,25,25]); ball.atRest=true; ball.vx=0; ball.vy=0; setTimeout(()=>{ endHole(); }, 550); }
+        const dx=Math.abs(ball.x - hole.cupX);
+        if(dx<10 && ball.onGround && Math.abs(ball.vx)<160){ AudioMini.cup(); navigator.vibrate?.([25,25,25]); ball.atRest=true; ball.vx=0; ball.vy=0; setTimeout(endHole, 550); }
       }
       centerCameraOnBall();
     }
 
-    // ===== Rendering
+    // Draw
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
-      drawSkyGradient();
-      drawStars();
-      drawMoon();
-      drawClouds();
-      drawMountains();
+      drawSkyGradient(); drawStars(); drawMoon(); drawClouds(); drawMountains();
       if(!hole){ drawVignette(); return; }
 
       // water
-      const w = hole.water; ctx.fillStyle = '#0e2233'; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
+      const w=hole.water; ctx.fillStyle='#0e2233'; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
 
-      // ground silhouette
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
+      // terrain silhouette
+      ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--fg'); ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
 
-      drawLandmarks();
-      drawGrass();
+      drawLandmarks(); drawGrass();
 
       // sand + green
-      ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
-      ctx.fillStyle = 'rgba(60,140,85,.25)'; ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
+      ctx.fillStyle='#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
+      ctx.fillStyle='rgba(60,140,85,.25)'; ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
 
       drawFlag(hole.cupX - view.x, groundYAt(hole.cupX) - 60 - view.y);
 
       // particles
       for(const p of particles){
-        let c = '#ffffff';
-        if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent');
-        else if(p.type==='sand') c = '#b48a5a';
-        else if(p.type==='dust') c = '#9aa2aa';
-        else if(p.type==='splash') c = '#49d0ff';
-        ctx.globalAlpha = Math.max(0, p.life/0.6); ctx.fillStyle=c;
-        ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
+        let c='#ffffff'; if(p.type==='spark') c=getComputedStyle(document.documentElement).getPropertyValue('--accent');
+        else if(p.type==='sand') c='#b48a5a'; else if(p.type==='dust') c='#9aa2aa'; else if(p.type==='splash') c='#49d0ff';
+        ctx.globalAlpha=Math.max(0, p.life/0.6); ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
       }
 
-      drawBall(); if(aiming){ drawAimArrow(); }
-      drawVignette();
+      drawBall(); if(aiming) drawAimArrow(); drawVignette();
     }
 
-    // --- Sky gradient
     function drawSkyGradient(){
-      const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
+      const skyGrad=ctx.createLinearGradient(0,0,0,canvas.height/DPR), cs=getComputedStyle(document.documentElement);
       skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim()); skyGrad.addColorStop(0.55, cs.getPropertyValue('--bg2').trim()); skyGrad.addColorStop(1, cs.getPropertyValue('--bg1').trim());
-      ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
+      ctx.fillStyle=skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
-
-    // --- Stars (sine twinkle, no flicker)
     function drawStars(){
-      if(!backdrop.stars) return;
-      const par = 0.06;
-      for(const s of backdrop.stars){
-        const x = s.x - view.x*par;
-        const y = s.y - view.y*par*0.3;
-        if(x<-5 || x>view.w+5 || y<-5 || y>view.h*0.65+10) continue;
-        const tw = s.base + 0.12*Math.sin((globalTime*s.rate*TAU) + s.phase);
-        ctx.globalAlpha = Math.max(0, Math.min(0.35, tw));
-        ctx.fillStyle = '#e6f2ff';
-        ctx.beginPath(); ctx.arc(x, y, s.r, 0, TAU); ctx.fill();
-      }
-      ctx.globalAlpha=1;
+      const par=0.06; for(const s of backdrop.stars){ const x=s.x - view.x*par, y=s.y - view.y*par*0.3;
+        if(x<-5||x>view.w+5||y<-5||y>view.h*0.65+10) continue; const tw=s.base + 0.12*Math.sin((globalTime*s.rate*TAU)+s.phase);
+        ctx.globalAlpha=Math.max(0, Math.min(0.35, tw)); ctx.fillStyle='#e6f2ff'; ctx.beginPath(); ctx.arc(x,y,s.r,0,TAU); ctx.fill();
+      } ctx.globalAlpha=1;
     }
-
-    // --- Moon (halo + slow drift)
     function drawMoon(){
-      if(!backdrop.moon) return;
-      const m = backdrop.moon;
-      const driftX = Math.sin(globalTime*0.02 + m.phase)*12;
-      const driftY = Math.cos(globalTime*0.015 + m.phase*0.7)*4;
-      const par = 0.08;
-      const mx = (m.x + driftX) - view.x*par;
-      const my = (m.y + driftY) - view.y*par*0.3;
-
-      const g = ctx.createRadialGradient(mx,my, m.r*0.4, mx,my, m.r*3.2);
-      g.addColorStop(0,'rgba(255,255,255,0.25)'); g.addColorStop(1,'rgba(255,255,255,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(mx,my, m.r*3.2, 0, TAU); ctx.fill();
-
-      ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(mx,my, m.r, 0, TAU); ctx.fill();
-
-      ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.beginPath(); ctx.arc(mx+m.r*0.15, my, m.r*0.95, 0, TAU); ctx.fill();
+      const m=backdrop.moon; if(!m) return; const driftX=Math.sin(globalTime*0.02 + m.phase)*12, driftY=Math.cos(globalTime*0.015 + m.phase*0.7)*4, par=0.08;
+      const mx=(m.x+driftX) - view.x*par, my=(m.y+driftY) - view.y*par*0.3;
+      const g=ctx.createRadialGradient(mx,my, m.r*0.4, mx,my, m.r*3.2); g.addColorStop(0,'rgba(255,255,255,0.25)'); g.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(mx,my, m.r*3.2, 0, TAU); ctx.fill();
+      ctx.fillStyle='#f8fafc'; ctx.beginPath(); ctx.arc(mx,my, m.r, 0, TAU); ctx.fill();
+      ctx.fillStyle='rgba(0,0,0,0.08)'; ctx.beginPath(); ctx.arc(mx+m.r*0.15, my, m.r*0.95, 0, TAU); ctx.fill();
     }
-
-    // --- Clouds
     function drawClouds(){
       for(const B of backdrop.clouds){
-        const y = WORLD.h*B.yFrac - view.y*B.parallax*0.4;
-        const speed = (reducedMotion? 0.3 : 1) * (B.speed + (windOn? (windAx/900)*8 : 0));
-        const offset = (globalTime*speed) % (view.w+400);
-        const alpha = 0.08;
-        const light = 'rgba(255,255,255,'+alpha+')';
-        for(let x=-400; x<view.w+400; x+=120){
-          const px = x - offset - view.x*B.parallax*0.6;
-          drawCloudPuff(px, y, 120, 38, light, B.puffSeed, x);
+        const y=WORLD.h*B.yFrac - view.y*B.parallax*0.4, speed=(reducedMotion?0.3:1)*(B.speed + (windOn? (windAx/900)*8 : 0));
+        const offset=(globalTime*speed) % (view.w+400), alpha=0.08, color='rgba(255,255,255,'+alpha+')';
+        for(let x=-400; x<view.w+400; x+=120){ const px = x - offset - view.x*B.parallax*0.6; drawCloudPuff(px,y,120,38,color,B.puffSeed,x); }
+      }
+    }
+    function drawCloudPuff(cx,cy,w,h,color,seed,idx){
+      ctx.fillStyle=color;
+      for(let i=0;i<5;i++){
+        const u=(rand01(seed, idx*31+i)-0.5)*0.8, v=(rand01(seed, idx*47+i)-0.5)*0.3;
+        const rx=w*(0.42 + 0.18*rand01(seed, idx*59+i)), ry=h*(0.55 + 0.2*rand01(seed, idx*61+i));
+        if(ctx.ellipse){ ctx.beginPath(); ctx.ellipse(cx + u*w*0.5, cy + v*h*0.5, rx, ry, 0, 0, TAU); ctx.fill(); }
+        else { // ellipse fallback
+          ctx.beginPath(); ctx.save(); ctx.translate(cx + u*w*0.5, cy + v*h*0.5); ctx.scale(rx, ry); ctx.arc(0,0,1,0,TAU); ctx.restore(); ctx.fill();
         }
       }
     }
-    function drawCloudPuff(cx, cy, w, h, color, seed, idx){
-      ctx.fillStyle = color;
-      for(let i=0;i<5;i++){
-        const u = (rand01(seed, idx*31+i)-0.5)*0.8;
-        const v = (rand01(seed, idx*47+i)-0.5)*0.3;
-        const rx = w*(0.42 + 0.18*rand01(seed, idx*59+i));
-        const ry = h*(0.55 + 0.2*rand01(seed, idx*61+i));
-        ctx.beginPath();
-        ctx.ellipse(cx + u*w*0.5, cy + v*h*0.5, rx, ry, 0, 0, TAU);
-        ctx.fill();
-      }
-    }
-
-    // --- Mountains
     function drawMountains(){
-      const w = canvas.width/DPR, h = canvas.height/DPR; const step=8;
-      backdrop.mountains.forEach((L, idx)=>{
-        ctx.fillStyle = `rgba(0,0,0,${0.25 + L.shade})`;
-        ctx.beginPath(); ctx.moveTo(0,h);
-        for(let x=0;x<=w;x+=step){ const wx = view.x*L.parallax + x; const y = mountainYAt(L, wx) - view.y*0.08*idx; ctx.lineTo(x, y); }
+      const w=canvas.width/DPR, h=canvas.height/DPR, step=8;
+      backdrop.mountains.forEach((L,idx)=>{ ctx.fillStyle=`rgba(0,0,0,${0.25 + L.shade})`; ctx.beginPath(); ctx.moveTo(0,h);
+        for(let x=0;x<=w;x+=step){ const wx=view.x*L.parallax + x, y=mountainYAt(L, wx) - view.y*0.08*idx; ctx.lineTo(x,y); }
         ctx.lineTo(w,h); ctx.closePath(); ctx.fill();
       });
     }
-
-    // --- Grass
-    const GRASS_STEP = 26, GRASS_DENSITY = 3;
+    // Grass
+    const GRASS_STEP=26, GRASS_DENSITY=3;
     function drawGrass(){
-      if(!hole){ return; }
-      ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
-      const start = Math.floor((view.x-40)/GRASS_STEP)*GRASS_STEP; const end = view.x + view.w + 40;
-      for(let wx=start; wx<end; wx+=GRASS_STEP){
-        const gx = clamp(wx,0,hole.w); const gy = groundYAt(gx) - view.y; if(gy< -20 || gy > canvas.height/DPR+20) continue;
-        for(let k=0;k<GRASS_DENSITY;k++){
-          const idx = ((gx|0)*7 + k)|0; const h = 7 + rand01(backdrop.seed ^ 0xabc123, idx)*10; const lean = (rand01(backdrop.seed ^ 0x55aa55, idx+13)-0.5)*8;
-          const baseX = gx - view.x + (k-1)*(2 + rand01(backdrop.seed ^ 0x999,idx+21)*2);
-          ctx.beginPath(); ctx.moveTo(baseX, gy);
-          const ctrlX = baseX + lean*0.45; const ctrlY = gy - h*0.55; const tipX = baseX + lean; const tipY = gy - h;
-          ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY); ctx.stroke();
+      if(!hole) return; ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
+      const start=Math.floor((view.x-40)/GRASS_STEP)*GRASS_STEP, end=view.x + view.w + 40;
+      for(let wx=start; wx<end; wx+=GRASS_STEP){ const gx=clamp(wx,0,hole.w), gy=groundYAt(gx) - view.y; if(gy<-20 || gy>canvas.height/DPR+20) continue;
+        for(let k=0;k<GRASS_DENSITY;k++){ const idx=((gx|0)*7 + k)|0, h=7 + rand01(backdrop.seed ^ 0xabc123, idx)*10, lean=(rand01(backdrop.seed ^ 0x55aa55, idx+13)-0.5)*8;
+          const baseX=gx - view.x + (k-1)*(2 + rand01(backdrop.seed ^ 0x999,idx+21)*2);
+          ctx.beginPath(); ctx.moveTo(baseX, gy); ctx.quadraticCurveTo(baseX + lean*0.45, gy - h*0.55, baseX + lean, gy - h); ctx.stroke();
         }
-      }
-      ctx.restore();
+      } ctx.restore();
     }
-
-    // --- Landmarks
+    // Landmarks
     function drawLandmarks(){
-      const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg');
-      ctx.fillStyle = fg; ctx.strokeStyle = fg; ctx.lineWidth = 2;
-      for(const L of backdrop.landmarks){
-        const gx = L.x - view.x;
-        if(gx < -120 || gx > view.w+120) continue;
-        const gy = groundYAt(L.x) - view.y;
-        if(L.type === 'tree'){ drawTree(gx, gy, L.seed); }
-        else if(L.type === 'windmill'){ drawWindmill(gx, gy, L.seed); }
-        else if(L.type === 'lighthouse'){ drawLighthouse(gx, gy, L.seed); }
-        else if(L.type === 'city'){ drawCitySil(gx, gy, L.seed); }
+      const fg=getComputedStyle(document.documentElement).getPropertyValue('--fg'); ctx.fillStyle=fg; ctx.strokeStyle=fg; ctx.lineWidth=2;
+      for(const L of backdrop.landmarks){ const gx=L.x - view.x; if(gx<-120 || gx>view.w+120) continue; const gy=groundYAt(L.x) - view.y;
+        if(L.type==='tree') drawTree(gx,gy,L.seed); else if(L.type==='windmill') drawWindmill(gx,gy,L.seed); else if(L.type==='lighthouse') drawLighthouse(gx,gy,L.seed); else if(L.type==='city') drawCitySil(gx,gy,L.seed);
       }
     }
-    function drawTree(x, y, s){
-      const h = 46 + rand01(s,1)*24;
-      ctx.fillRect(x-3, y-h*0.6, 6, h*0.6);
-      ctx.beginPath(); ctx.arc(x, y-h*0.75, h*0.35, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(x-12, y-h*0.62, h*0.28, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(x+12, y-h*0.62, h*0.28, 0, TAU); ctx.fill();
+    function drawTree(x,y,s){ const h=46 + rand01(s,1)*24; ctx.fillRect(x-3, y-h*0.6, 6, h*0.6); ['0.75','0.62','0.62'].forEach((f,i)=>{ const r=h*(i?0.28:0.35), ox=i===1?-12:(i===2?12:0); ctx.beginPath(); ctx.arc(x+ox, y-h*parseFloat(f), r, 0, TAU); ctx.fill(); }); }
+    function drawWindmill(x,y,s){ const h=70 + rand01(s,2)*30; ctx.beginPath(); ctx.moveTo(x-8,y); ctx.lineTo(x,y-h); ctx.lineTo(x+8,y); ctx.closePath(); ctx.fill(); const hubY=y-h, hubR=3.5; ctx.beginPath(); ctx.arc(x,hubY,hubR,0,TAU); ctx.fill(); const windMag=Math.abs(windAx)/900, omega=(0.4+1.2*windMag)*(windAx>=0?1:-1), ang=globalTime*omega; drawBlade(x,hubY,ang,22); drawBlade(x,hubY,ang+TAU/3,22); drawBlade(x,hubY,ang+2*TAU/3,22); }
+    function drawBlade(x,y,ang,len){ ctx.save(); ctx.translate(x,y); ctx.rotate(ang); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(len,2); ctx.lineTo(len,-2); ctx.closePath(); ctx.fill(); ctx.restore(); }
+    function drawLighthouse(x,y,s){ const h=86 + rand01(s,3)*24; ctx.fillRect(x-6, y-h*0.55, 12, h*0.55); ctx.fillRect(x-8, y-h*0.70, 16, 6); const beamAng=(globalTime*0.4 + s)%TAU, bx0=x, by0=y-h*0.68; ctx.save(); ctx.globalAlpha=0.07; ctx.beginPath(); ctx.moveTo(bx0,by0); ctx.lineTo(bx0 + Math.cos(beamAng)*120, by0 + Math.sin(beamAng)*40); ctx.lineTo(bx0 + Math.cos(beamAng)*120, by0 + Math.sin(beamAng)*(-40)); ctx.closePath(); ctx.fillStyle='#ffffff'; ctx.fill(); ctx.restore(); }
+    function drawCitySil(x,y,s){ const n=4 + Math.floor(rand01(s,4)*4); for(let i=0;i<n;i++){ const w=12 + rand01(s,50+i)*18, h=30 + rand01(s,60+i)*38, dx=-40 + i*(w+6) + (rand01(s,70+i)-0.5)*10; ctx.fillRect(x+dx, y-h, w, h); } }
+    function drawBall(){ const trailColor=getComputedStyle(document.documentElement).getPropertyValue('--accent'); if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){ ctx.strokeStyle=trailColor; ctx.globalAlpha=0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y); ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1; } ctx.fillStyle='#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, TAU); ctx.fill(); ctx.strokeStyle='rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke(); }
+    function drawAimArrow(){ const b=worldToScreen(ball.x,ball.y), len=80+meter*160, x2=b.x + Math.cos(aimAngle)*len, y2=b.y + Math.sin(aimAngle)*len; ctx.save(); ctx.scale(DPR,DPR); ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent3'); ctx.lineWidth=3; ctx.globalAlpha=0.9; ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke(); const a=aimAngle, ah=10, aw=7; ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR); ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR); ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill(); ctx.restore(); }
+    function drawFlag(flagX,flagY){ ctx.strokeStyle='rgba(255,255,255,.7)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(flagX,flagY); ctx.lineTo(flagX,flagY+60); ctx.stroke();
+      const dir=(windAx>=0)?1:-1, mag=Math.min(1, Math.abs(windAx)/900), len=26+mag*10, amp=2+mag*6, t=globalTime*(1.8+mag*1.4), base={x:flagX,y:flagY+2};
+      const p1={ x:base.x + dir*(len*0.4), y:base.y + Math.sin(t+0.0)*amp*0.4 }, p2={ x:base.x + dir*(len*0.8), y:base.y + Math.sin(t+0.6)*amp*0.7 }, tip={ x:base.x + dir*(len*1.0), y:base.y + Math.sin(t+1.2)*amp };
+      ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent2'); ctx.beginPath(); ctx.moveTo(base.x,base.y); ctx.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y); ctx.lineTo(p2.x,p2.y+8); ctx.quadraticCurveTo(p1.x,p1.y+8,base.x,base.y+8); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(p2.x,p2.y); ctx.lineTo(tip.x,tip.y+4); ctx.lineTo(p2.x,p2.y+8); ctx.closePath(); ctx.fill();
     }
-    function drawWindmill(x, y, s){
-      const h = 70 + rand01(s,2)*30;
-      ctx.beginPath(); ctx.moveTo(x-8, y); ctx.lineTo(x, y-h); ctx.lineTo(x+8, y); ctx.closePath(); ctx.fill();
-      const hubY = y - h; const hubR = 3.5;
-      ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
-      const windMag = Math.abs(windAx)/900;
-      const omega = (0.4 + 1.2*windMag) * (windAx>=0?1:-1);
-      const ang = globalTime*omega;
-      drawBlade(x, hubY, ang, 22);
-      drawBlade(x, hubY, ang+TAU/3, 22);
-      drawBlade(x, hubY, ang+2*TAU/3, 22);
-    }
-    function drawBlade(x,y,ang,len){
-      ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(len,2); ctx.lineTo(len,-2); ctx.closePath(); ctx.fill();
-      ctx.restore();
-    }
-    function drawLighthouse(x,y,s){
-      const h = 86 + rand01(s,3)*24;
-      ctx.fillRect(x-6, y-h*0.55, 12, h*0.55);
-      ctx.fillRect(x-8, y-h*0.70, 16, 6);
-      const beamAng = (globalTime*0.4 + s)%TAU;
-      const bx0 = x, by0 = y-h*0.68;
-      ctx.save();
-      ctx.globalAlpha = 0.07;
-      ctx.beginPath();
-      ctx.moveTo(bx0,by0);
-      ctx.lineTo(bx0 + Math.cos(beamAng)*120, by0 + Math.sin(beamAng)*40);
-      ctx.lineTo(bx0 + Math.cos(beamAng)*120, by0 + Math.sin(beamAng)*(-40));
-      ctx.closePath();
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.restore();
-    }
-    function drawCitySil(x,y,s){
-      const n = 4 + Math.floor(rand01(s,4)*4);
-      for(let i=0;i<n;i++){
-        const w = 12 + rand01(s,50+i)*18;
-        const h = 30 + rand01(s,60+i)*38;
-        const dx = -40 + i*(w+6) + (rand01(s,70+i)-0.5)*10;
-        ctx.fillRect(x+dx, y-h, w, h);
-      }
-    }
+    function drawVignette(){ const w=canvas.width/DPR, h=canvas.height/DPR; const g=ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
 
-    function drawBall(){ const cs = getComputedStyle(document.documentElement); const trailColor = cs.getPropertyValue('--accent'); if(!ball.atRest && Math.hypot(ball.vx,ball.vy)>320){ ctx.strokeStyle = trailColor; ctx.globalAlpha = 0.25; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(ball.x - view.x, ball.y - view.y); ctx.lineTo(ball.x - ball.vx*0.05 - view.x, ball.y - ball.vy*0.05 - view.y); ctx.stroke(); ctx.globalAlpha=1; } ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(ball.x - view.x, ball.y - view.y, ball.r, 0, TAU); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth=1; ctx.stroke(); }
-
-    function drawAimArrow(){ const b = worldToScreen(ball.x, ball.y); const len = 80 + meter*160; const x2 = b.x + Math.cos(aimAngle)*len; const y2 = b.y + Math.sin(aimAngle)*len; ctx.save(); ctx.scale(DPR,DPR); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent3'); ctx.lineWidth=3; ctx.globalAlpha=0.9; ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke(); const a=aimAngle; const ah = 10; const aw = 7; ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR); ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR); ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill(); ctx.restore(); }
-
-    function drawFlag(flagX, flagY){
-      ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(flagX, flagY); ctx.lineTo(flagX, flagY+60); ctx.stroke();
-
-      const dir = (windAx>=0)? 1 : -1;
-      const mag = Math.min(1, Math.abs(windAx)/900);
-      const len = 26 + mag*10;
-      const amp = 2 + mag*6;
-      const t = globalTime * (1.8 + mag*1.4);
-      const base = { x:flagX, y:flagY+2 };
-
-      const p1 = { x: base.x + dir*(len*0.4), y: base.y + Math.sin(t+0.0)*amp*0.4 };
-      const p2 = { x: base.x + dir*(len*0.8), y: base.y + Math.sin(t+0.6)*amp*0.7 };
-      const tip= { x: base.x + dir*(len*1.0), y: base.y + Math.sin(t+1.2)*amp };
-
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent2');
-      ctx.beginPath();
-      ctx.moveTo(base.x, base.y);
-      ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
-      ctx.lineTo(p2.x, p2.y+8);
-      ctx.quadraticCurveTo(p1.x, p1.y+8, base.x, base.y+8);
-      ctx.closePath(); ctx.fill();
-
-      ctx.beginPath();
-      ctx.moveTo(p2.x, p2.y);
-      ctx.lineTo(tip.x, tip.y+4);
-      ctx.lineTo(p2.x, p2.y+8);
-      ctx.closePath(); ctx.fill();
-    }
-
-    function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
-
-    // ===== Resize
-    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
+    // Resize
+    function resize(){ DPR=Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width=Math.floor(window.innerWidth*DPR); canvas.height=Math.floor(window.innerHeight*DPR); view.w=canvas.width/DPR; view.h=canvas.height/DPR; buildBackdrop(); }
     window.addEventListener('resize', resize); resize();
 
-    // ===== Main loop
-    let last=0; function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; update(dt); draw(); requestAnimationFrame(loop); } requestAnimationFrame(loop);
+    // Main loop
+    let last=0; function loop(t){ try{ const now=t/1000; const dt=Math.min(0.033, last? now-last:0.016); last=now; update(dt); draw(); }catch(e){ console.error('[DuskDrive] loop error', e); } requestAnimationFrame(loop); } requestAnimationFrame(loop);
 
-    // ===== UI wiring (with guards)
-    if(btnPlay) btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
-    if(btnPlayAgain) btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; newRound(); });
-    if(btnNewRound) btnNewRound.addEventListener('click', ()=>{ newRound(); });
-    if(btnSettings) btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
-    if(btnCloseSettings) btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
-    if(chkReduced) chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
-    if(chkAudio) chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
-    if(chkWind) chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
+    // ====== UI wiring (resilient) ======
+    function startRound(){ hideIntro(); newRound(); }
+    function hideIntro(){ if(screenIntro) screenIntro.style.display='none'; }
+    function hideSummary(){ if(screenSummary) screenSummary.style.display='none'; }
+    function showSummary(){ if(screenSummary) screenSummary.style.display='grid'; }
+
+    btnPlay?.addEventListener('click', startRound);
+    // Also allow clicking anywhere on the intro overlay:
+    screenIntro?.addEventListener('click', (e)=>{ if(e.target===screenIntro) startRound(); });
+    btnPlayAgain?.addEventListener('click', ()=>{ hideSummary(); newRound(); });
+    btnNewRound?.addEventListener('click', ()=>{ newRound(); });
+    btnSettings?.addEventListener('click', ()=>{ if(screenSettings) screenSettings.style.display='grid'; });
+    btnCloseSettings?.addEventListener('click', ()=>{ if(screenSettings) screenSettings.style.display='none'; });
+    chkReduced?.addEventListener('change', ()=>{ reducedMotion = !!chkReduced.checked; });
+    chkAudio?.addEventListener('change', ()=>{ AudioMini.setEnabled(!!chkAudio.checked); });
+    chkWind?.addEventListener('change', ()=>{ windOn = !!chkWind.checked; AudioMini.setWind(windOn); updateWindUI(); });
+
+    // Keyboard fallbacks
+    window.addEventListener('keydown', (e)=>{ const k=e.key.toLowerCase(); if((k==='enter'||k==='s') && screenIntro && screenIntro.style.display!=='none'){ startRound(); } });
 
     // Build initial UI
     buildClubs(); updateWindUI();
 
-    // Emergency start (press S) if needed
-    window.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase()==='s'){ screenIntro.style.display='none'; newRound(); } });
-
-    // Self-check (call in console: DuskDriveTests.run())
+    // Quick self-check exposed for debugging
     window.DuskDriveTests = {
-      run(){
-        let ok=0, fail=0;
-        function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
-        test('Start round', ()=>{ newRound(); });
-        test('Update/draw', ()=>{ update(0.016); draw(); });
+      run(){ let ok=0, fail=0; function test(n,fn){ try{ fn(); console.log('%c✔ '+n,'color:#10b981'); ok++; }catch(e){ console.error('✖ '+n,e); fail++; } }
+        test('Bootstrap resize', ()=>{ resize(); });
+        test('Start round', ()=>{ startRound(); });
+        test('Update/draw tick', ()=>{ update(0.016); draw(); });
         console.log(`Tests: ${ok} passed, ${fail} failed.`);
       }
     };
