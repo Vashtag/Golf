@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.0)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.1)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -98,7 +98,7 @@
       <h1>🥏 Dusk Drive — Disc Golf</h1>
       <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, wind & glide, disc turn/fade.</div>
       <div class="grid">
-        <div class="tag">Drivers • Fairways • Mids • Putters</div>
+        <div class="tag">Driver • Midrange • Putter</div>
         <div class="tag">Wind & Lift</div>
         <div class="tag">Turn/Fade Curve</div>
         <div class="tag">Procedural Holes</div>
@@ -162,7 +162,7 @@
     const elWindArrow = document.getElementById('windArrow');
     const elPowermeter = document.getElementById('powermeter');
     const elPowerfill = document.getElementById('powerfill');
-    const clubSeg = document.getElementById('clubSeg'); // reused id; now "discs"
+    const clubSeg = document.getElementById('clubSeg'); // discs
     const spinSeg = document.getElementById('spinSeg');
     const handSeg = document.getElementById('handSeg');
 
@@ -188,12 +188,11 @@
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // Discs (speed: power scaling, glide: lift factor, turn(<0)/fade(>0) magnitudes)
+    // Discs — Driver, Midrange, Putter
     const DISCS = [
-      { id:'DRV', name:'Driver',  speed:1.00, glide:1.00, turn:-2.0, fade:2.5 },
-      { id:'FAI', name:'Fairway', speed:0.92, glide:1.05, turn:-1.5, fade:2.0 },
-      { id:'MID', name:'Mid',     speed:0.80, glide:1.10, turn:-1.0, fade:1.4 },
-      { id:'PUT', name:'Putter',  speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
+      { id:'DRV', name:'Driver',   speed:1.00, glide:1.00, turn:-2.0, fade:2.5 },
+      { id:'MID', name:'Midrange', speed:0.80, glide:1.10, turn:-1.0, fade:1.4 },
+      { id:'PUT', name:'Putter',   speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
     ];
 
     // Surfaces tuned for discs (less bounce, more slide-stop)
@@ -206,15 +205,15 @@
     };
 
     const GRAV = 3000;
-    const AIR_DRAG = 0.0012; // quadratic-ish (applied via v*component)
-    const LIFT_K   = 0.0009; // lift magnitude vs v^2 and AoA
-    const TURN_K   = 40;     // horizontal curve factor (turn/fade)
+    const AIR_DRAG = 0.0012; // quadratic-ish
+    const LIFT_K   = 0.0009;
+    const TURN_K   = 40;
     let reducedMotion = false;
 
     // Wind
     let windOn = true; let windAx = 0;
 
-    // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
+    // Release angle: -1 hyzer, 0 flat, 1 anhyzer
     let releaseMode = 0;
     function releaseDeg(){ return releaseMode * 15; }
 
@@ -442,7 +441,7 @@
       }
     }
 
-    // ===== Flocks (reuse from your version)
+    // ===== Flocks
     function buildFlocks(){
       backdrop.flocks.length = 0;
       if(!backdrop.mountains.length) return;
@@ -594,7 +593,7 @@
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
       windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI();
-      disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; strokes=0; elStrokes.textContent=strokes;
+      const d = disc; d.x = hole.tee.x; d.y = hole.tee.y - d.r - 1; d.vx=0; d.vy=0; d.atRest=true; d.onGround=true; d.lastSafe={x:d.x,y:d.y}; d.orient=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
     }
 
@@ -616,7 +615,7 @@
         b.addEventListener('click',()=>selectDisc(idx));
         clubSeg.appendChild(b);
       });
-      selectDisc(1); // default Fairway
+      selectDisc(1); // default Midrange
     }
     let currentDisc = DISCS[1];
     function selectDisc(i){ currentDisc = DISCS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
@@ -642,10 +641,10 @@
       const d = currentDisc;
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
       const base = 1400; const power = (0.25 + 0.75*meter) * d.speed * powerMul; const speed = base * power;
-      const dir = aimAngle; // pure release direction in 2D
+      const dir = aimAngle;
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
-      disc.orient = dir + (-4 * Math.PI/180); // slight nose-down by default
+      disc.orient = dir + (-4 * Math.PI/180); // slight nose-down
       disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16); AudioMini.thwack();
     }
 
@@ -670,11 +669,11 @@
           const dragX = -AIR_DRAG * v * vx;
           const dragY = -AIR_DRAG * v * vy;
 
-          // Lift from glide + angle of attack (relative to velocity)
+          // Lift from glide + AoA
           const vAngle = Math.atan2(vy, vx);
           const rel = normalizeAngle((disc.orient) - vAngle); // AoA
           const aoa = clamp(rel, -0.6, 0.6); // clamp to ±~34°
-          const lift = LIFT_K * currentDisc.glide * v*v * aoa; // upward for +aoa
+          const lift = LIFT_K * currentDisc.glide * v*v * aoa;
 
           // Turn/Fade horizontal curve
           const vRef = 1400;
@@ -689,7 +688,7 @@
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          // gentle orient settle toward release (adds stability feel)
+          // orient settle toward release (+ hyzer/anhyzer)
           const targetOrient = aimAngle + (releaseDeg()*Math.PI/180) * spinSign();
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*1.8));
 
@@ -699,7 +698,6 @@
             const surface = surfaceAt(disc.x); const rest = SURF[surface]?.rest ?? 0.18; disc.y = gy - disc.r - 0.01; disc.onGround=true;
             if(Math.abs(disc.vy) > 120){ if(surface==='sand') spawnParticles('sand', disc.x, disc.y+disc.r, 12); else spawnParticles('dust', disc.x, disc.y+disc.r, 8); }
             disc.vy = -disc.vy * rest;
-            // tiny ground slide damping
             disc.vx *= 0.86;
             if(Math.abs(disc.vy) < 120){ disc.vy = 0; }
           }
@@ -757,7 +755,7 @@
       drawSkyGradient();
       drawSun();
       drawFarLandmarks();
-      drawFlocks();          // birds before clouds
+      drawFlocks();
       drawClouds();
       drawMountains();
 
@@ -879,7 +877,11 @@
         ctx.save();
         const h=46*s, baseW=10*s, topW=7*s;
         ctx.fillStyle='rgba(0,0,0,0.32)'; ctx.beginPath();
-        ctx.moveTo(x - baseW/2, baselineY); ctx.lineTo(x + baseW/2, baselineY); ctx.lineTo(x + topW/2, baselineY - h); ctx.lineTo(x - topW/2, baselineY - h); ctx.closePath(); ctx.fill();
+        ctx.moveTo(x - baseW/2, baselineY);
+        ctx.lineTo(x + baseW/2, baselineY);
+        ctx.lineTo(x + topW/2, baselineY - h);
+        ctx.lineTo(x - topW/2, baselineY - h);
+        ctx.closePath(); ctx.fill();
         ctx.fillStyle='rgba(0,0,0,0.36)'; ctx.beginPath(); ctx.moveTo(x - topW*0.7, baselineY - h); ctx.lineTo(x + topW*0.7, baselineY - h); ctx.lineTo(x, baselineY - h - 5*s); ctx.closePath(); ctx.fill();
         ctx.restore();
       }
@@ -976,13 +978,13 @@
         ctx.lineTo(disc.x - disc.vx*0.05 - view.x, disc.y - disc.vy*0.05 - view.y); 
         ctx.stroke(); ctx.globalAlpha=1; 
       } 
-      // simple flat disc: oriented capsule-ish
+      // simple flat disc: oriented ellipse
       ctx.save();
       ctx.translate(disc.x - view.x, disc.y - view.y);
       ctx.rotate(disc.orient);
       ctx.fillStyle = '#f8fafc';
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
-      const R = disc.r, T = 2.6;
+      const R = disc.r;
       ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
       // rim hint
       ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
@@ -1023,7 +1025,7 @@
       // rim ring
       ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
 
-      // chains (simple)
+      // chains
       ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
         const t = i/6 * TAU;
