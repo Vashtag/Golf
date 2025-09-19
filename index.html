@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.4 • aero)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.0)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -98,7 +98,7 @@
       <h1>🥏 Dusk Drive — Disc Golf</h1>
       <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, wind & glide, disc turn/fade.</div>
       <div class="grid">
-        <div class="tag">Driver • Midrange • Putter</div>
+        <div class="tag">Drivers • Fairways • Mids • Putters</div>
         <div class="tag">Wind & Lift</div>
         <div class="tag">Turn/Fade Curve</div>
         <div class="tag">Procedural Holes</div>
@@ -162,7 +162,7 @@
     const elWindArrow = document.getElementById('windArrow');
     const elPowermeter = document.getElementById('powermeter');
     const elPowerfill = document.getElementById('powerfill');
-    const clubSeg = document.getElementById('clubSeg'); // discs
+    const clubSeg = document.getElementById('clubSeg'); // reused id; now "discs"
     const spinSeg = document.getElementById('spinSeg');
     const handSeg = document.getElementById('handSeg');
 
@@ -188,11 +188,12 @@
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // Discs — Driver, Midrange, Putter
+    // Discs (speed: power scaling, glide: lift factor, turn(<0)/fade(>0) magnitudes)
     const DISCS = [
-      { id:'DRV', name:'Driver',   speed:1.00, glide:1.00, turn:-2.0, fade:2.5 },
-      { id:'MID', name:'Midrange', speed:0.80, glide:1.10, turn:-1.0, fade:1.4 },
-      { id:'PUT', name:'Putter',   speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
+      { id:'DRV', name:'Driver',  speed:1.00, glide:1.00, turn:-2.0, fade:2.5 },
+      { id:'FAI', name:'Fairway', speed:0.92, glide:1.05, turn:-1.5, fade:2.0 },
+      { id:'MID', name:'Mid',     speed:0.80, glide:1.10, turn:-1.0, fade:1.4 },
+      { id:'PUT', name:'Putter',  speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
     ];
 
     // Surfaces tuned for discs (less bounce, more slide-stop)
@@ -204,28 +205,16 @@
       rock:    { fric: 460, rest: 0.22 }
     };
 
-    // --- Disc aerodynamics (pixels, seconds) ---
-    const GRAV   = 3000;
-
-    // Quadratic aero (q ~ v^2). Tune DRAG_K/LIFT_K to taste.
-    const DRAG_K = 0.00042;            // base drag scale
-    const LIFT_K = 0.0022;             // base lift scale (higher => more glide)
-
-    // Coefficients vs angle of attack (AoA, radians)
-    const CLA    = 3.1;                // lift slope per radian (linear region)
-    const STALL  = Math.PI/9;          // ~20° stall softness
-    const CD0    = 0.08;               // base drag coefficient
-    const CD_AOA = 0.60;               // extra drag with AoA^2
-
-    // Horizontal “turn/fade” curve force (side-view proxy for roll-yaw)
-    const TURN_K = 60;
-
+    const GRAV = 3000;
+    const AIR_DRAG = 0.0012; // quadratic-ish (applied via v*component)
+    const LIFT_K   = 0.0009; // lift magnitude vs v^2 and AoA
+    const TURN_K   = 40;     // horizontal curve factor (turn/fade)
     let reducedMotion = false;
 
     // Wind
     let windOn = true; let windAx = 0;
 
-    // Release angle: -1 hyzer, 0 flat, 1 anhyzer
+    // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
     let releaseMode = 0;
     function releaseDeg(){ return releaseMode * 15; }
 
@@ -237,17 +226,6 @@
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
-
-    // Small helpers
-    function deg(n){ return n * Math.PI / 180; }
-    function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
-    function lerp(a,b,t){ return a + (b-a)*t; }
-    function normalizeAngle(a){
-      while(a > Math.PI) a -= Math.PI*2;
-      while(a < -Math.PI) a += Math.PI*2;
-      return a;
-    }
-    const isFiniteNum = n => typeof n === 'number' && Number.isFinite(n);
 
     // Audio (minimal)
     const AudioMini = (()=>{
@@ -464,7 +442,7 @@
       }
     }
 
-    // ===== Flocks
+    // ===== Flocks (reuse from your version)
     function buildFlocks(){
       backdrop.flocks.length = 0;
       if(!backdrop.mountains.length) return;
@@ -557,37 +535,10 @@
     // Aim/meter state
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
-    // ---- Aero forces helper
-    function aeroForces(vx, vy, orient, glideMul){
-      const v = Math.hypot(vx, vy) || 0.0001;
-      const ex = vx / v, ey = vy / v;               // unit along velocity
-      const vAngle = Math.atan2(vy, vx);
+    function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
+    function lerp(a,b,t){ return a + (b-a)*t; }
+    function sgn(v){ return v<0? -1 : 1; }
 
-      // Angle of attack (nose vs relative wind)
-      let aoa = normalizeAngle(orient - vAngle);
-
-      // Soft stall: taper lift as |AoA| exceeds STALL
-      const stallScale = Math.exp(-Math.pow(Math.abs(aoa)/STALL, 2) * 0.8);
-
-      const Cl = CLA * aoa * stallScale;                        // signed lift coef
-      const Cd = CD0 + 0.08*aoa*aoa + CD_AOA*(Cl*Cl);           // drag grows with AoA & lift
-
-      const q  = v * v;                                         // dynamic pressure proxy
-
-      // Drag opposes velocity
-      const dragMag = DRAG_K * q * Cd;
-      const dragX   = -dragMag * ex;
-      const dragY   = -dragMag * ey;
-
-      // Lift is perpendicular (CCW) to velocity: (-ey, +ex). Sign via Cl.
-      const liftMag = LIFT_K * q * Cl * glideMul;
-      const liftX   = liftMag * (-ey);
-      const liftY   = liftMag * ( +ex);
-
-      return { v, vAngle, aoa, dragX, dragY, liftX, liftY };
-    }
-
-    // ===== Hole generation
     function genHole(){
       const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0; let seed = Math.random()*9999;
       function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
@@ -619,23 +570,7 @@
       return { w, h, points, step, cupX, green:{x0:gx0,x1:gx1,y:greenY}, water, sand, tee:{x:teeX,y:teeY}, par };
     }
 
-    // ===== Hardened ground sampler (fixes freeze)
-    function groundYAt(x){
-      if(!hole || !hole.points || hole.points.length < 2) return WORLD.h;
-      x = Number.isFinite(x) ? x : 0;
-      x = clamp(x, 0, hole.w);
-
-      let i = Math.floor(x / hole.step);
-      if (i < 0) i = 0;
-      if (i >= hole.points.length - 1) i = hole.points.length - 2;
-
-      const p0 = hole.points[i];
-      const p1 = hole.points[i+1] || p0;
-      const span = (p1.x - p0.x) || 1;
-      const t = clamp((x - p0.x) / span, 0, 1);
-      return lerp(p0.y, p1.y, t);
-    }
-
+    function groundYAt(x){ x = clamp(x, 0, hole.w); const i = clamp(Math.floor(x/hole.step), 0, hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
     function surfaceAt(x){
       if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
       const dxSand = x - hole.sand.x; const y = groundYAt(x); if(Math.hypot(dxSand, y - hole.sand.y) <= hole.sand.r) return 'sand';
@@ -659,7 +594,7 @@
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
       windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI();
-      const d = disc; d.x = hole.tee.x; d.y = hole.tee.y - d.r - 1; d.vx=0; d.vy=0; d.atRest=true; d.onGround=true; d.lastSafe={x:d.x,y:d.y}; d.orient=0; strokes=0; elStrokes.textContent=strokes;
+      disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
     }
 
@@ -681,7 +616,7 @@
         b.addEventListener('click',()=>selectDisc(idx));
         clubSeg.appendChild(b);
       });
-      selectDisc(1); // default Midrange
+      selectDisc(1); // default Fairway
     }
     let currentDisc = DISCS[1];
     function selectDisc(i){ currentDisc = DISCS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
@@ -707,11 +642,10 @@
       const d = currentDisc;
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
       const base = 1400; const power = (0.25 + 0.75*meter) * d.speed * powerMul; const speed = base * power;
-      const dir = aimAngle;
+      const dir = aimAngle; // pure release direction in 2D
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
-      // start slightly nose-down + apply hyzer/anhyzer sign at release
-      disc.orient = dir + deg(-6 + releaseDeg()*spinSign());
+      disc.orient = dir + (-4 * Math.PI/180); // slight nose-down by default
       disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16); AudioMini.thwack();
     }
 
@@ -729,52 +663,43 @@
 
       if(!disc.atRest){
         if(!disc.onGround){
-          // === Airborne disc dynamics (disc-like) ===
-          const F = aeroForces(disc.vx, disc.vy, disc.orient, currentDisc.glide);
+          const v = Math.hypot(disc.vx, disc.vy) || 0.0001;
+          const vx = disc.vx, vy = disc.vy;
 
-          // Speed fraction for turn/fade blending (1 at high speed, 0 near stall)
+          // Drag (approx quadratic)
+          const dragX = -AIR_DRAG * v * vx;
+          const dragY = -AIR_DRAG * v * vy;
+
+          // Lift from glide + angle of attack (relative to velocity)
+          const vAngle = Math.atan2(vy, vx);
+          const rel = normalizeAngle((disc.orient) - vAngle); // AoA
+          const aoa = clamp(rel, -0.6, 0.6); // clamp to ±~34°
+          const lift = LIFT_K * currentDisc.glide * v*v * aoa; // upward for +aoa
+
+          // Turn/Fade horizontal curve
           const vRef = 1400;
-          const tPow = clamp(F.v / vRef, 0, 1);
+          const tPow = clamp(v / vRef, 0, 1); // 1 at high speed, 0 at stop
+          const curve = spinSign() * (currentDisc.turn * tPow - currentDisc.fade * (1 - tPow));
+          const curveAx = TURN_K * curve;
 
-          // Turn (high speed) and fade (low speed), signed by hand (RHBH/LHBH)
-          const turnTerm =  Math.pow(tPow, 1.6)       * currentDisc.turn;     // more at speed
-          const fadeTerm =  Math.pow(1 - tPow, 1.2)   * currentDisc.fade;     // more as it slows
-          const curveAx  = TURN_K * spinSign() * (turnTerm - fadeTerm);
+          // Wind + aero + gravity
+          const ax = (windOn? windAx:0) + dragX + curveAx;
+          const ay = GRAV + dragY - lift;
 
-          // Wind as horizontal push (simple)
-          const windAcc = windOn ? windAx : 0;
+          disc.vx += ax*dt; disc.vy += ay*dt;
+          disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          // Sum forces -> acceleration
-          const ax = windAcc + F.dragX + F.liftX + curveAx;
-          const ay = GRAV    + F.dragY - F.liftY;   // lift opposes gravity
+          // gentle orient settle toward release (adds stability feel)
+          const targetOrient = aimAngle + (releaseDeg()*Math.PI/180) * spinSign();
+          disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*1.8));
 
-          // Integrate motion
-          disc.vx += ax * dt;
-          disc.vy += ay * dt;
-          disc.x  += disc.vx * dt;
-          disc.y  += disc.vy * dt;
-
-          // Nose behavior: at speed slight nose-down; slows => noses up (fade)
-          const noseLo = -6;   // deg
-          const noseHi =  12;  // deg
-          const noseCmdDeg = lerp(noseLo, noseHi, 1 - Math.pow(tPow, 1.5)) + (releaseDeg() * spinSign());
-
-          // Target orientation = align to relative wind plus commanded nose
-          const targetOrient = Math.atan2(F.vy, F.vx) + deg(noseCmdDeg);
-
-          // Critically damped approach to target orientation
-          disc.orient += normalizeAngle(targetOrient - disc.orient) * (1 - Math.exp(-dt * 4.5));
-
-          // --- ground collision ---
-          // keep x in-bounds for sampling to avoid edge indices (fix)
-          if (disc.x < 0) disc.x = 0;
-          else if (disc.x > hole.w) disc.x = hole.w;
-
+          // ground collision
           const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
             const surface = surfaceAt(disc.x); const rest = SURF[surface]?.rest ?? 0.18; disc.y = gy - disc.r - 0.01; disc.onGround=true;
             if(Math.abs(disc.vy) > 120){ if(surface==='sand') spawnParticles('sand', disc.x, disc.y+disc.r, 12); else spawnParticles('dust', disc.x, disc.y+disc.r, 8); }
             disc.vy = -disc.vy * rest;
+            // tiny ground slide damping
             disc.vx *= 0.86;
             if(Math.abs(disc.vy) < 120){ disc.vy = 0; }
           }
@@ -813,6 +738,12 @@
       centerCameraOnDisc();
     }
 
+    function normalizeAngle(a){
+      while(a > Math.PI) a -= TAU;
+      while(a < -Math.PI) a += TAU;
+      return a;
+    }
+
     // Camera follow
     function centerCameraOnDisc(){
       if(!hole){ return; }
@@ -826,7 +757,7 @@
       drawSkyGradient();
       drawSun();
       drawFarLandmarks();
-      drawFlocks();
+      drawFlocks();          // birds before clouds
       drawClouds();
       drawMountains();
 
@@ -880,37 +811,23 @@
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
 
-    // --- Sun (hardened)
+    // --- Sun
     function drawSun(){
-      const m = backdrop.sun;
-      if(!m) return;
-
+      const m = backdrop.sun; if(!m) return;
       const parX = 0.05, parY = 0.02;
-
-      const u = isFiniteNum(m.u) ? m.u : 0.5;
-      const v = isFiniteNum(m.v) ? m.v : 0.25;
-      const phase = isFiniteNum(m.phase) ? m.phase : 0;
-      const baseR = Math.max(4, isFiniteNum(m.baseR) ? m.baseR : 24);
-
-      const drift = Math.sin(clock*0.05 + phase) * 12;
-      const xw = WORLD.w * u, yw = WORLD.h * v;
-
-      let x = (xw - view.x*parX) + drift;
-      let y = (yw - view.y*parY);
-      let r = baseR;
-
-      if(!isFiniteNum(x) || !isFiniteNum(y) || !isFiniteNum(r)) return;
-
-      const inner = Math.max(0, r * 0.8);
-      const outer = Math.max(inner + 1, r * 4.0);
+      const drift = Math.sin(clock*0.05 + m.phase) * 12;
+      const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
+      const x = (xw - view.x*parX) + drift;
+      const y = (yw - view.y*parY);
+      const r = m.baseR;
 
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const halo = ctx.createRadialGradient(x, y, inner, x, y, outer);
+      const halo = ctx.createRadialGradient(x, y, r*0.8, x, y, r*4.0);
       halo.addColorStop(0, 'rgba(255,210,130,0.22)');
       halo.addColorStop(1, 'rgba(255,210,130,0.00)');
       ctx.fillStyle = halo;
-      ctx.beginPath(); ctx.arc(x, y, outer, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, r*4.0, 0, TAU); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
 
       ctx.fillStyle = '#fff2cf';
@@ -962,11 +879,7 @@
         ctx.save();
         const h=46*s, baseW=10*s, topW=7*s;
         ctx.fillStyle='rgba(0,0,0,0.32)'; ctx.beginPath();
-        ctx.moveTo(x - baseW/2, baselineY);
-        ctx.lineTo(x + baseW/2, baselineY);
-        ctx.lineTo(x + topW/2, baselineY - h);
-        ctx.lineTo(x - topW/2, baselineY - h);
-        ctx.closePath(); ctx.fill();
+        ctx.moveTo(x - baseW/2, baselineY); ctx.lineTo(x + baseW/2, baselineY); ctx.lineTo(x + topW/2, baselineY - h); ctx.lineTo(x - topW/2, baselineY - h); ctx.closePath(); ctx.fill();
         ctx.fillStyle='rgba(0,0,0,0.36)'; ctx.beginPath(); ctx.moveTo(x - topW*0.7, baselineY - h); ctx.lineTo(x + topW*0.7, baselineY - h); ctx.lineTo(x, baselineY - h - 5*s); ctx.closePath(); ctx.fill();
         ctx.restore();
       }
@@ -987,7 +900,7 @@
       });
 
       function drawFluffyCloud(x, y, s, seed, alpha){
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
         ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
         const baseR = 18 + rand01(seed,50)*22;
         const puffCount = 4 + Math.floor(rand01(seed,11)*4); // 4–7
@@ -1063,13 +976,13 @@
         ctx.lineTo(disc.x - disc.vx*0.05 - view.x, disc.y - disc.vy*0.05 - view.y); 
         ctx.stroke(); ctx.globalAlpha=1; 
       } 
-      // simple flat disc: oriented ellipse
+      // simple flat disc: oriented capsule-ish
       ctx.save();
       ctx.translate(disc.x - view.x, disc.y - view.y);
       ctx.rotate(disc.orient);
       ctx.fillStyle = '#f8fafc';
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
-      const R = disc.r;
+      const R = disc.r, T = 2.6;
       ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
       // rim hint
       ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
@@ -1110,7 +1023,7 @@
       // rim ring
       ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
 
-      // chains
+      // chains (simple)
       ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
         const t = i/6 * TAU;
