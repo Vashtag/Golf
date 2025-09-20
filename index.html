@@ -3,10 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.5 — richer procedural)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.6)</title>
 <style>
   :root{
-    /* defaults; overridden per biome at runtime */
     --bg1:#a54720; --bg2:#f38e41; --bg3:#ffe6ba; --water:#30160f;
     --fg:#050607; --text:#e6edf3; --muted:#a9b1ba;
     --accent:#ff8a3d; --accent2:#49d0ff; --accent3:#86efac;
@@ -101,7 +100,7 @@
         <div class="tag">Drivers • Fairways • Mids • Putters</div>
         <div class="tag">Vertical Wind & Lift</div>
         <div class="tag">Turn/Fade Curve</div>
-        <div class="tag">Procedural Holes (+variants)</div>
+        <div class="tag">Procedural Holes</div>
       </div>
       <p class="small" style="margin-top:.7rem">Best in landscape • Mobile-friendly • Haptics on chains</p>
       <div style="margin-top:.7rem"><button class="btn" id="btnPlay">Start Round</button></div>
@@ -200,7 +199,7 @@
     const SURF = {
       fairway: { fric: 740,  rest: 0.14 },
       rough:   { fric: 1000, rest: 0.10, powerMul: 0.88 },
-      sand:    { fric: 1400, rest: 0.05, powerMul: 0.70 },
+      sand:    { fric: 1400, rest: 0.05, powerMul: 0.70 }, // kept for logic; not generated/drawn
       green:   { fric: 520,  rest: 0.10 },
       rock:    { fric: 620,  rest: 0.18 }
     };
@@ -323,12 +322,12 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop (parallax + sun + clouds + far landmarks + flocks)
+    // Backdrop (parallax + clouds + far landmarks + flocks)
     let currentBiome = BIOMES[0];
     const backdrop = {
       seed:(Math.random()*1e9)|0,
       mountains:[],
-      sun:null,
+      sun:null,       // kept but not drawn
       clouds:[],
       cloudDir:1,
       landmarksFar:[],
@@ -361,7 +360,7 @@
       });
       backdrop.mountains = L;
 
-      // Sun
+      // Sun (not drawn)
       const u = 0.20 + rand01(backdrop.seed,101)*0.60;
       const v = 0.16 + rand01(backdrop.seed,102)*0.20;
       const phase = rand01(backdrop.seed,103)*TAU;
@@ -427,7 +426,7 @@
         return 200 + (k%10)*260;
       }
 
-      const farPar = currentBiome.layers[0].par; // match far ridge parallax
+      const farPar = currentBiome.layers[0].par;
 
       // FAR windmills (0–2)
       const wmCount = Math.floor(rand01(backdrop.seed, 921) * 2.2);
@@ -439,7 +438,7 @@
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:farPar, parY:0 });
       }
 
-      // FAR lighthouse (0–1) near some water if present
+      // FAR lighthouse (0–1)
       if(hole.waters.length && rand01(backdrop.seed, 951) < 0.45){
         const w = hole.waters[ Math.floor(rand01(backdrop.seed, 952) * hole.waters.length) ];
         let x = w.x + (rand01(backdrop.seed, 953)<0.5 ? -120 : w.w+120);
@@ -488,9 +487,9 @@
       const windNorm = windOn ? clamp(windLift, -1, 1) : 0;
       const speedBase = (reducedMotion? 10: 18);
       for(const F of backdrop.flocks){
-        const targetVx = speedBase * F.dir;       // no horizontal assist from wind
+        const targetVx = speedBase * F.dir; // no horizontal wind assist
         F.vx += (targetVx - F.vx) * (1 - Math.exp(-dt*3));
-        const bob = 2.2 + Math.abs(windNorm)*1.4; // a little more flap/bob with updraft/downdraft
+        const bob = 2.2 + Math.abs(windNorm)*1.4;
         F.vy = Math.sin(clock*0.9 + F.phase) * (reducedMotion? 1.0 : bob);
         F.x += F.vx * dt; F.y += F.vy * dt;
         const margin = 140;
@@ -540,8 +539,8 @@
     // Aim/meter state
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
-    // ==== NEW: scenery (trees/boulders) ====
-    let scenery = { trees:[], rocks:[] };
+    // ==== NEW: scenery (trees; rocks removed) ====
+    let scenery = { trees:[] };
 
     // ===== Procedural hole with variants =====
     function genHole(){
@@ -571,12 +570,12 @@
         points.push({x,y});
       }
 
-      // Local features: 0–2 ridges/valleys (gaussian bumps)
+      // Local features: 0–2 ridges/valleys
       const featureCount = Math.floor(Math.random()*3); // 0–2
       for(let f=0; f<featureCount; f++){
         const cx = lerp(w*0.18, w*0.82, Math.random());
         const sigma = 120 + Math.random()*220;
-        const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
+        const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90);
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
           const k = Math.exp(- (dx*dx) / (2*sigma*sigma));
@@ -615,16 +614,15 @@
         }
       }
 
-      // Water: 0–2 bodies with themed placements
+      // Water: 0–2 bodies
       const waters=[];
-      const wantWater = Math.random() < 0.85 ? 1 : 0; // often some water
+      const wantWater = Math.random() < 0.85 ? 1 : 0;
       const extraWater = Math.random() < 0.35 ? 1 : 0;
       const waterCount = wantWater + extraWater;
 
       function placeWater(rangeL, rangeR, wmin, wmax, raise= -28){
         const wx = clamp(lerp(rangeL, rangeR, Math.random()), 80, w-280);
         const ww = wmin + Math.random()*(wmax-wmin);
-        // set water top near local terrain mean
         const idx = Math.floor(wx/step);
         const yLocal = points[ clamp(idx,0,points.length-1) ].y;
         const wy = yLocal + raise + (Math.random()*16-8);
@@ -635,9 +633,9 @@
         const midMin = w*0.28, midMax = cupX-360;
         const guardMin = cupX-300, guardMax = cupX-60;
         if(Math.random()<0.6 && midMax>midMin+160){
-          placeWater(midMin, midMax, 180, 360); // carry over mid pond
+          placeWater(midMin, midMax, 180, 360);
         } else {
-          placeWater(guardMin, guardMax, 180, 320, -24); // guarding green
+          placeWater(guardMin, guardMax, 180, 320, -24);
         }
         if(waterCount>1){
           if(Math.random()<0.5){
@@ -648,22 +646,10 @@
         }
       }
 
-      // Sand bunkers: 1–3 circles around landing zones/green
+      // SAND BUNKERS REMOVED
       const sands=[];
-      const sandN = 1 + Math.floor(Math.random()*3);
-      function addSand(cx, cy, r){ sands.push({ x:cx, y:cy, r }); }
 
-      // Main landing zone ~ halfway to cup
-      const lzX = lerp(w*0.32, cupX-400, Math.random());
-      addSand(lzX + (Math.random()*120-60), sampleY(points, lzX) - 8, 58 + Math.random()*28);
-
-      // Near green
-      addSand(cupX + (Math.random()*160-80), greenY - 10, 56 + Math.random()*24);
-      if(sandN>=3){
-        addSand(cupX - 120 + Math.random()*200, greenY - 10, 42 + Math.random()*24);
-      }
-
-      // Rough patches: 0–3 circles
+      // Rough patches: 0–3 circles (invisible; physics only)
       const roughs=[];
       const roughN = Math.floor(Math.random()*4);
       for(let i=0;i<roughN;i++){
@@ -678,7 +664,7 @@
       const teeY = points[teeIdx].y - 2;
       points[teeIdx].y = teeY;
 
-      // Fun valley emphasis somewhere random (soft)
+      // Fun valley emphasis
       if(Math.random()<0.6){
         const vX = lerp(w*0.40, w*0.62, Math.random());
         const vIdx = Math.floor(vX/step);
@@ -713,12 +699,9 @@
     function groundYAt(x){ x = clamp(x, 0, hole.w); const i = Math.min(Math.floor(x/hole.step), hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
 
     function surfaceAt(x){
-      // priority: green > sand > rough > fairway
       if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
-      // sands
       const y = groundYAt(x);
       for(const s of hole.sands){ if(Math.hypot(x - s.x, y - s.y) <= s.r) return 'sand'; }
-      // roughs
       for(const r of hole.roughs){ if(Math.hypot(x - r.x, y - r.y) <= r.r) return 'rough'; }
       return 'fairway';
     }
@@ -740,7 +723,7 @@
 
       hole = genHole();
 
-      // Scenery pass (simple silhouettes, cosmetic)
+      // Scenery pass (bigger trees; no rocks)
       buildScenery();
 
       backdrop.seed = (Math.random()*1e9)|0; // per-hole
@@ -803,7 +786,7 @@
     function throwDisc(){
       if(!hole || !disc.atRest) return;
       const d = currentDisc;
-      const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
+      const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul || 1.0;
       const base = 1650;
       const power = (0.25 + 0.75*meter) * d.speed * powerMul;
       const speed = base * power;
@@ -896,9 +879,8 @@
               else                 spawnParticles('dust',  disc.x, disc.y+disc.r,  8);
             }
 
-            // choose skip vs normal
             const speed = Math.hypot(disc.vx, disc.vy);
-            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx)); // to ground
+            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx));
             const shallow = entryAngle < (12 * Math.PI/180);
             const fast    = speed > 900;
 
@@ -963,10 +945,9 @@
       view.y = clamp(groundYAt(disc.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
-    // ===== Scenery (cosmetic foreground)
+    // ===== Scenery (BIG trees; no rocks)
     function buildScenery(){
       scenery.trees = [];
-      scenery.rocks = [];
       const rng = (i)=>rand01(backdrop.seed, 2000+i);
       const countTrees = 24 + Math.floor(rng(1)*18); // 24–42
       const avoid = [
@@ -977,56 +958,35 @@
         for(const r of avoid){ if(x>=r[0] && x<=r[1]) return false; }
         return x>40 && x < hole.w-40;
       }
-      // Trees
+      // Trees — bigger sizes
       for(let i=0;i<countTrees;i++){
         let x = 80 + rng(10+i)*(WORLD.w-160);
         let tries=0; while(!allowedX(x) && tries++<10){ x = 80 + rng(100+i*7)*(WORLD.w-160); }
         const y = groundYAt(x);
-        const h = 24 + rng(200+i)*38;
-        scenery.trees.push({ x, y, h, w: 10 + rng(300+i)*8, sway:rng(400+i)*TAU });
-      }
-      // Rocks near tee & mid
-      const rockN = 8 + Math.floor(Math.random()*10);
-      for(let i=0;i<rockN;i++){
-        const x = 80 + Math.random()*(WORLD.w-160);
-        const y = groundYAt(x);
-        scenery.rocks.push({ x, y, r: 6 + Math.random()*10, skew: (Math.random()*0.6-0.3) });
+        const h = 48 + rng(200+i)*64;                 // was ~24–62 -> now ~48–112
+        const w = 16 + rng(300+i)*14;                 // thicker canopies
+        scenery.trees.push({ x, y, h, w, sway:rng(400+i)*TAU });
       }
     }
 
     function drawScenery(){
-      // Rocks
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.85)';
-      for(const r of scenery.rocks){
-        const x = r.x - view.x, y = r.y - view.y;
-        if(x<-40 || x>canvas.width/DPR+40) continue;
-        ctx.save();
-        ctx.translate(x,y);
-        ctx.rotate(r.skew);
-        ctx.beginPath(); ctx.ellipse(0, -r.r*0.3, r.r, r.r*0.55, 0, 0, TAU);
-        ctx.fill();
-        ctx.restore();
-      }
-      ctx.restore();
-
       // Trees
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.92)';
       for(const t of scenery.trees){
         const x = t.x - view.x, y = t.y - view.y;
-        if(x<-50 || x>canvas.width/DPR+50) continue;
+        if(x<-80 || x>canvas.width/DPR+80) continue;
         const sway = Math.sin(clock*0.3 + t.sway) * 2;
         // trunk
-        ctx.fillRect(x-1.2, y - t.h, 2.4, t.h);
-        // canopy (simple stacked triangles)
-        for(let k=0;k<3;k++){
-          const level = t.h*(0.25 + k*0.24);
-          const width = (t.w + k*8);
+        ctx.fillRect(x-1.8, y - t.h, 3.6, t.h);
+        // larger canopy (4 tiers)
+        for(let k=0;k<4;k++){
+          const level = t.h*(0.20 + k*0.20);
+          const width = (t.w + k*10);
           ctx.beginPath();
-          ctx.moveTo(x + sway*0.4, y - level - (k*10));
-          ctx.lineTo(x - width/2 + sway, y - level + 12);
-          ctx.lineTo(x + width/2 + sway, y - level + 12);
+          ctx.moveTo(x + sway*0.5, y - level - (k*12));
+          ctx.lineTo(x - width/2 + sway, y - level + 14);
+          ctx.lineTo(x + width/2 + sway, y - level + 14);
           ctx.closePath(); ctx.fill();
         }
       }
@@ -1037,9 +997,9 @@
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
       drawSkyGradient();
-      drawSun();
+      /* drawSun();  // removed to avoid large circular halo/disk */
       drawFarLandmarks();
-      drawFlocks();          // birds before clouds
+      drawFlocks();
       drawClouds();
       drawMountains();
 
@@ -1060,9 +1020,7 @@
 
       drawGrass();
 
-      // sand bunkers (multiple)
-      ctx.fillStyle = '#1b160f';
-      for(const s of hole.sands){ ctx.beginPath(); ctx.arc(s.x - view.x, s.y - view.y, s.r, 0, TAU); ctx.fill(); }
+      // SAND BUNKERS NOT DRAWN
 
       // landing zone overlay
       ctx.fillStyle = 'rgba(60,140,85,.22)';
@@ -1097,30 +1055,7 @@
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
 
-    // --- Sun
-    function drawSun(){
-      const m = backdrop.sun; if(!m) return;
-      const parX = 0.05, parY = 0.02;
-      const drift = Math.sin(clock*0.05 + m.phase) * 12;
-      const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
-      const x = (xw - view.x*parX) + drift;
-      const y = (yw - view.y*parY);
-      const r = m.baseR;
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const halo = ctx.createRadialGradient(x, y, r*0.8, x, y, r*4.0);
-      halo.addColorStop(0, 'rgba(255,210,130,0.22)');
-      halo.addColorStop(1, 'rgba(255,210,130,0.00)');
-      ctx.fillStyle = halo;
-      ctx.beginPath(); ctx.arc(x, y, r*4.0, 0, TAU); ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-
-      ctx.fillStyle = '#fff2cf';
-      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1; ctx.stroke();
-      ctx.restore();
-    }
+    // --- (Sun intentionally not drawn) ---
 
     // --- FAR landmarks
     function drawFarLandmarks(){
@@ -1173,7 +1108,7 @@
       }
     }
 
-    // --- Clouds (in front of landmarks)
+    // --- Clouds
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -1265,7 +1200,6 @@
         ctx.stroke(); ctx.globalAlpha=1; 
       } 
 
-      // Disc color by type
       let fillCol = '#f8fafc';
       if(currentDisc.id==='DRV') fillCol = '#49d0ff';
       else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';
@@ -1304,19 +1238,15 @@
       const poleH = 74, cageTop = groundY - 24, rimY = groundY - 46;
       const rimW = 28, cageW = 24;
 
-      // pole
       ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x, groundY - poleH); ctx.stroke();
 
-      // tray/cage
       ctx.fillStyle = 'rgba(0,0,0,0.80)';
       ctx.fillRect(x - cageW/2, cageTop, cageW, 8);
       ctx.fillRect(x - 2, cageTop - 10, 4, 10);
 
-      // rim ring
       ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
 
-      // chains (simple)
       ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
         const t = i/6 * TAU;
@@ -1329,11 +1259,10 @@
     }
 
     function checkBasketCatch(){
-      // simple AABB in chain zone with downward velocity
       const x = disc.x, y = disc.y, vy = disc.vy;
       const rimY = groundYAt(hole.cupX) - 46;
       const cageTop = groundYAt(hole.cupX) - 24;
-      const rimHalf = 14; // rimW/2
+      const rimHalf = 14;
       if(vy > 30 && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf){
         return true;
       }
