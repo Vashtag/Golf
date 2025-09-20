@@ -321,14 +321,15 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop (sun + clouds + mountains)
+    // Backdrop (sun + clouds + mountains + flocks)
     let currentBiome = BIOMES[0];
     const backdrop = {
       seed:(Math.random()*1e9)|0,
       mountains:[],
       sun:null,
       clouds:[],
-      cloudDir:1
+      cloudDir:1,
+      flocks:[]
     };
 
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
@@ -366,6 +367,9 @@
       // Clouds
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
+
+      // Flocks
+      buildFlocks();
     }
 
     function buildCloudField(){
@@ -382,6 +386,61 @@
         const scale = 0.9 + rand01(s,8)*1.6;
         backdrop.clouds.push({ seed:s, u, v, parX, parY, speed, alpha, scale });
       }
+    }
+
+    /* ===== Flocks (birds) ===== */
+    function buildFlocks(){
+      backdrop.flocks.length = 0;
+      const n = 1 + Math.floor(rand01(backdrop.seed,500)*2); // 1–2 flocks
+      for(let i=0;i<n;i++){
+        const s = hash32(backdrop.seed ^ (0xB1RD + i*997));
+        const parX = 0.08 + rand01(s,1)*0.10;
+        const parY = 0.03 + rand01(s,2)*0.04;
+        const y = WORLD.h*(0.20 + rand01(s,3)*0.25);
+        const dir = rand01(s,4)<0.5? -1:1;
+        const speed = dir * (18 + rand01(s,5)*22);
+        const size = 0.7 + rand01(s,6)*1.1;
+        const count = 6 + Math.floor(rand01(s,7)*8); // 6–13
+        const span = 36 + rand01(s,9)*60;
+        const x0 = WORLD.w * rand01(s,8);
+        backdrop.flocks.push({seed:s, parX, parY, y, speed, size, count, span, x:x0});
+      }
+    }
+    function drawFlocks(){
+      const w = canvas.width / DPR;
+      const span = WORLD.w;
+      backdrop.flocks.forEach(F=>{
+        const baseX = (F.x + clock*F.speed) % span;
+        const y = F.y - view.y*F.parY;
+        for(let k=-1;k<=1;k++){
+          const x = baseX + k*span - view.x*F.parX;
+          if(x < -140 || x > w + 140) continue;
+          drawFlockShape(x, y, F);
+        }
+      });
+    }
+    function drawFlockShape(x,y,F){
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      const wobble = Math.sin(clock*0.6 + (F.seed&255)*0.02)*0.1;
+      for(let i=0;i<F.count;i++){
+        const t = i/(F.count-1);
+        const ox = (t-0.5)*F.span;
+        const oy = Math.sin(t*TAU*0.5)*6 - Math.abs(t-0.5)*8;
+        drawBird(ox, oy, F.size*(0.8 + t*0.4), wobble, F.seed+i);
+      }
+      ctx.restore();
+    }
+    function drawBird(ox, oy, s, wiggle, seed){
+      ctx.save(); ctx.translate(ox, oy);
+      const flap = Math.sin(clock*3.0 + seed*0.13) * 0.5 + wiggle;
+      ctx.beginPath();
+      ctx.moveTo(-6*s,0);
+      ctx.quadraticCurveTo(0,-3*s*flap, 6*s,0);
+      ctx.quadraticCurveTo(0,1.5*s, -6*s,0);
+      ctx.fill();
+      ctx.restore();
     }
 
     function mountainYAt(L, wx){
@@ -405,8 +464,8 @@
     // Aim/meter state
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
-    // Scenery (trees/boulders)
-    let scenery = { trees:[], rocks:[] };
+    // Scenery (trees/boulders/windmill)
+    let scenery = { trees:[], rocks:[], windmill:null };
 
     // ===== Procedural hole with variants =====
     function genHole(){
@@ -904,10 +963,12 @@
       view.y = clamp(groundYAt(disc.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
-    // ===== Scenery (bigger trees, small rock clusters)
+    // ===== Scenery (bigger trees, small rock clusters, windmill)
     function buildScenery(){
       scenery.trees = [];
       scenery.rocks = [];
+      scenery.windmill = null;
+
       const rng = (i)=>rand01(backdrop.seed, 2000+i);
       const countTrees = 24 + Math.floor(rng(1)*18); // 24–42
       const avoid = [
@@ -937,9 +998,58 @@
         const seed = (Math.random()*1e9)|0;
         scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
+
+      // Windmill near/after the green on a ridge (sometimes skipped if valley)
+      let wx = clamp(hole.cupX + 140 + Math.random()*220, 120, WORLD.w-120);
+      if(wx > hole.green.x0-50 && wx < hole.green.x1+50) wx = hole.green.x1 + 80;
+      const wy = groundYAt(wx);
+      if(wy < WORLD.h*0.86){
+        scenery.windmill = { x:wx, y:wy, h: 68 + Math.random()*26, r: 16 + Math.random()*6, phase: Math.random()*TAU };
+      }
+    }
+
+    function drawWindmill(){
+      const wm = scenery.windmill; if(!wm) return;
+      const x = wm.x - view.x, y = wm.y - view.y;
+      if(x<-80 || x>canvas.width/DPR+80) return;
+
+      ctx.save();
+      // tower (silhouette)
+      ctx.strokeStyle = 'rgba(0,0,0,0.94)';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - wm.h); ctx.stroke();
+
+      // small platform
+      ctx.fillStyle = 'rgba(0,0,0,0.94)';
+      ctx.fillRect(x - 6, y - wm.h - 5, 12, 5);
+
+      // rotor (multi-blade farm windmill)
+      const hubX = x, hubY = y - wm.h - 8;
+      const ang = clock*2.0 + wm.phase;
+      ctx.save();
+      ctx.translate(hubX, hubY);
+      ctx.rotate(ang);
+      const blades = 10;
+      for(let i=0;i<blades;i++){
+        ctx.rotate(TAU/blades);
+        ctx.beginPath();
+        ctx.moveTo(2,0);
+        ctx.lineTo(wm.r, 1.5);
+        ctx.lineTo(wm.r, -1.5);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // hub
+      ctx.beginPath(); ctx.arc(0,0,3,0,TAU); ctx.fill();
+      ctx.restore();
+
+      ctx.restore();
     }
 
     function drawScenery(){
+      // Windmill first so nearby trees can overlap it
+      drawWindmill();
+
       // Rocks
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.92)';
@@ -1170,6 +1280,7 @@
       drawSun();
       drawClouds();
       drawMountains();
+      drawFlocks();     // <— flocks back in
 
       if(!hole){ drawVignette(); return; }
 
