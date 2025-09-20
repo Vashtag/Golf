@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.3)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.4 — vertical wind)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -96,10 +96,10 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🥏 Dusk Drive — Disc Golf</h1>
-      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, wind & glide, disc turn/fade.</div>
+      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind & glide, disc turn/fade.</div>
       <div class="grid">
         <div class="tag">Drivers • Fairways • Mids • Putters</div>
-        <div class="tag">Wind & Lift</div>
+        <div class="tag">Vertical Wind & Lift</div>
         <div class="tag">Turn/Fade Curve</div>
         <div class="tag">Procedural Holes</div>
       </div>
@@ -208,8 +208,8 @@
     // ==== DISC PHYSICS — airtime & skip tuning ====
     const GRAV = 1500;            // ↓ gravity to hang longer
     const AIR_DRAG = 0.00050;     // ↓ a touch less drag
-    const LIFT_K   = 0.00450;     // ↑ more lift
-    const TURN_K   = 54;          // keep turn/fade influence
+    const LIFT_K   = 0.00450;     // base lift constant
+    const TURN_K   = 54;          // turn/fade influence
     const VREF     = 1600;        // speed norm for turn→fade
     const CAMBER   = 0.06;        // slight inherent upward AoA
     const NOSE_FAST_DEG = -6;
@@ -219,12 +219,10 @@
 
     let reducedMotion = false;
 
-    // Wind
-    let windOn = true; let windAx = 0;
-
-    // NEW: centralize wind settings and reduce its effect on the disc
-    const WIND_MAX = 900;          // UI/roll maximum magnitude
-    const WIND_DISC_SCALE = 0.35;  // ↓ smaller = less wind influence (try 0.2–0.5)
+    // ===== Vertical wind (updraft/downdraft modifies lift only)
+    let windOn = true;
+    let windLift = 0;             // -1 .. +1 (down .. up)
+    const WIND_LIFT_SCALE = 0.50; // ±50% lift modulation at max
 
     // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
     let releaseMode = 0;
@@ -491,15 +489,13 @@
     }
     function updateFlocks(dt){
       if(!backdrop.flocks.length) return;
-      const windNorm = windOn ? Math.max(-1, Math.min(1, windAx / WIND_MAX)) : 0;
+      const windNorm = windOn ? clamp(windLift, -1, 1) : 0;
       const speedBase = (reducedMotion? 10: 18);
-      const speedWind = (reducedMotion? 18: 32) * Math.abs(windNorm);
-
       for(const F of backdrop.flocks){
-        const targetDir = (Math.abs(windNorm) > 0.05) ? Math.sign(windNorm) : F.dir;
-        const targetVx = (speedBase + speedWind) * targetDir;
+        const targetVx = speedBase * F.dir;       // no horizontal assist from wind
         F.vx += (targetVx - F.vx) * (1 - Math.exp(-dt*3));
-        F.vy = Math.sin(clock*0.9 + F.phase) * (reducedMotion? 1.2 : 2.2);
+        const bob = 2.2 + Math.abs(windNorm)*1.4; // a little more flap/bob with updraft/downdraft
+        F.vy = Math.sin(clock*0.9 + F.phase) * (reducedMotion? 1.0 : bob);
         F.x += F.vx * dt; F.y += F.vy * dt;
         const margin = 140;
         if(F.x > WORLD.w + margin){ F.x = -margin; }
@@ -602,7 +598,9 @@
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
-      windAx = windOn ? (Math.random()*2 - 1) * WIND_MAX : 0; updateWindUI();
+      windLift = windOn ? (Math.random()*2 - 1) : 0; // -1 (downdraft) .. +1 (updraft)
+      updateWindUI();
+
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
     }
@@ -633,7 +631,13 @@
     handSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; hand = btn.dataset.hand; [...handSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
 
     // ===== Wind UI
-    function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag / WIND_MAX).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
+    function updateWindUI(){
+      const mag = Math.abs(windOn ? windLift : 0);
+      elWindVal.textContent = mag.toFixed(1)+'x';
+      // arrow: default points down; rotate 180° to show updraft
+      const rot = (windLift >= 0 ? 180 : 0);
+      elWindArrow.style.transform = `rotate(${rot}deg)`;
+    }
 
     // ===== Input
     function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
@@ -700,7 +704,9 @@
           const dragX = -dragMag * vx;
           const dragY = -dragMag * vy;
 
-          const lift = LIFT_K * currentDisc.glide * v*v * aoa;
+          // Vertical wind: modulate lift only
+          const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * WIND_LIFT_SCALE) : 1);
+          const lift = LIFT_K * currentDisc.glide * v*v * aoa * windMul;
 
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
@@ -711,8 +717,8 @@
           const curve = (turnAmt - fadeAmt + bankBias);
           const curveAx = TURN_K * curve * (hand==='RHBH'?1:-1);
 
-          // Apply reduced wind effect (horizontal push)
-          const ax = (windOn ? windAx * WIND_DISC_SCALE : 0) + dragX + curveAx;
+          // No horizontal wind push; only drag + curve
+          const ax = dragX + curveAx;
           const ay = GRAV + dragY - lift;
 
           disc.vx += ax*dt; disc.vy += ay*dt;
@@ -920,7 +926,10 @@
         const roofTopY = baselineY - towerH - roofH;
         ctx.beginPath(); ctx.moveTo(x - wTop*0.75, baselineY - towerH); ctx.lineTo(x + wTop*0.75, baselineY - towerH); ctx.lineTo(x, roofTopY); ctx.closePath(); ctx.fill();
         const hubY = baselineY - towerH - roofH*0.25, hubR=3.2*s; ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
-        const dir = windAx>=0? 1 : -1; const localSpeed = (reducedMotion? 0.08: spin*0.55) * dir; const ang0 = clock * localSpeed + rand01(seed,2)*TAU;
+        // Spin rate subtly influenced by vertical wind magnitude (not direction)
+        const speedMul = 1 + (windOn ? Math.abs(windLift)*0.4 : 0);
+        const localSpeed = (reducedMotion? 0.08: spin*0.55) * speedMul;
+        const ang0 = clock * localSpeed + rand01(seed,2)*TAU;
         ctx.save(); ctx.translate(x, hubY); ctx.rotate(ang0);
         const bladeLen=54*s, bladeW=8*s, rungGap=10*s, rungW=1.2*s;
         for(let k=0;k<4;k++){
