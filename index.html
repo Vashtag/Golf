@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Disc Golf (v3.6, vertical wind)</title>
+<title>Dusk Drive — Disc Golf (v3.7 — vertical wind only)</title>
 <style>
   :root{
     --bg1:#a54720; --bg2:#f38e41; --bg3:#ffe6ba; --water:#30160f;
@@ -104,7 +104,7 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🥏 Dusk Drive — Disc Golf</h1>
-      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, wind & glide, disc turn/fade.</div>
+      <div class="sub">Drag to aim, hold to charge, release to throw. Wind is vertical-only; driver blue, mid white, putter orange.</div>
       <div class="grid">
         <div class="tag">Drivers • Fairways • Mids • Putters</div>
         <div class="tag">Vertical Wind</div>
@@ -156,12 +156,15 @@
   } else { main(); }
 
   function main(){
+    'use strict';
+
+    // ===== Canvas & basic
     const TAU = Math.PI*2;
     const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha:true });
     let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
-    // ===== UI Elements
+    // ===== UI
     const elHole = document.getElementById('holeNum');
     const elHolesTotal = document.getElementById('holesTotal');
     const elPar = document.getElementById('parLabel');
@@ -191,20 +194,30 @@
     const sumScore = document.getElementById('sumScore');
     const holeBreakdown = document.getElementById('holeBreakdown');
 
-    // ===== Game Config & State
+    // ===== Game config & state (declare FIRST to avoid TDZ issues)
     const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // Discs
+    // Motion setting
+    let reducedMotion = false;
+
+    // Wind: vertical-only (updraft +, downdraft −)
+    let windOn = true;
+    const WIND_UP_MAX = 700;
+    let windUp = 0;
+
+    // Release & throw style
+    let releaseMode = 0;        // -1 hyzer, 0 flat, 1 anhyzer
+    let hand = 'RHBH';          // curve handedness (used only for visual symmetry)
+
+    // Discs & surfaces
     const DISCS = [
       { id:'DRV', name:'Driver',  speed:1.20, glide:1.00, turn:-2.0, fade:2.5 },
       { id:'FAI', name:'Fairway', speed:0.92, glide:1.05, turn:-1.5, fade:2.0 },
       { id:'MID', name:'Mid',     speed:0.80, glide:1.10, turn:-1.0, fade:1.4 },
       { id:'PUT', name:'Putter',  speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
     ];
-
-    // Surfaces
     const SURF = {
       fairway: { fric: 740,  rest: 0.14 },
       rough:   { fric: 1000, rest: 0.10, powerMul: 0.88 },
@@ -213,7 +226,7 @@
       rock:    { fric: 620,  rest: 0.18 }
     };
 
-    // ==== DISC PHYSICS
+    // Disc physics
     const GRAV = 1500;
     const AIR_DRAG = 0.00050;
     const LIFT_K   = 0.00450;
@@ -224,17 +237,14 @@
     const NOSE_SLOW_DEG =  7;
     const SPIN_DECAY = 0.35;
 
-    // Wind: vertical-only
-    let windOn = true;
-    const WIND_UP_MAX = 700;      // max vertical acceleration magnitude
-    let windUp = 0;               // + = updraft (extra lift), − = downdraft
+    // World objects
+    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0, spin:0, spin0:1, bank:0 };
+    let strokes=0;
+    let holeIndex=0, roundData=null;
+    let hole=null;
 
-    // Release + hand
-    let releaseMode = 0;
-    let hand = 'RHBH';
-
-    // Motion setting (bug fix: must exist before use)
-    let reducedMotion = false;
+    // Aim/meter state
+    let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
     // ---------- Helpers ----------
     const RAND_MAX = 4294967295;
@@ -242,8 +252,9 @@
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
+    function deg(d){ return d*Math.PI/180; }
 
-    // Audio (minimal)
+    // ===== Audio (tiny)
     const AudioMini = (()=>{
       let ctx=null, windNode=null, masterGain=null; let enabled=false;
       function init(){
@@ -267,59 +278,41 @@
       return { setEnabled, thwack, chains, setWind };
     })();
 
-    // Particles
-    const particles=[];
-    function spawnParticles(type, x, y, count){
-      for(let i=0;i<count;i++){
-        const a = Math.random()*TAU; const sp = (type==='spark'? 160 + Math.random()*160 : 80+Math.random()*120);
-        const vx = Math.cos(a)*sp, vy = Math.sin(a)*sp - (type==='spark'?0:200);
-        particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
-      }
-    }
-
-    // === Biomes/backdrop (unchanged except spin follows vertical wind)
+    // ===== Backdrop / biomes (unchanged visuals)
     const BIOMES = [
-      { name:'dunes',
-        sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
+      { name:'dunes', sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
         layers:[
-          {par:0.08, base:0.52, a1:30,  a2:16,  f1:0.00050, f2:0.00020, shade:0.02, shape:'sin'},
-          {par:0.12, base:0.56, a1:50,  a2:24,  f1:0.00065, f2:0.00026, shade:0.035,shape:'sin'},
-          {par:0.18, base:0.61, a1:70,  a2:34,  f1:0.00082, f2:0.00032, shade:0.05, shape:'sin'},
-          {par:0.26, base:0.66, a1:104, a2:48,  f1:0.00100, f2:0.00042, shade:0.07, shape:'sin'},
-          {par:0.33, base:0.70, a1:116, a2:54,  f1:0.00115, f2:0.00048, shade:0.085,shape:'sin'},
-          {par:0.40, base:0.74, a1:126, a2:58,  f1:0.00125, f2:0.00052, shade:0.10, shape:'sin'}
-        ]
-      },
-      { name:'crags',
-        sky:{ bg1:'#5b1a2b', bg2:'#d5425a', bg3:'#f8c3da', water:'#2c0f19' },
+          {par:0.08, base:0.52, a1:30, a2:16, f1:0.00050, f2:0.00020, shade:0.02, shape:'sin'},
+          {par:0.12, base:0.56, a1:50, a2:24, f1:0.00065, f2:0.00026, shade:0.035,shape:'sin'},
+          {par:0.18, base:0.61, a1:70, a2:34, f1:0.00082, f2:0.00032, shade:0.05, shape:'sin'},
+          {par:0.26, base:0.66, a1:104, a2:48, f1:0.00100, f2:0.00042, shade:0.07, shape:'sin'},
+          {par:0.33, base:0.70, a1:116, a2:54, f1:0.00115, f2:0.00048, shade:0.085,shape:'sin'},
+          {par:0.40, base:0.74, a1:126, a2:58, f1:0.00125, f2:0.00052, shade:0.10, shape:'sin'}
+        ]},
+      { name:'crags', sky:{ bg1:'#5b1a2b', bg2:'#d5425a', bg3:'#f8c3da', water:'#2c0f19' },
         layers:[
-          {par:0.06, base:0.50, a1:60,  a2:36,  f1:0.00055, f2:0.00022, shade:0.02, shape:'crag'},
-          {par:0.10, base:0.58, a1:95,  a2:52,  f1:0.00075, f2:0.00030, shade:0.05, shape:'crag'},
-          {par:0.16, base:0.64, a1:140, a2:70,  f1:0.00095, f2:0.00040, shade:0.08, shape:'crag'},
-          {par:0.24, base:0.70, a1:170, a2:86,  f1:0.00115, f2:0.00055, shade:0.11,shape:'crag'},
-          {par:0.36, base:0.76, a1:190, a2:96,  f1:0.00135, f2:0.00065, shade:0.13,shape:'crag'}
-        ]
-      },
-      { name:'hills',
-        sky:{ bg1:'#233d6d', bg2:'#5d79b0', bg3:'#cfe2ff', water:'#0e2233' },
+          {par:0.06, base:0.50, a1:60, a2:36, f1:0.00055, f2:0.00022, shade:0.02, shape:'crag'},
+          {par:0.10, base:0.58, a1:95, a2:52, f1:0.00075, f2:0.00030, shade:0.05, shape:'crag'},
+          {par:0.16, base:0.64, a1:140, a2:70, f1:0.00095, f2:0.00040, shade:0.08, shape:'crag'},
+          {par:0.24, base:0.70, a1:170, a2:86, f1:0.00115, f2:0.00055, shade:0.11,shape:'crag'},
+          {par:0.36, base:0.76, a1:190, a2:96, f1:0.00135, f2:0.00065, shade:0.13,shape:'crag'}
+        ]},
+      { name:'hills', sky:{ bg1:'#233d6d', bg2:'#5d79b0', bg3:'#cfe2ff', water:'#0e2233' },
         layers:[
-          {par:0.10, base:0.54, a1:36,  a2:18,  f1:0.00044, f2:0.00018, shade:0.02, shape:'round'},
-          {par:0.16, base:0.60, a1:60,  a2:28,  f1:0.00062, f2:0.00024, shade:0.04, shape:'round'},
-          {par:0.22, base:0.66, a1:90,  a2:42,  f1:0.00080, f2:0.00032, shade:0.06, shape:'round'},
-          {par:0.30, base:0.71, a1:115, a2:56,  f1:0.00098, f2:0.00040, shade:0.08, shape:'round'},
-          {par:0.38, base:0.75, a1:132, a2:64,  f1:0.00112, f2:0.00048, shade:0.10, shape:'round'}
-        ]
-      },
-      { name:'mesas',
-        sky:{ bg1:'#6e3b1b', bg2:'#cf7b35', bg3:'#ffe1b0', water:'#2a1a12' },
+          {par:0.10, base:0.54, a1:36, a2:18, f1:0.00044, f2:0.00018, shade:0.02, shape:'round'},
+          {par:0.16, base:0.60, a1:60, a2:28, f1:0.00062, f2:0.00024, shade:0.04, shape:'round'},
+          {par:0.22, base:0.66, a1:90, a2:42, f1:0.00080, f2:0.00032, shade:0.06, shape:'round'},
+          {par:0.30, base:0.71, a1:115, a2:56, f1:0.00098, f2:0.00040, shade:0.08, shape:'round'},
+          {par:0.38, base:0.75, a1:132, a2:64, f1:0.00112, f2:0.00048, shade:0.10, shape:'round'}
+        ]},
+      { name:'mesas', sky:{ bg1:'#6e3b1b', bg2:'#cf7b35', bg3:'#ffe1b0', water:'#2a1a12' },
         layers:[
-          {par:0.08, base:0.54, a1:42,  a2:20,  f1:0.00058, f2:0.00022, shade:0.02, shape:'mesa'},
-          {par:0.13, base:0.60, a1:70,  a2:32,  f1:0.00076, f2:0.00030, shade:0.04, shape:'mesa'},
-          {par:0.20, base:0.66, a1:96,  a2:46,  f1:0.00096, f2:0.00038, shade:0.06, shape:'mesa'},
-          {par:0.28, base:0.72, a1:120, a2:56,  f1:0.00116, f2:0.00046, shade:0.08, shape:'mesa'},
-          {par:0.36, base:0.76, a1:140, a2:64,  f1:0.00128, f2:0.00054, shade:0.10, shape:'mesa'}
-        ]
-      }
+          {par:0.08, base:0.54, a1:42, a2:20, f1:0.00058, f2:0.00022, shade:0.02, shape:'mesa'},
+          {par:0.13, base:0.60, a1:70, a2:32, f1:0.00076, f2:0.00030, shade:0.04, shape:'mesa'},
+          {par:0.20, base:0.66, a1:96, a2:46, f1:0.00096, f2:0.00038, shade:0.06, shape:'mesa'},
+          {par:0.28, base:0.72, a1:120, a2:56, f1:0.00116, f2:0.00046, shade:0.08, shape:'mesa'},
+          {par:0.36, base:0.76, a1:140, a2:64, f1:0.00128, f2:0.00054, shade:0.10, shape:'mesa'}
+        ]}
     ];
 
     function applyTheme(biome){
@@ -330,9 +323,11 @@
       root.setProperty('--water', biome.sky.water);
     }
 
+    // Backdrop state
     let currentBiome = BIOMES[0];
     const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], sun:null, clouds:[], cloudDir:1, landmarksFar:[], flocks:[] };
 
+    // Waves/shape helpers
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
     function mesaWave(x){ const k=2.2; return Math.tanh(Math.sin(x)*k)/Math.tanh(k); }
     function roundWave(x){ const s=Math.sin(x); return Math.sign(s)*Math.pow(Math.abs(s),0.85); }
@@ -478,15 +473,7 @@
       }
     }
 
-    // ===== World / Hole
-    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0, spin:0, spin0:1, bank:0 };
-    let strokes=0;
-    let holeIndex=0, roundData=null;
-    let hole=null;
-
-    // Aim/meter state
-    let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
-
+    // ===== Hole generation
     function genHole(){
       const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0; let seed = Math.random()*9999;
       function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
@@ -540,7 +527,7 @@
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
-      // vertical-only wind (random per hole)
+      // vertical-only wind
       windUp = windOn ? (Math.random()*2 - 1) * WIND_UP_MAX : 0;
       updateWindUI();
 
@@ -566,7 +553,7 @@
         b.addEventListener('click',()=>selectDisc(idx));
         clubSeg.appendChild(b);
       });
-      selectDisc(1);
+      selectDisc(1); // default Fairway
     }
     let currentDisc = DISCS[1];
     function selectDisc(i){ currentDisc = DISCS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
@@ -578,7 +565,7 @@
       const dirUp = windUp >= 0;
       const mag = Math.abs(windUp);
       elWindVal.textContent = (mag / WIND_UP_MAX).toFixed(1)+'x';
-      // rotate triangle to show up (−90deg) or down (+90deg)
+      // rotate arrow to show up (−90deg) or down (+90deg)
       elWindArrow.style.transform = `rotate(${dirUp? -90 : 90}deg)`;
     }
 
@@ -597,7 +584,7 @@
       if(!hole || !disc.atRest) return;
       const d = currentDisc;
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
-      const base = 1650;
+      const base = 1650; // carry
       const power = (0.25 + 0.75*meter) * d.speed * powerMul;
       const speed = base * power;
       const dir = aimAngle;
@@ -605,10 +592,10 @@
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
 
-      disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180);
+      disc.orient = dir + deg(NOSE_FAST_DEG);
       disc.spin0  = 14 + 20*power;
       disc.spin   = disc.spin0;
-      disc.bank   = (releaseMode * 16) * Math.PI/180;
+      disc.bank   = deg(releaseMode * 16);
 
       disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16); AudioMini.thwack();
     }
@@ -623,6 +610,7 @@
 
       if(!hole){ return; }
 
+      // particles
       for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
 
       if(!disc.atRest){
@@ -631,7 +619,7 @@
           const vx = disc.vx, vy = disc.vy;
           const vAngle = Math.atan2(vy, vx);
 
-          // Aerodynamics (turn→fade, lift, drag)
+          // Aero (turn→fade, lift, drag)
           const tPow = clamp(v / VREF, 0, 1);
           const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
 
@@ -651,14 +639,14 @@
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
 
-          // Symmetric curve direction based on travel direction
+          // Symmetric curve: invert sign when flying left vs right
+          const yawSign = (Math.abs(vx) > 0.1) ? Math.sign(vx) : 1;
           const handSign = (hand==='RHBH') ? 1 : -1;
-          const yawSign = (Math.abs(vx) > 0.1) ? Math.sign(vx) : (Math.cos(vAngle) >= 0 ? 1 : -1);
           const curveAx = TURN_K * curve * handSign * yawSign;
 
-          // WIND: vertical-only
-          const ax = dragX + curveAx;                         // no lateral wind
-          const ay = GRAV + dragY - lift - (windOn ? windUp : 0); // updraft reduces downward accel; downdraft increases it
+          // WIND vertical-only (no lateral assist)
+          const ax = dragX + curveAx;
+          const ay = GRAV + dragY - lift - (windOn ? windUp : 0);
 
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
@@ -668,12 +656,12 @@
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
-          // nose bias (fast nose-down, slow nose-up)
-          const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
-          const targetOrient = vAngle + noseBias;
+          // nose bias
+          const noseBias = lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow);
+          const targetOrient = vAngle + deg(noseBias);
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
-          // ------- ground collision with skip -------
+          // ground/skip
           const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
             const surface = surfaceAt(disc.x);
@@ -686,7 +674,7 @@
 
             const speed = Math.hypot(disc.vx, disc.vy);
             const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx));
-            const shallow = entryAngle < (12 * Math.PI/180);
+            const shallow = entryAngle < deg(12);
             const fast    = speed > 900;
 
             if(surface!=='sand' && surface!=='green' && shallow && fast){
@@ -702,7 +690,6 @@
             }
           }
 
-          // basket scoring
           if(checkBasketCatch()){
             AudioMini.chains();
             if(navigator.vibrate) navigator.vibrate([30,40,30]);
@@ -710,7 +697,7 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // ------- ground slide -------
+          // ground slide
           const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
@@ -731,6 +718,7 @@
             if(Math.abs(disc.vx) < 8){ disc.vx=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; }
           }
         }
+
         // hazards & bounds
         if(inWater(disc.x, disc.y+disc.r*0.6)){
           spawnParticles('splash', disc.x, disc.y, 16);
@@ -743,7 +731,17 @@
       centerCameraOnDisc();
     }
 
-    // Camera follow
+    // ===== Particles
+    const particles=[];
+    function spawnParticles(type, x, y, count){
+      for(let i=0;i<count;i++){
+        const a = Math.random()*TAU; const sp = (type==='spark'? 160 + Math.random()*160 : 80+Math.random()*120);
+        const vx = Math.cos(a)*sp, vy = Math.sin(a)*sp - (type==='spark'?0:200);
+        particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
+      }
+    }
+
+    // ===== Camera follow
     function centerCameraOnDisc(){
       if(!hole){ return; }
       view.x = clamp(disc.x - view.w*0.45, 0, WORLD.w - view.w);
@@ -879,7 +877,6 @@
       }
     }
 
-    // --- Clouds
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -926,7 +923,6 @@
       }
     }
 
-    // --- Mountains
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       backdrop.mountains.forEach((L, idx)=>{
@@ -972,7 +968,7 @@
       } 
 
       // Disc colors
-      let fillCol = '#f8fafc';          // default / white
+      let fillCol = '#f8fafc';          // default/white
       if(currentDisc.id==='DRV') fillCol = '#49d0ff';   // blue
       else if(currentDisc.id==='PUT') fillCol = '#ff8a3d'; // orange
       else if(currentDisc.id==='MID') fillCol = '#f8fafc';  // white
@@ -1044,9 +1040,17 @@
     function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
     window.addEventListener('resize', resize); resize();
 
-    // ===== Main loop
+    // ===== Main loop (with tiny guard so a stray error doesn’t kill everything)
     let last=0; let clock=0;
-    function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt; update(dt); draw(); requestAnimationFrame(loop); }
+    function loop(t){
+      try {
+        const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt;
+        update(dt); draw();
+      } catch(e){
+        console.error(e);
+      }
+      requestAnimationFrame(loop);
+    }
     requestAnimationFrame(loop);
 
     // ===== UI wiring
@@ -1061,21 +1065,6 @@
 
     // Build initial UI
     buildDiscs(); updateWindUI();
-
-    // ====== Self-tests (console: DuskDriveTests.run())
-    window.DuskDriveTests = {
-      run(){
-        let ok=0, fail=0;
-        function test(name, fn){
-          try{ fn(); console.log('%c✔ ' + name, 'color:#10b981'); ok++; }
-          catch(e){ console.error('✖ '+name, e); fail++; }
-        }
-        test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
-        test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
-        test('Backdrop builds and draws', ()=>{ buildBackdrop(); });
-        console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
-      }
-    };
   }
 })();
 </script>
