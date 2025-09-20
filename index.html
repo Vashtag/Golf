@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.4 — vertical wind)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.5 — richer procedural)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -96,12 +96,12 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🥏 Dusk Drive — Disc Golf</h1>
-      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind & glide, disc turn/fade.</div>
+      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind & glide, varied terrain.</div>
       <div class="grid">
         <div class="tag">Drivers • Fairways • Mids • Putters</div>
         <div class="tag">Vertical Wind & Lift</div>
         <div class="tag">Turn/Fade Curve</div>
-        <div class="tag">Procedural Holes</div>
+        <div class="tag">Procedural Holes (+variants)</div>
       </div>
       <p class="small" style="margin-top:.7rem">Best in landscape • Mobile-friendly • Haptics on chains</p>
       <div style="margin-top:.7rem"><button class="btn" id="btnPlay">Start Round</button></div>
@@ -162,7 +162,7 @@
     const elWindArrow = document.getElementById('windArrow');
     const elPowermeter = document.getElementById('powermeter');
     const elPowerfill = document.getElementById('powerfill');
-    const clubSeg = document.getElementById('clubSeg'); // reused id; now "discs"
+    const clubSeg = document.getElementById('clubSeg');
     const spinSeg = document.getElementById('spinSeg');
     const handSeg = document.getElementById('handSeg');
 
@@ -188,7 +188,7 @@
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // Discs (speed: power scaling, glide: lift factor, turn(<0)/fade(>0) magnitudes)
+    // Discs
     const DISCS = [
       { id:'DRV', name:'Driver',  speed:1.20, glide:1.00, turn:-2.0, fade:2.5 },
       { id:'FAI', name:'Fairway', speed:0.92, glide:1.05, turn:-1.5, fade:2.0 },
@@ -196,7 +196,7 @@
       { id:'PUT', name:'Putter',  speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
     ];
 
-    // Surfaces tuned for discs (less bounce, more slide-stop + skip logic expects harder vs soft)
+    // Surfaces
     const SURF = {
       fairway: { fric: 740,  rest: 0.14 },
       rough:   { fric: 1000, rest: 0.10, powerMul: 0.88 },
@@ -205,39 +205,36 @@
       rock:    { fric: 620,  rest: 0.18 }
     };
 
-    // ==== DISC PHYSICS — airtime & skip tuning ====
-    const GRAV = 1500;            // ↓ gravity to hang longer
-    const AIR_DRAG = 0.00050;     // ↓ a touch less drag
-    const LIFT_K   = 0.00450;     // base lift constant
-    const TURN_K   = 54;          // turn/fade influence
-    const VREF     = 1600;        // speed norm for turn→fade
-    const CAMBER   = 0.06;        // slight inherent upward AoA
+    // ==== DISC PHYSICS ====
+    const GRAV = 1500;
+    const AIR_DRAG = 0.00050;
+    const LIFT_K   = 0.00450;
+    const TURN_K   = 54;
+    const VREF     = 1600;
+    const CAMBER   = 0.06;
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
     const SPIN_DECAY = 0.35;
-    // ==============================================
 
     let reducedMotion = false;
 
-    // ===== Vertical wind (updraft/downdraft modifies lift only)
+    // ===== Vertical wind (lift only)
     let windOn = true;
     let windLift = 0;             // -1 .. +1 (down .. up)
     const WIND_LIFT_SCALE = 0.50; // ±50% lift modulation at max
 
-    // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
+    // Release angle / throw style
     let releaseMode = 0;
     function releaseDeg(){ return releaseMode * 15; }
-
-    // Throw style (affects curve direction): RHBH = +1, LHBH = -1
     let hand = 'RHBH';
-    function spinSign(){ return hand==='RHBH' ? 1 : -1; }
 
-    // ---------- Deterministic helpers ----------
+    // ---------- Helpers ----------
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
+    const ease = (t)=>t*t*(3-2*t);
 
     // Audio (minimal)
     const AudioMini = (()=>{
@@ -375,8 +372,6 @@
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
       if(hole) buildLandmarks();
-
-      // Flocks
       buildFlocks();
     }
 
@@ -413,9 +408,11 @@
       if(!hole) return;
 
       const exRanges = [
-        [hole.green.x0-160, hole.green.x1+160],
-        [hole.water.x-140, hole.water.x+hole.water.w+140]
+        [hole.green.x0-160, hole.green.x1+160]
       ];
+      if(hole.waters.length){
+        for(const w of hole.waters){ exRanges.push([w.x-140, w.x+w.w+140]); }
+      }
       function allowedX(x){
         for(const r of exRanges){ if(x>=r[0] && x<=r[1]) return false; }
         return x>60 && x < (hole.w-60);
@@ -442,15 +439,14 @@
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:farPar, parY:0 });
       }
 
-      // FAR lighthouse (0–1) near water
-      if(rand01(backdrop.seed, 951) < 0.35){
-        let x = hole.water.x + (rand01(backdrop.seed, 952)<0.5 ? -120 : hole.water.w+120);
+      // FAR lighthouse (0–1) near some water if present
+      if(hole.waters.length && rand01(backdrop.seed, 951) < 0.45){
+        const w = hole.waters[ Math.floor(rand01(backdrop.seed, 952) * hole.waters.length) ];
+        let x = w.x + (rand01(backdrop.seed, 953)<0.5 ? -120 : w.w+120);
         x = Math.min(Math.max(80, x), WORLD.w-80);
-        if(allowedX(x)){
-          const sc = 0.55 + rand01(backdrop.seed, 953)*0.25;
-          const varSeed = hash32(backdrop.seed ^ 0xC0A5);
-          backdrop.landmarksFar.push({ type:'lighthouse', x, scale:sc, seed:varSeed, parX:farPar, parY:0 });
-        }
+        const sc = 0.55 + rand01(backdrop.seed, 954)*0.25;
+        const varSeed = hash32(backdrop.seed ^ 0xC0A5);
+        backdrop.landmarksFar.push({ type:'lighthouse', x, scale:sc, seed:varSeed, parX:farPar, parY:0 });
       }
     }
 
@@ -544,44 +540,195 @@
     // Aim/meter state
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
+    // ==== NEW: scenery (trees/boulders) ====
+    let scenery = { trees:[], rocks:[] };
+
+    // ===== Procedural hole with variants =====
     function genHole(){
-      const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0; let seed = Math.random()*9999;
+      const w = WORLD.w, h = WORLD.h;
+      const step=40;
+
+      // Global tilt (uphill/downhill)
+      const tilt = (Math.random()*2-1) * 0.16;   // -0.16..+0.16
+      const tiltAmp = 160;
+
+      // Base waves
+      let seed = Math.random()*9999;
       function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
-      const amp1 = 90 + nrand()*70, freq1 = 1/(620+ nrand()*380);
-      const amp2 = 30 + nrand()*30, freq2 = 1/(260 + nrand()*200);
+      const amp1 = 70 + nrand()*110, freq1 = 1/(520+ nrand()*420);
+      const amp2 = 22 + nrand()*42,  freq2 = 1/(220 + nrand()*250);
 
-      for(x=0;x<=w;x+=step){ const y = baseY - Math.sin(x*freq1)*amp1 - Math.sin(x*freq2)*amp2; points.push({x,y}); }
+      const baseY0 = h*0.72;
+      const points=[];
 
-      const cupX = lerp(w*0.68, w*0.9, Math.random());
-
-      // "Green" here is just a landing zone near basket
-      const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); let greenY=0;
-      for(let i=0;i<points.length;i++){
-        if(points[i].x>=gx0 && points[i].x<=gx1){ const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40; points[i].y = gy; greenY = gy; }
+      // Build initial terrain
+      for(let x=0;x<=w;x+=step){
+        const t = x/w;
+        const tiltOffset = (t-0.5) * tiltAmp * tilt;
+        const y = baseY0 + tiltOffset
+                - Math.sin(x*freq1)*amp1
+                - Math.sin(x*freq2)*amp2;
+        points.push({x,y});
       }
 
-      const waterW = 200 + Math.random()*240; const waterX = lerp(w*0.30, cupX-420, Math.random()); const waterY = baseY - 28 + 10*Math.random();
-      const water = {x:waterX, y:waterY, w:waterW, h:h - waterY + 60};
+      // Local features: 0–2 ridges/valleys (gaussian bumps)
+      const featureCount = Math.floor(Math.random()*3); // 0–2
+      for(let f=0; f<featureCount; f++){
+        const cx = lerp(w*0.18, w*0.82, Math.random());
+        const sigma = 120 + Math.random()*220;
+        const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
+        for(let i=0;i<points.length;i++){
+          const dx = points[i].x - cx;
+          const k = Math.exp(- (dx*dx) / (2*sigma*sigma));
+          points[i].y += amp * k;
+        }
+      }
 
-      const sand = { x: cupX - 110 + Math.random()*160, y: greenY - 10, r: 62 + Math.random()*26 };
+      // Cliff variant (rare)
+      if(Math.random() < 0.33){
+        const cx = lerp(w*0.30, w*0.70, Math.random());
+        const up = Math.random() < 0.5 ? -1 : 1; // drop or climb
+        const drop = up * (120 + Math.random()*120);
+        const sharp = 60 + Math.random()*80;
+        for(let i=0;i<points.length;i++){
+          const dx = (points[i].x - cx) / sharp;
+          const s = 1/(1+Math.exp(-dx)); // logistic
+          points[i].y += drop * s;
+        }
+      }
 
-      const teeX = 120; const teeIdx = Math.floor(teeX/step); const teeY = points[teeIdx].y - 2; points[teeIdx].y = teeY;
+      // Choose basket position
+      const cupX = lerp(w*0.68, w*0.90, Math.random());
 
-      const valleyX = lerp(w*0.42, w*0.6, Math.random()); const vIdx = Math.floor(valleyX/step);
-      for(let i=-3;i<=3;i++){ const k=vIdx+i; if(points[k]) points[k].y += Math.abs(i)*22; }
+      // Green flatten (with slight slope variety)
+      const gWidth = 200 + Math.random()*160;
+      const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2;
+      const greenSlope = (Math.random()*0.6-0.3);
+      let greenY = 0;
 
-      const dist = (cupX - teeX); let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
+      for(let i=0;i<points.length;i++){
+        if(points[i].x>=gx0 && points[i].x<=gx1){
+          const t = (points[i].x-gx0)/gWidth;
+          const gy = (baseY0-30) + (Math.sin(points[i].x*freq2)*6) + greenSlope*(t-0.5)*40;
+          points[i].y = gy;
+          greenY = gy;
+        }
+      }
 
-      return { w, h, points, step, cupX, green:{x0:gx0,x1:gx1,y:greenY}, water, sand, tee:{x:teeX,y:teeY}, par };
+      // Water: 0–2 bodies with themed placements
+      const waters=[];
+      const wantWater = Math.random() < 0.85 ? 1 : 0; // often some water
+      const extraWater = Math.random() < 0.35 ? 1 : 0;
+      const waterCount = wantWater + extraWater;
+
+      function placeWater(rangeL, rangeR, wmin, wmax, raise= -28){
+        const wx = clamp(lerp(rangeL, rangeR, Math.random()), 80, w-280);
+        const ww = wmin + Math.random()*(wmax-wmin);
+        // set water top near local terrain mean
+        const idx = Math.floor(wx/step);
+        const yLocal = points[ clamp(idx,0,points.length-1) ].y;
+        const wy = yLocal + raise + (Math.random()*16-8);
+        waters.push({x:wx, y:wy, w:ww, h:h - wy + 60});
+      }
+
+      if(waterCount>0){
+        const midMin = w*0.28, midMax = cupX-360;
+        const guardMin = cupX-300, guardMax = cupX-60;
+        if(Math.random()<0.6 && midMax>midMin+160){
+          placeWater(midMin, midMax, 180, 360); // carry over mid pond
+        } else {
+          placeWater(guardMin, guardMax, 180, 320, -24); // guarding green
+        }
+        if(waterCount>1){
+          if(Math.random()<0.5){
+            placeWater(w*0.18, w*0.35, 140, 240, -34);
+          } else {
+            placeWater(cupX-520, cupX-280, 140, 220, -18);
+          }
+        }
+      }
+
+      // Sand bunkers: 1–3 circles around landing zones/green
+      const sands=[];
+      const sandN = 1 + Math.floor(Math.random()*3);
+      function addSand(cx, cy, r){ sands.push({ x:cx, y:cy, r }); }
+
+      // Main landing zone ~ halfway to cup
+      const lzX = lerp(w*0.32, cupX-400, Math.random());
+      addSand(lzX + (Math.random()*120-60), sampleY(points, lzX) - 8, 58 + Math.random()*28);
+
+      // Near green
+      addSand(cupX + (Math.random()*160-80), greenY - 10, 56 + Math.random()*24);
+      if(sandN>=3){
+        addSand(cupX - 120 + Math.random()*200, greenY - 10, 42 + Math.random()*24);
+      }
+
+      // Rough patches: 0–3 circles
+      const roughs=[];
+      const roughN = Math.floor(Math.random()*4);
+      for(let i=0;i<roughN;i++){
+        const rx = lerp(w*0.20, cupX-140, Math.random());
+        const ry = sampleY(points, rx) - 6;
+        roughs.push({ x:rx, y:ry, r: 42 + Math.random()*30 });
+      }
+
+      // Tee
+      const teeX = 120;
+      const teeIdx = Math.floor(teeX/step);
+      const teeY = points[teeIdx].y - 2;
+      points[teeIdx].y = teeY;
+
+      // Fun valley emphasis somewhere random (soft)
+      if(Math.random()<0.6){
+        const vX = lerp(w*0.40, w*0.62, Math.random());
+        const vIdx = Math.floor(vX/step);
+        for(let i=-3;i<=3;i++){
+          const k=vIdx+i; if(points[k]) points[k].y += Math.abs(i)* (16 + Math.random()*12);
+        }
+      }
+
+      const dist = (cupX - teeX);
+      let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
+
+      return {
+        w, h, points, step, cupX,
+        green:{x0:gx0,x1:gx1,y:greenY},
+        waters,
+        sands,
+        roughs,
+        tee:{x:teeX,y:teeY},
+        par
+      };
+    }
+
+    // Utility: sample current polyline height
+    function sampleY(points, x){
+      const step = points[1].x - points[0].x;
+      const i = Math.min(Math.max(Math.floor(x/step),0), points.length-2);
+      const p0 = points[i], p1 = points[i+1];
+      const t = (x - p0.x)/(p1.x - p0.x);
+      return lerp(p0.y, p1.y, t);
     }
 
     function groundYAt(x){ x = clamp(x, 0, hole.w); const i = Math.min(Math.floor(x/hole.step), hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
+
     function surfaceAt(x){
+      // priority: green > sand > rough > fairway
       if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
-      const dxSand = x - hole.sand.x; const y = groundYAt(x); if(Math.hypot(dxSand, y - hole.sand.y) <= hole.sand.r) return 'sand';
+      // sands
+      const y = groundYAt(x);
+      for(const s of hole.sands){ if(Math.hypot(x - s.x, y - s.y) <= s.r) return 'sand'; }
+      // roughs
+      for(const r of hole.roughs){ if(Math.hypot(x - r.x, y - r.y) <= r.r) return 'rough'; }
       return 'fairway';
     }
-    function inWater(x,y){ const w = hole.water; return x>=w.x && x<=w.x+w.w && y>=w.y; }
+
+    function inWater(x,y){
+      for(const w of hole.waters){
+        if(x>=w.x && x<=w.x+w.w && y>=w.y) return true;
+      }
+      return false;
+    }
 
     // ===== Round flow
     function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; screenIntro.style.display='none'; screenSummary.style.display='none'; nextHole(); }
@@ -592,13 +739,17 @@
       applyTheme(biome);
 
       hole = genHole();
+
+      // Scenery pass (simple silhouettes, cosmetic)
+      buildScenery();
+
       backdrop.seed = (Math.random()*1e9)|0; // per-hole
       buildBackdrop();
 
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
-      windLift = windOn ? (Math.random()*2 - 1) : 0; // -1 (downdraft) .. +1 (updraft)
+      windLift = windOn ? (Math.random()*2 - 1) : 0; // -1 .. +1
       updateWindUI();
 
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
@@ -634,8 +785,7 @@
     function updateWindUI(){
       const mag = Math.abs(windOn ? windLift : 0);
       elWindVal.textContent = mag.toFixed(1)+'x';
-      // arrow: default points down; rotate 180° to show updraft
-      const rot = (windLift >= 0 ? 180 : 0);
+      const rot = (windLift >= 0 ? 180 : 0); // arrow up for updraft
       elWindArrow.style.transform = `rotate(${rot}deg)`;
     }
 
@@ -654,7 +804,7 @@
       if(!hole || !disc.atRest) return;
       const d = currentDisc;
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
-      const base = 1650; // boosted for better carry/distance
+      const base = 1650;
       const power = (0.25 + 0.75*meter) * d.speed * powerMul;
       const speed = base * power;
       const dir = aimAngle;
@@ -663,7 +813,7 @@
       disc.vy = Math.sin(dir) * speed;
 
       // Init aero
-      disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180); // slight nose-down
+      disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180);
       disc.spin0  = 14 + 20*power;
       disc.spin   = disc.spin0;
       disc.bank   = (releaseMode * 16) * Math.PI/180;
@@ -753,12 +903,10 @@
             const fast    = speed > 900;
 
             if(surface!=='sand' && surface!=='green' && shallow && fast){
-              // SKIP: small pop + modest forward loss
               disc.vy = -Math.max(180, Math.abs(disc.vy)*0.55);
               disc.vx *= 0.88;
               disc.onGround = false;
             } else {
-              // Normal reduced bounce and heavy lateral loss
               const rest = SURF[surface]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
               disc.vx *= 0.84;
@@ -775,7 +923,7 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // ------- ground slide (stronger decel) -------
+          // ------- ground slide -------
           const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
@@ -784,7 +932,7 @@
             const surface = surfaceAt(disc.x); 
             const fric = SURF[surface]?.fric ?? 740; 
             const speed = Math.abs(disc.vx); 
-            let dec = fric * 2.1;             // stronger slow-down
+            let dec = fric * 2.1;
             if(surface === 'sand')  dec = fric * 2.6;
             if(surface === 'green') dec = fric * 2.3;
 
@@ -815,6 +963,76 @@
       view.y = clamp(groundYAt(disc.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
+    // ===== Scenery (cosmetic foreground)
+    function buildScenery(){
+      scenery.trees = [];
+      scenery.rocks = [];
+      const rng = (i)=>rand01(backdrop.seed, 2000+i);
+      const countTrees = 24 + Math.floor(rng(1)*18); // 24–42
+      const avoid = [
+        [hole.green.x0-80, hole.green.x1+80],
+      ];
+      for(const w of hole.waters){ avoid.push([w.x-60, w.x+w.w+60]); }
+      function allowedX(x){
+        for(const r of avoid){ if(x>=r[0] && x<=r[1]) return false; }
+        return x>40 && x < hole.w-40;
+      }
+      // Trees
+      for(let i=0;i<countTrees;i++){
+        let x = 80 + rng(10+i)*(WORLD.w-160);
+        let tries=0; while(!allowedX(x) && tries++<10){ x = 80 + rng(100+i*7)*(WORLD.w-160); }
+        const y = groundYAt(x);
+        const h = 24 + rng(200+i)*38;
+        scenery.trees.push({ x, y, h, w: 10 + rng(300+i)*8, sway:rng(400+i)*TAU });
+      }
+      // Rocks near tee & mid
+      const rockN = 8 + Math.floor(Math.random()*10);
+      for(let i=0;i<rockN;i++){
+        const x = 80 + Math.random()*(WORLD.w-160);
+        const y = groundYAt(x);
+        scenery.rocks.push({ x, y, r: 6 + Math.random()*10, skew: (Math.random()*0.6-0.3) });
+      }
+    }
+
+    function drawScenery(){
+      // Rocks
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.85)';
+      for(const r of scenery.rocks){
+        const x = r.x - view.x, y = r.y - view.y;
+        if(x<-40 || x>canvas.width/DPR+40) continue;
+        ctx.save();
+        ctx.translate(x,y);
+        ctx.rotate(r.skew);
+        ctx.beginPath(); ctx.ellipse(0, -r.r*0.3, r.r, r.r*0.55, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+
+      // Trees
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.92)';
+      for(const t of scenery.trees){
+        const x = t.x - view.x, y = t.y - view.y;
+        if(x<-50 || x>canvas.width/DPR+50) continue;
+        const sway = Math.sin(clock*0.3 + t.sway) * 2;
+        // trunk
+        ctx.fillRect(x-1.2, y - t.h, 2.4, t.h);
+        // canopy (simple stacked triangles)
+        for(let k=0;k<3;k++){
+          const level = t.h*(0.25 + k*0.24);
+          const width = (t.w + k*8);
+          ctx.beginPath();
+          ctx.moveTo(x + sway*0.4, y - level - (k*10));
+          ctx.lineTo(x - width/2 + sway, y - level + 12);
+          ctx.lineTo(x + width/2 + sway, y - level + 12);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
     // ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -827,10 +1045,12 @@
 
       if(!hole){ drawVignette(); return; }
 
-      // water
+      // water (multiple)
       const cs = getComputedStyle(document.documentElement);
       ctx.fillStyle = cs.getPropertyValue('--water').trim() || '#30160f';
-      const w = hole.water; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
+      for(const w of hole.waters){
+        ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
+      }
 
       // ground silhouette path (course)
       ctx.fillStyle = cs.getPropertyValue('--fg');
@@ -840,13 +1060,15 @@
 
       drawGrass();
 
-      // sand bunker
-      ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
+      // sand bunkers (multiple)
+      ctx.fillStyle = '#1b160f';
+      for(const s of hole.sands){ ctx.beginPath(); ctx.arc(s.x - view.x, s.y - view.y, s.r, 0, TAU); ctx.fill(); }
 
       // landing zone overlay
       ctx.fillStyle = 'rgba(60,140,85,.22)';
       ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
 
+      drawScenery();
       drawBasket();
 
       // particles
@@ -900,7 +1122,7 @@
       ctx.restore();
     }
 
-    // --- FAR landmarks (behind clouds & mountains), anchored to far ridge
+    // --- FAR landmarks
     function drawFarLandmarks(){
       if(!backdrop.landmarksFar.length) return;
       const L0 = backdrop.mountains[0]; const EMBED = 1.5;
@@ -926,7 +1148,6 @@
         const roofTopY = baselineY - towerH - roofH;
         ctx.beginPath(); ctx.moveTo(x - wTop*0.75, baselineY - towerH); ctx.lineTo(x + wTop*0.75, baselineY - towerH); ctx.lineTo(x, roofTopY); ctx.closePath(); ctx.fill();
         const hubY = baselineY - towerH - roofH*0.25, hubR=3.2*s; ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
-        // Spin rate subtly influenced by vertical wind magnitude (not direction)
         const speedMul = 1 + (windOn ? Math.abs(windLift)*0.4 : 0);
         const localSpeed = (reducedMotion? 0.08: spin*0.55) * speedMul;
         const ang0 = clock * localSpeed + rand01(seed,2)*TAU;
@@ -999,7 +1220,7 @@
       }
     }
 
-    // --- Mountains (biome-defined layers)
+    // --- Mountains
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       backdrop.mountains.forEach((L, idx)=>{
@@ -1045,10 +1266,10 @@
       } 
 
       // Disc color by type
-      let fillCol = '#f8fafc'; // default/white
-      if(currentDisc.id==='DRV') fillCol = '#49d0ff';        // blue
-      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';   // orange
-      else if(currentDisc.id==='MID') fillCol = '#f8fafc';   // white
+      let fillCol = '#f8fafc';
+      if(currentDisc.id==='DRV') fillCol = '#49d0ff';
+      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';
+      else if(currentDisc.id==='MID') fillCol = '#f8fafc';
 
       ctx.save();
       ctx.translate(disc.x - view.x, disc.y - view.y);
@@ -1057,7 +1278,6 @@
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
       const R = disc.r;
       ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
-      // rim hint
       ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
       ctx.restore();
     }
