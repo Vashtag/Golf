@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.4)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.5)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -188,7 +188,7 @@
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // Discs
+    // Discs (speed/glide/turn/fade)
     const DISCS = [
       { id:'DRV', name:'Driver',  speed:1.20, glide:1.00, turn:-2.0, fade:2.5 },
       { id:'FAI', name:'Fairway', speed:0.92, glide:1.05, turn:-1.5, fade:2.0 },
@@ -224,11 +224,9 @@
 
     // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
     let releaseMode = 0;
-    function releaseDeg(){ return releaseMode * 15; }
 
     // Throw style (affects curve direction): RHBH = +1, LHBH = -1
     let hand = 'RHBH';
-    function spinSign(){ return hand==='RHBH' ? 1 : -1; }
 
     // ---------- Deterministic helpers ----------
     const RAND_MAX = 4294967295;
@@ -324,7 +322,7 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop (parallax + sun + clouds + far landmarks + flocks)
+    // Backdrop & ambience
     let currentBiome = BIOMES[0];
     const backdrop = {
       seed:(Math.random()*1e9)|0,
@@ -439,7 +437,7 @@
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:farPar, parY:0 });
       }
 
-      // FAR lighthouse (0–1) near water
+      // FAR lighthouse (0–1)
       if(rand01(backdrop.seed, 951) < 0.35){
         let x = hole.water.x + (rand01(backdrop.seed, 952)<0.5 ? -120 : hole.water.w+120);
         x = Math.min(Math.max(80, x), WORLD.w-80);
@@ -553,7 +551,7 @@
 
       const cupX = lerp(w*0.68, w*0.9, Math.random());
 
-      // "Green" here is just a landing zone near basket
+      // "Green" here is a landing zone near basket
       const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); let greenY=0;
       for(let i=0;i<points.length;i++){
         if(points[i].x>=gx0 && points[i].x<=gx1){ const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40; points[i].y = gy; greenY = gy; }
@@ -705,15 +703,17 @@
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
 
-          // ---- FIX 1: apply curve perpendicular to velocity (not world X)
           const signHand = (hand==='RHBH'?1:-1);
           const latK = TURN_K * signHand;
-          const lateralAx = v > 1e-3 ? latK * curve * (-vy / v) : 0;
-          const lateralAy = v > 1e-3 ? latK * curve * ( vx / v) : 0;
+
+          // ---- LATERAL STEER: horizontal-only (no vertical coupling)
+          const lateralMag = latK * curve;
+          const lateralAx = v > 1e-3 ? lateralMag * (-vy / v) : 0;
+          // no lateralAy term added to ay
 
           // Net accelerations
           const ax = (windOn? windAx:0) + dragX + lateralAx;
-          const ay = GRAV + dragY - lift + lateralAy;
+          const ay = GRAV + dragY - lift;
 
           // Integrate
           disc.vx += ax*dt; disc.vy += ay*dt;
@@ -724,7 +724,7 @@
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
-          // ---- FIX 2: nose orientation uses shortest angular path
+          // Nose orientation (shortest path)
           const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
           const targetOrient = vAngle + noseBias;
           const dAng = normalizeAngle(targetOrient - disc.orient);
@@ -913,7 +913,7 @@
         const towerH=110*s, wBot=46*s, wTop=26*s, roofH=22*s, stageY=baselineY - towerH*0.55, legOut=10*s;
         ctx.fillStyle = colBody;
         ctx.beginPath(); ctx.moveTo(x - wBot/2, baselineY); ctx.lineTo(x + wBot/2, baselineY); ctx.lineTo(x + wTop/2, baselineY - towerH); ctx.lineTo(x - wTop/2, baselineY - towerH); ctx.closePath(); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(x - wBot/2, baselineY); ctx.lineTo(x - wBot/2 + - legOut, baselineY + 8*s); ctx.lineTo(x - wBot/2 - legOut + 3*s, baselineY + 8*s); ctx.lineTo(x - wBot/2 + 2*s, baselineY); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(x - wBot/2, baselineY); ctx.lineTo(x - wBot/2 - legOut, baselineY + 8*s); ctx.lineTo(x - wBot/2 - legOut + 3*s, baselineY + 8*s); ctx.lineTo(x - wBot/2 + 2*s, baselineY); ctx.closePath(); ctx.fill();
         ctx.beginPath(); ctx.moveTo(x + wBot/2, baselineY); ctx.lineTo(x + wBot/2 + legOut, baselineY + 8*s); ctx.lineTo(x + wBot/2 + legOut - 3*s, baselineY + 8*s); ctx.lineTo(x + wBot/2 - 2*s, baselineY); ctx.closePath(); ctx.fill();
         const stageW=wBot*1.35, deckH=5*s; ctx.fillStyle=colDetail;
         ctx.fillRect(x - stageW/2, stageY - deckH/2, stageW, deckH);
