@@ -1545,6 +1545,65 @@
         ctx.lineTo(cx, cageTop);
         ctx.stroke();
       }
+
+      // ---- Flag (waves with wind) ----
+      const poleTopY = groundY - poleH;
+      const stub = 16; // small mast above pole
+      // mast
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, poleTopY); ctx.lineTo(x, poleTopY - stub); ctx.stroke();
+
+      const anchorX = x;
+      const anchorY = poleTopY - stub;
+
+      const dir  = (windOn ? (windLift >= 0 ? 1 : -1) : 1); // updraft→right, downdraft→left
+      const wmag = windOn ? Math.abs(windLift) : 0;
+
+      const len    = 34 + wmag*26;
+      const height = 10;
+      const amp    = 2 + wmag*6;
+      const speed  = 2.2 + wmag*2.0;
+      const phase  = clock * speed;
+      const N      = 8;
+
+      ctx.save();
+      const cs = getComputedStyle(document.documentElement);
+      const flagCol = cs.getPropertyValue('--accent').trim() || '#ff8a3d';
+      ctx.fillStyle = flagCol;
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 1;
+
+      // top edge
+      ctx.beginPath();
+      for(let i=0;i<=N;i++){
+        const t = i/N;
+        const px = anchorX + dir * t * len;
+        const wave = Math.sin(phase + t*TAU) * amp * (0.6 + 0.4*Math.cos(t*TAU*0.5));
+        const py = anchorY + wave;
+        if(i===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      // bottom edge back
+      for(let i=N;i>=0;i--){
+        const t = i/N;
+        const px = anchorX + dir * t * len;
+        const wave = Math.sin(phase + t*TAU + 0.6) * amp * (0.6 + 0.4*Math.cos(t*TAU*0.5));
+        const py = anchorY + height + wave*0.6;
+        ctx.lineTo(px, py);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+
+      // tiny pennant notch
+      const tipX = anchorX + dir * len;
+      const tipY = anchorY + Math.sin(phase + TAU)*amp*0.6 + height*0.5;
+      ctx.beginPath();
+      ctx.moveTo(tipX,               tipY - height*0.35);
+      ctx.lineTo(tipX + dir*6,       tipY);
+      ctx.lineTo(tipX,               tipY + height*0.35);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fill();
+
+      ctx.restore();
     }
 
     function checkBasketCatch(){
