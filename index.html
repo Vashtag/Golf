@@ -222,6 +222,10 @@
     // Wind
     let windOn = true; let windAx = 0;
 
+    // NEW: centralize wind settings and reduce its effect on the disc
+    const WIND_MAX = 900;          // UI/roll maximum magnitude
+    const WIND_DISC_SCALE = 0.35;  // ↓ smaller = less wind influence (try 0.2–0.5)
+
     // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
     let releaseMode = 0;
     function releaseDeg(){ return releaseMode * 15; }
@@ -487,7 +491,7 @@
     }
     function updateFlocks(dt){
       if(!backdrop.flocks.length) return;
-      const windNorm = windOn ? Math.max(-1, Math.min(1, windAx/900)) : 0;
+      const windNorm = windOn ? Math.max(-1, Math.min(1, windAx / WIND_MAX)) : 0;
       const speedBase = (reducedMotion? 10: 18);
       const speedWind = (reducedMotion? 18: 32) * Math.abs(windNorm);
 
@@ -598,7 +602,7 @@
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
-      windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI();
+      windAx = windOn ? (Math.random()*2 - 1) * WIND_MAX : 0; updateWindUI();
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
     }
@@ -629,7 +633,7 @@
     handSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; hand = btn.dataset.hand; [...handSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
 
     // ===== Wind UI
-    function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag/900).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
+    function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag / WIND_MAX).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
 
     // ===== Input
     function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
@@ -707,7 +711,8 @@
           const curve = (turnAmt - fadeAmt + bankBias);
           const curveAx = TURN_K * curve * (hand==='RHBH'?1:-1);
 
-          const ax = (windOn? windAx:0) + dragX + curveAx;
+          // Apply reduced wind effect (horizontal push)
+          const ax = (windOn ? windAx * WIND_DISC_SCALE : 0) + dragX + curveAx;
           const ay = GRAV + dragY - lift;
 
           disc.vx += ax*dt; disc.vy += ay*dt;
