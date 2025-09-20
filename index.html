@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (grainy bunkers)</title>
+<title>Dusk Drive — Disc Golf (realistic water basins + grainy bunkers)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -480,37 +480,111 @@
         }
       }
 
-      // Water: 0–2 bodies
+      // =========== Water: basins that fill in realistic valleys (0–2) ===========
       const waters=[];
-      const wantWater = Math.random() < 0.85 ? 1 : 0;
-      const extraWater = Math.random() < 0.35 ? 1 : 0;
-      const waterCount = wantWater + extraWater;
+      (function buildWaters(){
+        const n = points.length;
+        const minWidth = 160;             // reject skinny puddles
+        const maxPonds = 2;               // cap
+        const bankMin = 32, bankMax = 64; // surface above basin bottom
+        const padMin = 12, padMax = 26;   // soft shoreline padding
 
-      function placeWater(rangeL, rangeR, wmin, wmax, raise= -28){
-        const wx = clamp(lerp(rangeL, rangeR, Math.random()), 80, w-280);
-        const ww = wmin + Math.random()*(wmax-wmin);
-        const idx = Math.floor(wx/step);
-        const yLocal = points[ clamp(idx,0,points.length-1) ].y;
-        const wy = yLocal + raise + (Math.random()*16-8);
-        waters.push({x:wx, y:wy, w:ww, h:h - wy + 60});
-      }
+        function addPond(x0, x1, y){
+          x0 = clamp(x0, 60, w-60);
+          x1 = clamp(x1, 60, w-60);
+          if(x1 - x0 < minWidth) return;
 
-      if(waterCount>0){
-        const midMin = w*0.28, midMax = cupX-360;
-        const guardMin = cupX-300, guardMax = cupX-60;
-        if(Math.random()<0.6 && midMax>midMin+160){
-          placeWater(midMin, midMax, 180, 360);
-        } else {
-          placeWater(guardMin, guardMax, 180, 320, -24);
+          // trim any overlap with green using local gx0/gx1
+          if(x0 < gx1 && x1 > gx0){
+            const leftOverlap  = Math.max(0, gx1 - x0);
+            const rightOverlap = Math.max(0, x1 - gx0);
+            if(leftOverlap < rightOverlap) x0 = gx1; else x1 = gx0;
+            if(x1 - x0 < minWidth) return;
+          }
+
+          waters.push({ x:x0, w:(x1-x0), y, h: h - y + 60, seed: (Math.random()*1e9)|0 });
         }
-        if(waterCount>1){
-          if(Math.random()<0.5){
-            placeWater(w*0.18, w*0.35, 140, 240, -34);
+
+        // find basins around local minima
+        for(let i=2;i<n-2;i++){
+          const yL = points[i-1].y, yC = points[i].y, yR = points[i+1].y;
+          if(!(yC < yL && yC < yR)) continue; // not a local minimum
+
+          // tentative water surface a bit above the bottom
+          let waterY = yC + (bankMin + Math.random()*(bankMax - bankMin));
+
+          // expand left/right while terrain is below (or at) the water surface
+          let L = i, R = i;
+          while(L > 0     && points[L].y <= waterY) L--;
+          while(R < n - 1 && points[R].y <= waterY) R++;
+
+          // shoulders to avoid "flooding" over a ridge
+          const leftShoulder  = Math.min(points[Math.max(L-1,0)].y,     points[Math.max(L-2,0)].y);
+          const rightShoulder = Math.min(points[Math.min(R+1,n-1)].y,   points[Math.min(R+2,n-1)].y);
+          const spillY = Math.min(leftShoulder, rightShoulder) - 8; // small margin under spill
+          if(waterY > spillY) waterY = spillY;
+
+          // recompute width with final waterY
+          L = i; R = i;
+          while(L > 0     && points[L].y <= waterY) L--;
+          while(R < n - 1 && points[R].y <= waterY) R++;
+
+          // shoreline padding
+          const pad = padMin + Math.random()*(padMax - padMin);
+          const x0 = (points[L].x) - pad;
+          const x1 = (points[R].x) + pad;
+
+          // avoid tee box & very-close-to-cup (loose)
+          if(x1 < (120 + 80) || x0 > (cupX - 80)){
+            addPond(x0, x1, waterY);
           } else {
-            placeWater(cupX-520, cupX-280, 140, 220, -18);
+            addPond(x0, x1, waterY);
           }
         }
-      }
+
+        // Prefer wider, mid-course; cap to 2
+        waters.sort((a,b)=>{
+          const dw = (b.w - a.w);
+          if(Math.abs(dw) > 1) return dw;
+          const ma = Math.abs((a.x + a.w*0.5) - (w*0.5));
+          const mb = Math.abs((b.x + b.w*0.5) - (w*0.5));
+          return ma - mb;
+        });
+
+        // merge close ponds
+        const merged=[];
+        const EPS = 24;
+        for(const pond of waters){
+          if(!merged.length){ merged.push(pond); continue; }
+          const last = merged[merged.length-1];
+          const gap = (pond.x) - (last.x + last.w);
+          if(gap <= EPS && Math.abs(pond.y - last.y) < 10){
+            const x0 = Math.min(last.x, pond.x);
+            const x1 = Math.max(last.x + last.w, pond.x + pond.w);
+            const y  = Math.min(last.y, pond.y);
+            merged[merged.length-1] = { x:x0, w:(x1-x0), y, h: h - y + 60, seed: last.seed };
+          } else {
+            merged.push(pond);
+          }
+        }
+
+        waters.length = 0;
+        for(let i=0;i<merged.length && waters.length<maxPonds;i++){
+          waters.push(merged[i]);
+        }
+
+        // fallback: guard pond before green if nothing qualified
+        if(!waters.length){
+          const gx = cupX - 220 + Math.random()*180;
+          let i = Math.floor(gx/step); i = clamp(i, 1, n-2);
+          const lowY = Math.min(points[i-1].y, points[i].y, points[i+1].y);
+          const waterY = lowY + (bankMin + Math.random()*(bankMax - bankMin));
+          let L=i, R=i; while(L>0 && points[L].y <= waterY) L--; while(R<n-1 && points[R].y <= waterY) R++;
+          const pad = padMin + Math.random()*(padMax - padMin);
+          addPond(points[L].x - pad, points[R].x + pad, waterY);
+        }
+      })();
+      // =========== end realistic waters ===========
 
       // Sand bunkers: seeded, for grain
       const sands=[];
@@ -573,10 +647,8 @@
     function surfaceAt(x){
       // priority: green > sand > rough > fairway
       if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
-      // sands
       const y = groundYAt(x);
       for(const s of hole.sands){ if(Math.hypot(x - s.x, y - s.y) <= s.r) return 'sand'; }
-      // roughs
       for(const r of hole.roughs){ if(Math.hypot(x - r.x, y - r.y) <= r.r) return 'rough'; }
       return 'fairway';
     }
@@ -968,6 +1040,126 @@
       }
     }
 
+    // ===== Water rendering (ripples, depth, foam, shimmer) =====
+    function drawWaterBodies(){
+      if(!hole || !hole.waters?.length) return;
+      for(const W of hole.waters){ drawWater(W); }
+    }
+    function drawWater(W){
+      const cs = getComputedStyle(document.documentElement);
+      const baseCol = cs.getPropertyValue('--water').trim() || '#30160f';
+
+      const left = W.x - view.x;
+      const top  = W.y - view.y;
+      const width = W.w;
+      const height = hole.h - W.y + 80;
+
+      // Clip to the water rect
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(left, top, width, height);
+      ctx.clip();
+
+      // 1) Base fill (biome color)
+      ctx.fillStyle = baseCol;
+      ctx.fillRect(left, top, width, height);
+
+      // 2) Depth gradient (darkens with depth)
+      const g = ctx.createLinearGradient(0, top, 0, top + height);
+      g.addColorStop(0.00, 'rgba(0,0,0,0.10)');
+      g.addColorStop(0.65, 'rgba(0,0,0,0.18)');
+      g.addColorStop(1.00, 'rgba(0,0,0,0.28)');
+      ctx.fillStyle = g;
+      ctx.fillRect(left, top, width, height);
+
+      // 3) Animated surface ripples (subtle)
+      const rippleA = { freq: 0.035, amp: 1.3, speed: 1.6 };
+      const rippleB = { freq: 0.070, amp: 0.9,  speed: -1.2 };
+      const step = 14; // pixel step along the shoreline
+      ctx.lineWidth = 1;
+
+      // Highlight ripples
+      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+      ctx.beginPath();
+      for(let x=0; x<=width; x+=step){
+        const yOff =
+          Math.sin((x * rippleA.freq) + clock * rippleA.speed * 2.0) * rippleA.amp +
+          Math.sin((x * rippleB.freq) + clock * rippleB.speed * 2.0) * rippleB.amp;
+        const y = top + Math.max(0, yOff);
+        if(x===0) ctx.moveTo(left + x, y);
+        else ctx.lineTo(left + x, y);
+      }
+      ctx.stroke();
+
+      // Trough ripples (slightly darker, just below the highlight)
+      ctx.strokeStyle = 'rgba(0,0,0,0.10)';
+      ctx.beginPath();
+      for(let x=0; x<=width; x+=step){
+        const yOff =
+          Math.sin((x * rippleA.freq) + clock * rippleA.speed * 2.0 + 1.2) * (rippleA.amp*0.9) +
+          Math.sin((x * rippleB.freq) + clock * rippleB.speed * 2.0 + 0.7) * (rippleB.amp*0.9);
+        const y = top + 2 + Math.max(0, yOff);
+        if(x===0) ctx.moveTo(left + x, y);
+        else ctx.lineTo(left + x, y);
+      }
+      ctx.stroke();
+
+      // 4) Shimmer lines (moving horizontal streaks)
+      const rr = (i)=> (hash32((W.seed ^ (i*2654435761))>>>0) >>> 0) / 4294967295;
+      const streaks = 4 + Math.floor(rr(1) * 4); // 4–7
+      for(let i=0;i<streaks;i++){
+        const yRand = rr(10+i);
+        const y = top + 6 + yRand * Math.min(38, height - 10);
+        const drift = ((clock * 18) + rr(100+i)*2000) % (width + 160);
+        const x0 = left + drift - 160;
+        const x1 = Math.min(left + width, x0 + (60 + rr(200+i)*120));
+
+        ctx.globalAlpha = 0.07 + rr(300+i)*0.05;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x0, y, x1 - x0, 1);
+        ctx.globalAlpha = 1;
+      }
+
+      // 5) Shoreline foam band
+      drawFoamBand(left, top, width, W.seed);
+
+      ctx.restore();
+    }
+    function drawFoamBand(left, top, width, seed){
+      const f1 = 0.045, a1 = 1.4;
+      const f2 = 0.090, a2 = 0.8;
+      const phase = (hash32(seed ^ 0xBEEF) % 628) / 100; // 0..~6.28
+      const step = 10;
+
+      // halo
+      const haloGrad = ctx.createLinearGradient(0, top, 0, top + 6);
+      haloGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
+      haloGrad.addColorStop(1, 'rgba(255,255,255,0.00)');
+      ctx.fillStyle = haloGrad;
+      ctx.fillRect(left, top, width, 6);
+
+      // foam line
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for(let x=0; x<=width; x+=step){
+        const yOff =
+          Math.sin(x*f1 + clock*2.0 + phase) * a1 +
+          Math.sin(x*f2 - clock*1.6 + phase*1.7) * a2;
+        const y = top + 1 + Math.max(0, yOff);
+        if(x===0) ctx.moveTo(left + x, y);
+        else ctx.lineTo(left + x, y);
+      }
+      ctx.stroke();
+
+      // small breakup dots
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      for(let x=4; x<width; x+=22){
+        const y = top + 2 + Math.sin(x*0.07 + phase)*0.8;
+        ctx.fillRect(left + x, y, 1, 1);
+      }
+    }
+
     // ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -978,14 +1170,11 @@
 
       if(!hole){ drawVignette(); return; }
 
-      // water (multiple)
-      const cs = getComputedStyle(document.documentElement);
-      ctx.fillStyle = cs.getPropertyValue('--water').trim() || '#30160f';
-      for(const w of hole.waters){
-        ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
-      }
+      // water first (so terrain silhouettes carve the shoreline)
+      drawWaterBodies();
 
       // ground silhouette path (course)
+      const cs = getComputedStyle(document.documentElement);
       ctx.fillStyle = cs.getPropertyValue('--fg');
       ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
@@ -995,8 +1184,6 @@
 
       // recessed, grainy bunkers
       for(const s of hole.sands){ drawBunkerHole(s); }
-
-      // (removed old landing zone overlay)
 
       drawScenery();
       drawBasket();
@@ -1208,7 +1395,6 @@
     }
 
     function checkBasketCatch(){
-      // simple AABB in chain zone with downward velocity
       const x = disc.x, y = disc.y, vy = disc.vy;
       const rimY = groundYAt(hole.cupX) - 46;
       const cageTop = groundYAt(hole.cupX) - 24;
