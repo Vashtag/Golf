@@ -503,7 +503,7 @@
         const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // fixed gaussian
+          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // ← fixed: correct Gaussian
           points[i].y += amp * k;
         }
       }
@@ -574,11 +574,11 @@
 
       const basinsAll = scanBasins();
 
-      // ======= Water from basins (STRICTLY within banks) =======
+      // ======= Water from basins (bank-to-bank) =======
       const waters=[];
       (function buildWaters(){
         const minWidth = 160;
-
+        const padMin = 12, padMax = 26;
         // prefer wider & mid-course
         const waterCandidates = basinsAll
           .filter(b => b.width >= minWidth)
@@ -601,26 +601,25 @@
 
         for(const b of waterCandidates){
           if(waters.length >= 2) break;
-
-          // stick to basin edges; tiny shrink avoids z-fighting with silhouette
-          let x0 = clamp(b.x0 + 1, 60, w-60);
-          let x1 = clamp(b.x1 - 1, 60, w-60);
+          let pad = padMin + Math.random()*(padMax-padMin);
+          let x0 = clamp(b.x0 - pad, 60, w-60);
+          let x1 = clamp(b.x1 + pad, 60, w-60);
           [x0,x1] = clipAwayFromGreen(x0,x1);
           if(x1 - x0 < minWidth) continue;
 
-          // avoid overlap with an existing pond
+          // avoid strong overlap with previously placed ponds
           const overlaps = waters.some(p => Math.min(p.x+p.w, x1) - Math.max(p.x, x0) > 40);
           if(overlaps) continue;
 
           waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h: h - b.surfaceY + 60, seed:(Math.random()*1e9)|0 });
         }
 
-        // fallback: put one near the green if none (still within that basin’s banks)
+        // fallback: put one near the green if none
         if(!waters.length){
+          // choose basin closest to cup
           const near = basinsAll.sort((a,b)=>Math.abs(a.cx-cupX)-Math.abs(b.cx-cupX))[0];
           if(near){
-            let x0 = clamp(near.x0 + 1,60,w-60), x1 = clamp(near.x1 - 1,60,w-60);
-            [x0,x1] = clipAwayFromGreen(x0,x1);
+            let x0 = clamp(near.x0-18,60,w-60), x1 = clamp(near.x1+18,60,w-60);
             if(x1-x0 >= minWidth){
               waters.push({ x:x0, w:(x1-x0), y:near.surfaceY, h:h-near.surfaceY+60, seed:(Math.random()*1e9)|0 });
             }
@@ -668,7 +667,7 @@
         }
       }
 
-      // Rough patches (texture)
+      // Rough patches (keep as is for texture variety)
       const roughs=[];
       const roughN = Math.floor(Math.random()*4);
       for(let i=0;i<roughN;i++){
@@ -999,7 +998,7 @@
         scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
 
-      // Windmill near/after the green on a ridge (sometimes skipped if valley)
+      // Windmill near/after the green on a ridge (skip if it's down in a valley)
       let wx = clamp(hole.cupX + 140 + Math.random()*220, 120, WORLD.w-120);
       if(wx > hole.green.x0-50 && wx < hole.green.x1+50) wx = hole.green.x1 + 80;
       const wy = groundYAt(wx);
@@ -1031,7 +1030,7 @@
       ctx.rotate(ang);
       const blades = 10;
       for(let i=0;i<blades;i++){
-        ctx.rotate(TAU/blades);
+        ctx.rotate(Math.PI*2/blades);
         ctx.beginPath();
         ctx.moveTo(2,0);
         ctx.lineTo(wm.r, 1.5);
@@ -1040,7 +1039,7 @@
         ctx.fill();
       }
       // hub
-      ctx.beginPath(); ctx.arc(0,0,3,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fill();
       ctx.restore();
 
       ctx.restore();
@@ -1063,14 +1062,14 @@
         function rr(seed,i){ return (hash32(seed ^ (i*2654435761))>>>0)/4294967295; }
         const lumps = 2 + Math.floor(rr(r.seed,1)*3);
         for(let i=0;i<lumps;i++){
-          const ang = rr(r.seed,10+i)*TAU;
+          const ang = rr(r.seed,10+i)*Math.PI*2;
           const dist = r.r * (0.2 + rr(r.seed,20+i)*0.9);
           const rad  = r.r * (0.7 + rr(r.seed,30+i)*0.7);
           const ox = Math.cos(ang)*dist;
           const oy = Math.sin(ang)*dist*0.5 - r.r*0.3;
           const rot = (rr(r.seed,40+i)-0.5)*0.8;
           ctx.save(); ctx.translate(ox, oy); ctx.rotate(rot);
-          ctx.beginPath(); ctx.ellipse(0, 0, rad, rad*0.65, 0, 0, TAU); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(0, 0, rad, rad*0.65, 0, 0, Math.PI*2); ctx.fill();
           ctx.restore();
         }
 
@@ -1124,18 +1123,18 @@
       ring.addColorStop(0, 'rgba(255,255,255,0)');
       ring.addColorStop(1, 'rgba(255,255,255,0.08)');
       ctx.fillStyle = ring;
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
 
       // slight inner shadow toward the downslope
       const shade = ctx.createRadialGradient(0, r*0.22, r*0.18, 0, 0, r);
       shade.addColorStop(0, 'rgba(0,0,0,0.30)');
       shade.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = shade;
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
 
       // grain, clipped to the ellipse
       ctx.save();
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.clip();
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.clip();
       drawSandGrain(s.seed, r);
       ctx.restore();
 
@@ -1148,11 +1147,11 @@
       for(let i=0;i<N;i++){
         const u = rand01(seed, i*7+1);
         const v = rand01(seed, i*7+2);
-        const theta = v * TAU;
+        const theta = v * Math.PI*2;
         const rad = Math.sqrt(u) * r * 0.85;       // bias grains toward center
         const x = Math.cos(theta) * rad;
         const y = Math.sin(theta) * rad * 0.82;    // match oval scale
-        const dir = (rand01(seed, i*7+3)-0.5) * TAU;
+        const dir = (rand01(seed, i*7+3)-0.5) * Math.PI*2;
         const len = 2 + rand01(seed, i*7+4)*4;
 
         ctx.beginPath();
@@ -1280,7 +1279,7 @@
       drawSun();
       drawClouds();
       drawMountains();
-      drawFlocks();     // <— flocks back in
+      drawFlocks();     // birds
 
       if(!hole){ drawVignette(); return; }
 
@@ -1310,7 +1309,7 @@
         else if(p.type==='dust') c = '#9aa2aa';
         else if(p.type==='splash') c = '#49d0ff';
         ctx.globalAlpha = Math.max(0, p.life/0.6);
-        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
+        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
       }
 
       drawDisc();
@@ -1344,11 +1343,11 @@
       halo.addColorStop(0, 'rgba(255,210,130,0.22)');
       halo.addColorStop(1, 'rgba(255,210,130,0.00)');
       ctx.fillStyle = halo;
-      ctx.beginPath(); ctx.arc(x, y, r*4.0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, r*4.0, 0, Math.PI*2); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
 
       ctx.fillStyle = '#fff2cf';
-      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1; ctx.stroke();
       ctx.restore();
     }
@@ -1382,21 +1381,21 @@
           const g = ctx.createRadialGradient(cx, cy, r*0.35, cx, cy, r*1.3);
           g.addColorStop(0,'rgba(255,255,255,0.55)');
           g.addColorStop(1,'rgba(255,255,255,0.00)');
-          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r*1.3, 0, TAU); ctx.fill();
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r*1.3, 0, Math.PI*2); ctx.fill();
         }
         const cxMid = (minX+maxX)/2, cyMid = (minY+maxY)/2;
         const rMax = (maxX-minX)*0.42;
         const core = ctx.createRadialGradient(cxMid, cyMid, rMax*0.1, cxMid, cyMid, rMax);
         core.addColorStop(0,'rgba(255,255,255,0.18)');
         core.addColorStop(1,'rgba(255,255,255,0.00)');
-        ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cxMid, cyMid, rMax, 0, TAU); ctx.fill();
+        ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cxMid, cyMid, rMax, 0, Math.PI*2); ctx.fill();
         ctx.restore();
 
         ctx.save(); const shadowR = (maxX - minX) * 0.65;
         const sx = cxMid + shadowR*0.05; const sy = cyMid + (maxY-minY)*0.18;
         const sh = ctx.createRadialGradient(sx, sy, shadowR*0.15, sx, sy, shadowR*1.2);
         sh.addColorStop(0, 'rgba(0,0,0,0.06)'); sh.addColorStop(1, 'rgba(0,0,0,0.00)');
-        ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(sx, sy, shadowR*1.2, 0, TAU); ctx.fill(); ctx.restore();
+        ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(sx, sy, shadowR*1.2, 0, Math.PI*2); ctx.fill(); ctx.restore();
       }
     }
 
@@ -1457,8 +1456,8 @@
       ctx.fillStyle = fillCol;
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
       const R = disc.r;
-      ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
-      ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
+      ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, Math.PI*2); ctx.stroke(); ctx.globalAlpha=1;
       ctx.restore();
     }
 
@@ -1494,12 +1493,12 @@
       ctx.fillRect(x - 2, cageTop - 10, 4, 10);
 
       // rim ring
-      ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, Math.PI*2); ctx.fill();
 
       // chains (simple)
       ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
-        const t = i/6 * TAU;
+        const t = i/6 * Math.PI*2;
         const cx = x + Math.cos(t) * (rimW/2 - 2);
         ctx.beginPath();
         ctx.moveTo(cx, rimY);
