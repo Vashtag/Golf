@@ -392,7 +392,7 @@
     function buildWindmills(){
       backdrop.windmills.length = 0;
 
-      const count = 3 + Math.floor(rand01(backdrop.seed,810)*4); // 3–6
+      const count = 1 + Math.floor(rand01(backdrop.seed,810)*4); // 3–6
       const used = [];
       for(let i=0, tries=count*8; i<tries && backdrop.windmills.length<count; i++){
         const s = hash32(backdrop.seed ^ (0xC0FFEE + i*997));
