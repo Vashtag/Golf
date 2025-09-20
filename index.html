@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.5 — richer procedural)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.6 — trees+rocks)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -977,56 +977,84 @@
         for(const r of avoid){ if(x>=r[0] && x<=r[1]) return false; }
         return x>40 && x < hole.w-40;
       }
-      // Trees
+      // Trees (BIGGER)
       for(let i=0;i<countTrees;i++){
         let x = 80 + rng(10+i)*(WORLD.w-160);
         let tries=0; while(!allowedX(x) && tries++<10){ x = 80 + rng(100+i*7)*(WORLD.w-160); }
         const y = groundYAt(x);
-        const h = 24 + rng(200+i)*38;
-        scenery.trees.push({ x, y, h, w: 10 + rng(300+i)*8, sway:rng(400+i)*TAU });
+        const h = 56 + rng(200+i)*96;                // ↑ taller
+        const baseW = 14 + rng(300+i)*18;            // ↑ wider canopy
+        const levels = 4 + Math.floor(rng(500+i)*2); // 4–5 tiers
+        scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU });
       }
-      // Rocks near tee & mid
-      const rockN = 8 + Math.floor(Math.random()*10);
+      // Rocks — smaller & more natural clusters
+      const rockN = 6 + Math.floor(Math.random()*6); // fewer
       for(let i=0;i<rockN;i++){
         const x = 80 + Math.random()*(WORLD.w-160);
         const y = groundYAt(x);
-        scenery.rocks.push({ x, y, r: 6 + Math.random()*10, skew: (Math.random()*0.6-0.3) });
+        const r = 3 + Math.random()*5;               // much smaller
+        const seed = (Math.random()*1e9)|0;
+        scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
     }
 
     function drawScenery(){
-      // Rocks
+      // Rocks (clustered, small, irregular)
       ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.85)';
+      ctx.fillStyle = 'rgba(0,0,0,0.92)';
       for(const r of scenery.rocks){
         const x = r.x - view.x, y = r.y - view.y;
         if(x<-40 || x>canvas.width/DPR+40) continue;
         ctx.save();
         ctx.translate(x,y);
         ctx.rotate(r.skew);
-        ctx.beginPath(); ctx.ellipse(0, -r.r*0.3, r.r, r.r*0.55, 0, 0, TAU);
-        ctx.fill();
+        // 2–4 little overlapping lumps
+        function rr(seed,i){ return (hash32(seed ^ (i*2654435761))>>>0)/4294967295; }
+        const lumps = 2 + Math.floor(rr(r.seed,1)*3);
+        for(let i=0;i<lumps;i++){
+          const ang = rr(r.seed,10+i)*TAU;
+          const dist = r.r * (0.2 + rr(r.seed,20+i)*0.9);
+          const rad  = r.r * (0.7 + rr(r.seed,30+i)*0.7);
+          const ox = Math.cos(ang)*dist;
+          const oy = Math.sin(ang)*dist*0.5 - r.r*0.3; // flattened base
+          const rot = (rr(r.seed,40+i)-0.5)*0.8;
+          ctx.save();
+          ctx.translate(ox, oy);
+          ctx.rotate(rot);
+          ctx.beginPath(); ctx.ellipse(0, 0, rad, rad*0.65, 0, 0, TAU); ctx.fill();
+          ctx.restore();
+        }
         ctx.restore();
       }
       ctx.restore();
 
-      // Trees
+      // Trees (bigger trunks + more tiers)
       ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.92)';
+      ctx.fillStyle = 'rgba(0,0,0,0.94)';
       for(const t of scenery.trees){
         const x = t.x - view.x, y = t.y - view.y;
-        if(x<-50 || x>canvas.width/DPR+50) continue;
+        if(x<-60 || x>canvas.width/DPR+60) continue;
         const sway = Math.sin(clock*0.3 + t.sway) * 2;
+        const trunkW = clamp(t.h*0.045, 3, 7); // thicker trunk with height
         // trunk
-        ctx.fillRect(x-1.2, y - t.h, 2.4, t.h);
-        // canopy (simple stacked triangles)
-        for(let k=0;k<3;k++){
-          const level = t.h*(0.25 + k*0.24);
-          const width = (t.w + k*8);
+        ctx.fillRect(x - trunkW/2, y - t.h, trunkW, t.h);
+
+        // subtle roots
+        ctx.beginPath();
+        ctx.moveTo(x - trunkW*0.8, y);
+        ctx.lineTo(x + trunkW*0.8, y);
+        ctx.lineTo(x, y - trunkW*0.4);
+        ctx.closePath(); ctx.fill();
+
+        // canopy tiers
+        const tierGap = 10;
+        for(let k=0;k<t.levels;k++){
+          const level = t.h*(0.16 + k*0.18);
+          const width = (t.w + k*(t.w*0.28));
           ctx.beginPath();
-          ctx.moveTo(x + sway*0.4, y - level - (k*10));
-          ctx.lineTo(x - width/2 + sway, y - level + 12);
-          ctx.lineTo(x + width/2 + sway, y - level + 12);
+          ctx.moveTo(x + sway*0.45, y - level - (k*tierGap));
+          ctx.lineTo(x - width/2 + sway, y - level + tierGap);
+          ctx.lineTo(x + width/2 + sway, y - level + tierGap);
           ctx.closePath(); ctx.fill();
         }
       }
@@ -1064,9 +1092,10 @@
       ctx.fillStyle = '#1b160f';
       for(const s of hole.sands){ ctx.beginPath(); ctx.arc(s.x - view.x, s.y - view.y, s.r, 0, TAU); ctx.fill(); }
 
-      // landing zone overlay
+      /* REMOVED: landing zone overlay so nothing looks like "fields"
       ctx.fillStyle = 'rgba(60,140,85,.22)';
       ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
+      */
 
       drawScenery();
       drawBasket();
