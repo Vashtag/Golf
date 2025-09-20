@@ -329,7 +329,7 @@
       sun:null,
       clouds:[],
       cloudDir:1,
-      windmills:[]        // ← NEW
+      windmills:[]   // windmills live on the last mountain layer
     };
 
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
@@ -368,7 +368,7 @@
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
 
-      // Build windmills (NEW)
+      // Windmills
       buildWindmills();
     }
 
@@ -388,26 +388,28 @@
       }
     }
 
-    // ===== NEW: Windmill generation =====
+    // ===== Windmill generation (reference-style) =====
     function buildWindmills(){
       backdrop.windmills.length = 0;
+
       const count = 3 + Math.floor(rand01(backdrop.seed,810)*4); // 3–6
       const used = [];
-      for(let i=0, tries=count*6; i<tries && backdrop.windmills.length<count; i++){
+      for(let i=0, tries=count*8; i<tries && backdrop.windmills.length<count; i++){
         const s = hash32(backdrop.seed ^ (0xC0FFEE + i*997));
-        const u = 0.12 + rand01(s,1)*0.76;    // avoid extreme edges
+        const u = 0.12 + rand01(s,1)*0.76;     // avoid extreme edges
         const x = WORLD.w * u;
 
         // keep them apart
-        if(!used.every(px => Math.abs(px - x) > 380)) continue;
+        if(!used.every(px => Math.abs(px - x) > 420)) continue;
         used.push(x);
 
-        const h = 70 + rand01(s,2)*36;        // mast height
-        const r = 14 + rand01(s,3)*10;        // rotor radius
-        const speed = 1.2 + rand01(s,4)*1.5;  // rad/s baseline
+        const h = 90 + rand01(s,2)*48;         // tower height
+        const r = 26 + rand01(s,3)*10;         // blade radius
+        const speed = 0.8 + rand01(s,4)*1.0;   // rad/s
         const spin0 = rand01(s,5)*TAU;
+        const tilt = (rand01(s,6)-0.5) * (14*Math.PI/180); // slight nacelle tilt
 
-        backdrop.windmills.push({ x, h, r, speed, spin0 });
+        backdrop.windmills.push({ x, h, r, speed, spin0, tilt });
       }
     }
 
@@ -1079,7 +1081,7 @@
       }
     }
 
-    // ===== Water rendering (ripples, depth, foam, shimmer) =====
+    // ===== Water rendering =====
     function drawWaterBodies(){
       if(!hole || !hole.waters?.length) return;
       for(const W of hole.waters){ drawWater(W); }
@@ -1190,50 +1192,120 @@
       }
     }
 
-    // ===== NEW: Background windmills (drawn behind the course)
+    // ===== Background windmills (on last mountain layer) =====
     function drawWindmills(){
-      if(!hole || !backdrop.windmills?.length) return; // guard for intro screen
+      if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
+
+      // Snap to the *last* mountain layer (closest one drawn last)
+      const L = backdrop.mountains[backdrop.mountains.length - 1];
+      const idx = backdrop.mountains.length - 1;     // for vertical parallax
+      const parX = L.parallax;
+      const parY = 0.06 * idx;
 
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.88)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+      ctx.lineWidth = 1;
 
       const w = canvas.width / DPR;
 
       for(const W of backdrop.windmills){
-        const sx = W.x - view.x;
-        if(sx < -140 || sx > w + 140) continue;
+        // screen x following the same parallax math as mountains
+        const sx = W.x - view.x * parX;
+        if(sx < -200 || sx > w + 200) continue;
 
-        const gy = groundYAt(W.x) - view.y;   // skyline at this world-x
-        const topY = gy - W.h;
+        // mountain ridge y at this world-x, with the layer’s vertical parallax
+        let baseY = mountainYAt(L, W.x) - view.y * parY;
 
-        // mast + nacelle + hub
-        ctx.fillRect(sx - 2, topY, 4, W.h);
-        ctx.fillRect(sx - 6, topY - 8, 12, 8);
-        const cx = sx, cy = topY - 6;
-        ctx.beginPath(); ctx.arc(cx, cy, 2, 0, TAU); ctx.fill();
+        // slightly embedded into the ridge
+        baseY += 2;
 
-        // blades (spin reacts to vertical wind magnitude)
-        const windFactor = 1 + (windOn ? Math.abs(windLift)*1.6 : 0);
+        const towerTopY = baseY - W.h;
+        const cx = sx, cy = towerTopY - 10; // rotor hub a bit above balcony
+
+        // ---- Tower (tapered) ----
+        ctx.beginPath();
+        const tw = Math.max(16, W.h * 0.14);
+        const bw = tw * 1.25;
+        ctx.moveTo(sx - bw/2, baseY);
+        ctx.lineTo(sx + bw/2, baseY);
+        ctx.lineTo(sx + tw/2, towerTopY);
+        ctx.lineTo(sx - tw/2, towerTopY);
+        ctx.closePath(); ctx.fill();
+
+        // feet
+        ctx.beginPath();
+        ctx.moveTo(sx - bw/2, baseY);
+        ctx.lineTo(sx - bw/2 - 10, baseY + 6);
+        ctx.moveTo(sx + bw/2, baseY);
+        ctx.lineTo(sx + bw/2 + 10, baseY + 6);
+        ctx.stroke();
+
+        // ---- Balcony / railing ----
+        const railW = Math.max(40, tw*2.2);
+        const railH = 10;
+        const railY = towerTopY + 4;
+        // tray
+        ctx.fillRect(sx - railW/2, railY, railW, 6);
+        // cage rails
+        ctx.save();
+        ctx.globalAlpha = 0.95;
+        ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx - railW/2, railY - railH, railW, railH);
+        const vBars = 6;
+        for(let i=1;i<vBars;i++){
+          const x = sx - railW/2 + (railW/vBars)*i;
+          ctx.beginPath(); ctx.moveTo(x, railY - railH); ctx.lineTo(x, railY); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(sx - railW/2, railY - railH/2); ctx.lineTo(sx + railW/2, railY - railH/2); ctx.stroke();
+        ctx.restore();
+
+        // ---- Nacelle / hub (slight tilt) ----
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(W.tilt);
+        ctx.fillRect(-8, -6, 16, 6); // nacelle box
+        ctx.beginPath(); ctx.arc(0, 0, 3, 0, TAU); ctx.fill();
+
+        // ---- 4 lattice blades ----
+        const windFactor = 1 + (windOn ? Math.abs(windLift)*1.2 : 0);
         const theta = W.spin0 + clock * W.speed * windFactor;
 
-        blade(cx, cy, theta, W.r);
-        blade(cx, cy, theta + TAU/3, W.r);
-        blade(cx, cy, theta + 2*TAU/3, W.r);
+        drawBlade(theta,         W.r);
+        drawBlade(theta+TAU/4,   W.r);
+        drawBlade(theta+TAU/2,   W.r);
+        drawBlade(theta+3*TAU/4, W.r);
+
+        ctx.restore();
       }
 
       ctx.restore();
 
-      function blade(cx, cy, ang, R){
+      function drawBlade(angle, R){
         ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(ang);
+        ctx.rotate(angle);
+
+        const bw = Math.max(6, R*0.16);  // blade width
+        const bl = R;                    // blade length
+        const root = 4;                  // root stub length
+
+        // main rectangle
         ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(R, -R*0.18);
-        ctx.lineTo(R*0.92,  R*0.20);
-        ctx.closePath();
+        ctx.rect(root, -bw/2, bl-root, bw);
         ctx.fill();
+
+        // lattice grid
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        const segs = 5;
+        for(let i=1;i<segs;i++){
+          const x = root + (bl-root)*(i/segs);
+          ctx.beginPath(); ctx.moveTo(x, -bw/2); ctx.lineTo(x, bw/2); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(root, 0); ctx.lineTo(bl, 0); ctx.stroke();
+        ctx.restore();
+
         ctx.restore();
       }
     }
@@ -1248,7 +1320,7 @@
 
       if(!hole){ drawVignette(); return; }
 
-      // Draw windmills behind course silhouette (NEW)
+      // Windmills behind course silhouette
       drawWindmills();
 
       // water first (so terrain silhouette carves shoreline)
@@ -1263,7 +1335,7 @@
 
       drawGrass();
 
-      // recessed, grainy bunkers (placed from valleys)
+      // recessed, grainy bunkers
       for(const s of hole.sands){ drawBunkerHole(s); }
 
       drawScenery();
