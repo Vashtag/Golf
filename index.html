@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Disc Golf (v3.7 — vertical wind only)</title>
+<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.3)</title>
 <style>
   :root{
+    /* defaults; overridden per biome at runtime */
     --bg1:#a54720; --bg2:#f38e41; --bg3:#ffe6ba; --water:#30160f;
     --fg:#050607; --text:#e6edf3; --muted:#a9b1ba;
     --accent:#ff8a3d; --accent2:#49d0ff; --accent3:#86efac;
@@ -25,12 +26,7 @@
   .chip strong{font-weight:700}
   .wind{gap:.4rem}
   .wind .arrow{width:14px;height:14px;transform-origin:center;display:inline-block}
-  .wind .arrow::before{
-    content:"";
-    display:block;width:0;height:0;
-    border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid var(--accent2);
-    transform:translateY(-2px)
-  }
+  .wind .arrow::before{content:"";display:block;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid var(--accent2);transform:translateY(-2px)}
 
   .bottombar{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding:.7rem}
   .panel{pointer-events:auto;background:var(--panel);backdrop-filter:blur(var(--panel-blur));border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:.55rem .7rem}
@@ -72,11 +68,7 @@
         <div class="chip"><span class="label">Strokes</span> <strong id="strokes">0</strong></div>
       </div>
       <div class="row">
-        <div class="chip wind" title="Wind is vertical-only (updraft/downdraft)">
-          <span class="label">Wind</span>
-          <span id="windVal">0</span>
-          <span class="arrow" id="windArrow"></span>
-        </div>
+        <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
         <button class="btn" id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
       </div>
     </div>
@@ -104,10 +96,10 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🥏 Dusk Drive — Disc Golf</h1>
-      <div class="sub">Drag to aim, hold to charge, release to throw. Wind is vertical-only; driver blue, mid white, putter orange.</div>
+      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, wind & glide, disc turn/fade.</div>
       <div class="grid">
         <div class="tag">Drivers • Fairways • Mids • Putters</div>
-        <div class="tag">Vertical Wind</div>
+        <div class="tag">Wind & Lift</div>
         <div class="tag">Turn/Fade Curve</div>
         <div class="tag">Procedural Holes</div>
       </div>
@@ -156,15 +148,12 @@
   } else { main(); }
 
   function main(){
-    'use strict';
-
-    // ===== Canvas & basic
     const TAU = Math.PI*2;
     const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d', { alpha:true });
+    const ctx = canvas.getContext('2d');
     let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
-    // ===== UI
+    // ===== UI Elements
     const elHole = document.getElementById('holeNum');
     const elHolesTotal = document.getElementById('holesTotal');
     const elPar = document.getElementById('parLabel');
@@ -173,7 +162,7 @@
     const elWindArrow = document.getElementById('windArrow');
     const elPowermeter = document.getElementById('powermeter');
     const elPowerfill = document.getElementById('powerfill');
-    const clubSeg = document.getElementById('clubSeg');
+    const clubSeg = document.getElementById('clubSeg'); // reused id; now "discs"
     const spinSeg = document.getElementById('spinSeg');
     const handSeg = document.getElementById('handSeg');
 
@@ -194,30 +183,20 @@
     const sumScore = document.getElementById('sumScore');
     const holeBreakdown = document.getElementById('holeBreakdown');
 
-    // ===== Game config & state (declare FIRST to avoid TDZ issues)
+    // ===== Game Config & State
     const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // Motion setting
-    let reducedMotion = false;
-
-    // Wind: vertical-only (updraft +, downdraft −)
-    let windOn = true;
-    const WIND_UP_MAX = 700;
-    let windUp = 0;
-
-    // Release & throw style
-    let releaseMode = 0;        // -1 hyzer, 0 flat, 1 anhyzer
-    let hand = 'RHBH';          // curve handedness (used only for visual symmetry)
-
-    // Discs & surfaces
+    // Discs (speed: power scaling, glide: lift factor, turn(<0)/fade(>0) magnitudes)
     const DISCS = [
       { id:'DRV', name:'Driver',  speed:1.20, glide:1.00, turn:-2.0, fade:2.5 },
       { id:'FAI', name:'Fairway', speed:0.92, glide:1.05, turn:-1.5, fade:2.0 },
       { id:'MID', name:'Mid',     speed:0.80, glide:1.10, turn:-1.0, fade:1.4 },
       { id:'PUT', name:'Putter',  speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
     ];
+
+    // Surfaces tuned for discs (less bounce, more slide-stop + skip logic expects harder vs soft)
     const SURF = {
       fairway: { fric: 740,  rest: 0.14 },
       rough:   { fric: 1000, rest: 0.10, powerMul: 0.88 },
@@ -226,35 +205,39 @@
       rock:    { fric: 620,  rest: 0.18 }
     };
 
-    // Disc physics
-    const GRAV = 1500;
-    const AIR_DRAG = 0.00050;
-    const LIFT_K   = 0.00450;
-    const TURN_K   = 54;
-    const VREF     = 1600;
-    const CAMBER   = 0.06;
+    // ==== DISC PHYSICS — airtime & skip tuning ====
+    const GRAV = 1500;            // ↓ gravity to hang longer
+    const AIR_DRAG = 0.00050;     // ↓ a touch less drag
+    const LIFT_K   = 0.00450;     // ↑ more lift
+    const TURN_K   = 54;          // keep turn/fade influence
+    const VREF     = 1600;        // speed norm for turn→fade
+    const CAMBER   = 0.06;        // slight inherent upward AoA
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
     const SPIN_DECAY = 0.35;
+    // ==============================================
 
-    // World objects
-    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0, spin:0, spin0:1, bank:0 };
-    let strokes=0;
-    let holeIndex=0, roundData=null;
-    let hole=null;
+    let reducedMotion = false;
 
-    // Aim/meter state
-    let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
+    // Wind
+    let windOn = true; let windAx = 0;
 
-    // ---------- Helpers ----------
+    // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
+    let releaseMode = 0;
+    function releaseDeg(){ return releaseMode * 15; }
+
+    // Throw style (affects curve direction): RHBH = +1, LHBH = -1
+    let hand = 'RHBH';
+    function spinSign(){ return hand==='RHBH' ? 1 : -1; }
+
+    // ---------- Deterministic helpers ----------
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
-    function deg(d){ return d*Math.PI/180; }
 
-    // ===== Audio (tiny)
+    // Audio (minimal)
     const AudioMini = (()=>{
       let ctx=null, windNode=null, masterGain=null; let enabled=false;
       function init(){
@@ -278,41 +261,59 @@
       return { setEnabled, thwack, chains, setWind };
     })();
 
-    // ===== Backdrop / biomes (unchanged visuals)
+    // Particles
+    const particles=[];
+    function spawnParticles(type, x, y, count){
+      for(let i=0;i<count;i++){
+        const a = Math.random()*TAU; const sp = (type==='spark'? 160 + Math.random()*160 : 80+Math.random()*120);
+        const vx = Math.cos(a)*sp, vy = Math.sin(a)*sp - (type==='spark'?0:200);
+        particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
+      }
+    }
+
+    // === Biomes (colors + mountain profiles) ===
     const BIOMES = [
-      { name:'dunes', sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
+      { name:'dunes',
+        sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
         layers:[
-          {par:0.08, base:0.52, a1:30, a2:16, f1:0.00050, f2:0.00020, shade:0.02, shape:'sin'},
-          {par:0.12, base:0.56, a1:50, a2:24, f1:0.00065, f2:0.00026, shade:0.035,shape:'sin'},
-          {par:0.18, base:0.61, a1:70, a2:34, f1:0.00082, f2:0.00032, shade:0.05, shape:'sin'},
-          {par:0.26, base:0.66, a1:104, a2:48, f1:0.00100, f2:0.00042, shade:0.07, shape:'sin'},
-          {par:0.33, base:0.70, a1:116, a2:54, f1:0.00115, f2:0.00048, shade:0.085,shape:'sin'},
-          {par:0.40, base:0.74, a1:126, a2:58, f1:0.00125, f2:0.00052, shade:0.10, shape:'sin'}
-        ]},
-      { name:'crags', sky:{ bg1:'#5b1a2b', bg2:'#d5425a', bg3:'#f8c3da', water:'#2c0f19' },
+          {par:0.08, base:0.52, a1:30,  a2:16,  f1:0.00050, f2:0.00020, shade:0.02, shape:'sin'},
+          {par:0.12, base:0.56, a1:50,  a2:24,  f1:0.00065, f2:0.00026, shade:0.035,shape:'sin'},
+          {par:0.18, base:0.61, a1:70,  a2:34,  f1:0.00082, f2:0.00032, shade:0.05, shape:'sin'},
+          {par:0.26, base:0.66, a1:104, a2:48,  f1:0.00100, f2:0.00042, shade:0.07, shape:'sin'},
+          {par:0.33, base:0.70, a1:116, a2:54,  f1:0.00115, f2:0.00048, shade:0.085,shape:'sin'},
+          {par:0.40, base:0.74, a1:126, a2:58,  f1:0.00125, f2:0.00052, shade:0.10, shape:'sin'}
+        ]
+      },
+      { name:'crags',
+        sky:{ bg1:'#5b1a2b', bg2:'#d5425a', bg3:'#f8c3da', water:'#2c0f19' },
         layers:[
-          {par:0.06, base:0.50, a1:60, a2:36, f1:0.00055, f2:0.00022, shade:0.02, shape:'crag'},
-          {par:0.10, base:0.58, a1:95, a2:52, f1:0.00075, f2:0.00030, shade:0.05, shape:'crag'},
-          {par:0.16, base:0.64, a1:140, a2:70, f1:0.00095, f2:0.00040, shade:0.08, shape:'crag'},
-          {par:0.24, base:0.70, a1:170, a2:86, f1:0.00115, f2:0.00055, shade:0.11,shape:'crag'},
-          {par:0.36, base:0.76, a1:190, a2:96, f1:0.00135, f2:0.00065, shade:0.13,shape:'crag'}
-        ]},
-      { name:'hills', sky:{ bg1:'#233d6d', bg2:'#5d79b0', bg3:'#cfe2ff', water:'#0e2233' },
+          {par:0.06, base:0.50, a1:60,  a2:36,  f1:0.00055, f2:0.00022, shade:0.02, shape:'crag'},
+          {par:0.10, base:0.58, a1:95,  a2:52,  f1:0.00075, f2:0.00030, shade:0.05, shape:'crag'},
+          {par:0.16, base:0.64, a1:140, a2:70,  f1:0.00095, f2:0.00040, shade:0.08, shape:'crag'},
+          {par:0.24, base:0.70, a1:170, a2:86,  f1:0.00115, f2:0.00055, shade:0.11,shape:'crag'},
+          {par:0.36, base:0.76, a1:190, a2:96,  f1:0.00135, f2:0.00065, shade:0.13,shape:'crag'}
+        ]
+      },
+      { name:'hills',
+        sky:{ bg1:'#233d6d', bg2:'#5d79b0', bg3:'#cfe2ff', water:'#0e2233' },
         layers:[
-          {par:0.10, base:0.54, a1:36, a2:18, f1:0.00044, f2:0.00018, shade:0.02, shape:'round'},
-          {par:0.16, base:0.60, a1:60, a2:28, f1:0.00062, f2:0.00024, shade:0.04, shape:'round'},
-          {par:0.22, base:0.66, a1:90, a2:42, f1:0.00080, f2:0.00032, shade:0.06, shape:'round'},
-          {par:0.30, base:0.71, a1:115, a2:56, f1:0.00098, f2:0.00040, shade:0.08, shape:'round'},
-          {par:0.38, base:0.75, a1:132, a2:64, f1:0.00112, f2:0.00048, shade:0.10, shape:'round'}
-        ]},
-      { name:'mesas', sky:{ bg1:'#6e3b1b', bg2:'#cf7b35', bg3:'#ffe1b0', water:'#2a1a12' },
+          {par:0.10, base:0.54, a1:36,  a2:18,  f1:0.00044, f2:0.00018, shade:0.02, shape:'round'},
+          {par:0.16, base:0.60, a1:60,  a2:28,  f1:0.00062, f2:0.00024, shade:0.04, shape:'round'},
+          {par:0.22, base:0.66, a1:90,  a2:42,  f1:0.00080, f2:0.00032, shade:0.06, shape:'round'},
+          {par:0.30, base:0.71, a1:115, a2:56,  f1:0.00098, f2:0.00040, shade:0.08, shape:'round'},
+          {par:0.38, base:0.75, a1:132, a2:64,  f1:0.00112, f2:0.00048, shade:0.10, shape:'round'}
+        ]
+      },
+      { name:'mesas',
+        sky:{ bg1:'#6e3b1b', bg2:'#cf7b35', bg3:'#ffe1b0', water:'#2a1a12' },
         layers:[
-          {par:0.08, base:0.54, a1:42, a2:20, f1:0.00058, f2:0.00022, shade:0.02, shape:'mesa'},
-          {par:0.13, base:0.60, a1:70, a2:32, f1:0.00076, f2:0.00030, shade:0.04, shape:'mesa'},
-          {par:0.20, base:0.66, a1:96, a2:46, f1:0.00096, f2:0.00038, shade:0.06, shape:'mesa'},
-          {par:0.28, base:0.72, a1:120, a2:56, f1:0.00116, f2:0.00046, shade:0.08, shape:'mesa'},
-          {par:0.36, base:0.76, a1:140, a2:64, f1:0.00128, f2:0.00054, shade:0.10, shape:'mesa'}
-        ]}
+          {par:0.08, base:0.54, a1:42,  a2:20,  f1:0.00058, f2:0.00022, shade:0.02, shape:'mesa'},
+          {par:0.13, base:0.60, a1:70,  a2:32,  f1:0.00076, f2:0.00030, shade:0.04, shape:'mesa'},
+          {par:0.20, base:0.66, a1:96,  a2:46,  f1:0.00096, f2:0.00038, shade:0.06, shape:'mesa'},
+          {par:0.28, base:0.72, a1:120, a2:56,  f1:0.00116, f2:0.00046, shade:0.08, shape:'mesa'},
+          {par:0.36, base:0.76, a1:140, a2:64,  f1:0.00128, f2:0.00054, shade:0.10, shape:'mesa'}
+        ]
+      }
     ];
 
     function applyTheme(biome){
@@ -323,16 +324,32 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop state
+    // Backdrop (parallax + sun + clouds + far landmarks + flocks)
     let currentBiome = BIOMES[0];
-    const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], sun:null, clouds:[], cloudDir:1, landmarksFar:[], flocks:[] };
+    const backdrop = {
+      seed:(Math.random()*1e9)|0,
+      mountains:[],
+      sun:null,
+      clouds:[],
+      cloudDir:1,
+      landmarksFar:[],
+      flocks:[]
+    };
 
-    // Waves/shape helpers
+    // Shape helpers
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
     function mesaWave(x){ const k=2.2; return Math.tanh(Math.sin(x)*k)/Math.tanh(k); }
     function roundWave(x){ const s=Math.sin(x); return Math.sign(s)*Math.pow(Math.abs(s),0.85); }
     function cragWave(x){ return 0.7*triangleWave(x) + 0.3*Math.sin(x*3.0); }
-    function shapeSample(shape, x){ switch(shape){ case 'mesa':return mesaWave(x); case 'round':return roundWave(x); case 'crag':return cragWave(x); default:return Math.sin(x);} }
+    function shapeSample(shape, x){
+      switch(shape){
+        case 'mesa':   return mesaWave(x);
+        case 'round':  return roundWave(x);
+        case 'crag':   return cragWave(x);
+        case 'sin':
+        default:       return Math.sin(x);
+      }
+    }
 
     function buildBackdrop(){
       const L = [];
@@ -345,21 +362,25 @@
       });
       backdrop.mountains = L;
 
+      // Sun
       const u = 0.20 + rand01(backdrop.seed,101)*0.60;
       const v = 0.16 + rand01(backdrop.seed,102)*0.20;
       const phase = rand01(backdrop.seed,103)*TAU;
       const baseR = 20 + Math.floor(rand01(backdrop.seed,104)*12);
       backdrop.sun = { u, v, phase, baseR };
 
+      // Clouds
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
       if(hole) buildLandmarks();
+
+      // Flocks
       buildFlocks();
     }
 
     function buildCloudField(){
       backdrop.clouds.length = 0;
-      const count = 3 + Math.floor(rand01(backdrop.seed,300)*4);
+      const count = 3 + Math.floor(rand01(backdrop.seed,300)*4); // 3–6
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xA11C10 + i*131));
         const u = rand01(s,1);
@@ -384,6 +405,7 @@
       return y;
     }
 
+    // ---- Ambient Far Landmarks
     function buildLandmarks(){
       backdrop.landmarksFar = [];
       if(!hole) return;
@@ -392,7 +414,10 @@
         [hole.green.x0-160, hole.green.x1+160],
         [hole.water.x-140, hole.water.x+hole.water.w+140]
       ];
-      function allowedX(x){ for(const r of exRanges){ if(x>=r[0] && x<=r[1]) return false; } return x>60 && x < (hole.w-60); }
+      function allowedX(x){
+        for(const r of exRanges){ if(x>=r[0] && x<=r[1]) return false; }
+        return x>60 && x < (hole.w-60);
+      }
       function pickX(k){
         let tries=0;
         while(tries++<40){
@@ -403,8 +428,9 @@
         return 200 + (k%10)*260;
       }
 
-      const farPar = currentBiome.layers[0].par;
+      const farPar = currentBiome.layers[0].par; // match far ridge parallax
 
+      // FAR windmills (0–2)
       const wmCount = Math.floor(rand01(backdrop.seed, 921) * 2.2);
       for(let i=0;i<wmCount;i++){
         const x = pickX(20+i);
@@ -414,6 +440,7 @@
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:farPar, parY:0 });
       }
 
+      // FAR lighthouse (0–1) near water
       if(rand01(backdrop.seed, 951) < 0.35){
         let x = hole.water.x + (rand01(backdrop.seed, 952)<0.5 ? -120 : hole.water.w+120);
         x = Math.min(Math.max(80, x), WORLD.w-80);
@@ -425,19 +452,20 @@
       }
     }
 
+    // ===== Flocks
     function buildFlocks(){
       backdrop.flocks.length = 0;
       if(!backdrop.mountains.length) return;
       const farPar = backdrop.mountains[0].parallax;
 
-      const count = 1 + Math.floor(rand01(backdrop.seed,1200)*3);
+      const count = 1 + Math.floor(rand01(backdrop.seed,1200)*3); // 1–3 flocks
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xF10C + i*97));
         const x = WORLD.w * rand01(s,1);
         const y = WORLD.h * (0.18 + rand01(s,2)*0.26);
         const dir = rand01(s,3) < 0.5 ? -1 : 1;
         const birds = [];
-        const n = 6 + Math.floor(rand01(s,4)*10);
+        const n = 6 + Math.floor(rand01(s,4)*10); // 6–15 birds
         for(let k=0;k<n;k++){
           const row = (k>>1) + 1;
           const wing = (k%2===0)? -1 : 1;
@@ -459,9 +487,14 @@
     }
     function updateFlocks(dt){
       if(!backdrop.flocks.length) return;
+      const windNorm = windOn ? Math.max(-1, Math.min(1, windAx/900)) : 0;
       const speedBase = (reducedMotion? 10: 18);
+      const speedWind = (reducedMotion? 18: 32) * Math.abs(windNorm);
+
       for(const F of backdrop.flocks){
-        F.vx += ((speedBase * F.dir) - F.vx) * (1 - Math.exp(-dt*3));
+        const targetDir = (Math.abs(windNorm) > 0.05) ? Math.sign(windNorm) : F.dir;
+        const targetVx = (speedBase + speedWind) * targetDir;
+        F.vx += (targetVx - F.vx) * (1 - Math.exp(-dt*3));
         F.vy = Math.sin(clock*0.9 + F.phase) * (reducedMotion? 1.2 : 2.2);
         F.x += F.vx * dt; F.y += F.vy * dt;
         const margin = 140;
@@ -472,8 +505,45 @@
         if(F.y > yMax) F.y = yMax - 4;
       }
     }
+    function drawFlocks(){
+      if(!backdrop.flocks.length) return;
+      ctx.save(); ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(0,0,0,0.48)';
+      const w = canvas.width / DPR, h = canvas.height / DPR;
+      for(const F of backdrop.flocks){
+        const angle = Math.atan2(F.vy, (F.vx||0.0001));
+        const cx = F.x - view.x * F.parX;
+        const cy = F.y - view.y * F.parY;
+        if(cx < -180 || cx > w + 180 || cy < -120 || cy > h + 120) continue;
+        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+        for(const b of F.birds){
+          const rx = b.ox * cosA - b.oy * sinA;
+          const ry = b.ox * sinA + b.oy * cosA;
+          const bx = cx + rx * 0.8;
+          const by = cy + ry * 0.8;
+          const hz = b.baseHz * (reducedMotion ? 0.45 : 1.0);
+          const flap = Math.sin(clock * hz * TAU + b.ph);
+          const baseOpen = 0.45, flapAmp = reducedMotion ? 0.18 : 0.42;
+          const open = baseOpen + flap * flapAmp;
+          const len = 6.0 * b.sc;
+          ctx.beginPath();
+          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(angle + Math.PI - open)*len,  by + Math.sin(angle + Math.PI - open)*len);
+          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(angle + Math.PI + open)*len,  by + Math.sin(angle + Math.PI + open)*len);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
 
-    // ===== Hole generation
+    // ===== World / Hole
+    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0,
+                   spin:0, spin0:1, bank:0 };
+    let strokes=0;
+    let holeIndex=0, roundData=null;
+    let hole=null;
+
+    // Aim/meter state
+    let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
+
     function genHole(){
       const w = WORLD.w, h = WORLD.h; const step=40; const baseY = h*0.72; const points=[]; let x=0; let seed = Math.random()*9999;
       function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
@@ -484,6 +554,7 @@
 
       const cupX = lerp(w*0.68, w*0.9, Math.random());
 
+      // "Green" here is just a landing zone near basket
       const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); let greenY=0;
       for(let i=0;i<points.length;i++){
         if(points[i].x>=gx0 && points[i].x<=gx1){ const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40; points[i].y = gy; greenY = gy; }
@@ -527,10 +598,7 @@
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
-      // vertical-only wind
-      windUp = windOn ? (Math.random()*2 - 1) * WIND_UP_MAX : 0;
-      updateWindUI();
-
+      windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI();
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
     }
@@ -560,14 +628,8 @@
     spinSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; releaseMode = parseInt(btn.dataset.spin,10); [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
     handSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; hand = btn.dataset.hand; [...handSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
 
-    // ===== Wind UI (vertical)
-    function updateWindUI(){
-      const dirUp = windUp >= 0;
-      const mag = Math.abs(windUp);
-      elWindVal.textContent = (mag / WIND_UP_MAX).toFixed(1)+'x';
-      // rotate arrow to show up (−90deg) or down (+90deg)
-      elWindArrow.style.transform = `rotate(${dirUp? -90 : 90}deg)`;
-    }
+    // ===== Wind UI
+    function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag/900).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
 
     // ===== Input
     function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
@@ -584,7 +646,7 @@
       if(!hole || !disc.atRest) return;
       const d = currentDisc;
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
-      const base = 1650; // carry
+      const base = 1650; // boosted for better carry/distance
       const power = (0.25 + 0.75*meter) * d.speed * powerMul;
       const speed = base * power;
       const dir = aimAngle;
@@ -592,16 +654,21 @@
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
 
-      disc.orient = dir + deg(NOSE_FAST_DEG);
+      // Init aero
+      disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180); // slight nose-down
       disc.spin0  = 14 + 20*power;
       disc.spin   = disc.spin0;
-      disc.bank   = deg(releaseMode * 16);
+      disc.bank   = (releaseMode * 16) * Math.PI/180;
 
       disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16); AudioMini.thwack();
     }
 
     // ===== Physics update
-    function normalizeAngle(a){ while(a > Math.PI) a -= TAU; while(a < -Math.PI) a += TAU; return a; }
+    function normalizeAngle(a){
+      while(a > Math.PI) a -= TAU;
+      while(a < -Math.PI) a += TAU;
+      return a;
+    }
 
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
@@ -619,7 +686,7 @@
           const vx = disc.vx, vy = disc.vy;
           const vAngle = Math.atan2(vy, vx);
 
-          // Aero (turn→fade, lift, drag)
+          // Aerodynamics (turn→fade, lift, drag)
           const tPow = clamp(v / VREF, 0, 1);
           const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
 
@@ -638,15 +705,10 @@
           let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
+          const curveAx = TURN_K * curve * (hand==='RHBH'?1:-1);
 
-          // Symmetric curve: invert sign when flying left vs right
-          const yawSign = (Math.abs(vx) > 0.1) ? Math.sign(vx) : 1;
-          const handSign = (hand==='RHBH') ? 1 : -1;
-          const curveAx = TURN_K * curve * handSign * yawSign;
-
-          // WIND vertical-only (no lateral assist)
-          const ax = dragX + curveAx;
-          const ay = GRAV + dragY - lift - (windOn ? windUp : 0);
+          const ax = (windOn? windAx:0) + dragX + curveAx;
+          const ay = GRAV + dragY - lift;
 
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
@@ -656,32 +718,36 @@
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
-          // nose bias
-          const noseBias = lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow);
-          const targetOrient = vAngle + deg(noseBias);
+          // nose bias (fast nose-down, slow nose-up)
+          const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
+          const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
-          // ground/skip
+          // ------- ground collision with skip -------
           const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
             const surface = surfaceAt(disc.x);
             disc.y = gy - disc.r - 0.01;
 
+            // particles
             if(Math.abs(disc.vy) > 120){
               if(surface==='sand') spawnParticles('sand',  disc.x, disc.y+disc.r, 12);
               else                 spawnParticles('dust',  disc.x, disc.y+disc.r,  8);
             }
 
+            // choose skip vs normal
             const speed = Math.hypot(disc.vx, disc.vy);
-            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx));
-            const shallow = entryAngle < deg(12);
+            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx)); // to ground
+            const shallow = entryAngle < (12 * Math.PI/180);
             const fast    = speed > 900;
 
             if(surface!=='sand' && surface!=='green' && shallow && fast){
+              // SKIP: small pop + modest forward loss
               disc.vy = -Math.max(180, Math.abs(disc.vy)*0.55);
               disc.vx *= 0.88;
               disc.onGround = false;
             } else {
+              // Normal reduced bounce and heavy lateral loss
               const rest = SURF[surface]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
               disc.vx *= 0.84;
@@ -690,6 +756,7 @@
             }
           }
 
+          // basket scoring
           if(checkBasketCatch()){
             AudioMini.chains();
             if(navigator.vibrate) navigator.vibrate([30,40,30]);
@@ -697,7 +764,7 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // ground slide
+          // ------- ground slide (stronger decel) -------
           const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
@@ -706,7 +773,7 @@
             const surface = surfaceAt(disc.x); 
             const fric = SURF[surface]?.fric ?? 740; 
             const speed = Math.abs(disc.vx); 
-            let dec = fric * 2.1;
+            let dec = fric * 2.1;             // stronger slow-down
             if(surface === 'sand')  dec = fric * 2.6;
             if(surface === 'green') dec = fric * 2.3;
 
@@ -718,7 +785,6 @@
             if(Math.abs(disc.vx) < 8){ disc.vx=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; }
           }
         }
-
         // hazards & bounds
         if(inWater(disc.x, disc.y+disc.r*0.6)){
           spawnParticles('splash', disc.x, disc.y, 16);
@@ -731,17 +797,7 @@
       centerCameraOnDisc();
     }
 
-    // ===== Particles
-    const particles=[];
-    function spawnParticles(type, x, y, count){
-      for(let i=0;i<count;i++){
-        const a = Math.random()*TAU; const sp = (type==='spark'? 160 + Math.random()*160 : 80+Math.random()*120);
-        const vx = Math.cos(a)*sp, vy = Math.sin(a)*sp - (type==='spark'?0:200);
-        particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
-      }
-    }
-
-    // ===== Camera follow
+    // Camera follow
     function centerCameraOnDisc(){
       if(!hole){ return; }
       view.x = clamp(disc.x - view.w*0.45, 0, WORLD.w - view.w);
@@ -754,16 +810,18 @@
       drawSkyGradient();
       drawSun();
       drawFarLandmarks();
-      drawFlocks();
+      drawFlocks();          // birds before clouds
       drawClouds();
       drawMountains();
 
       if(!hole){ drawVignette(); return; }
 
+      // water
       const cs = getComputedStyle(document.documentElement);
       ctx.fillStyle = cs.getPropertyValue('--water').trim() || '#30160f';
       const w = hole.water; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
 
+      // ground silhouette path (course)
       ctx.fillStyle = cs.getPropertyValue('--fg');
       ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
@@ -771,13 +829,16 @@
 
       drawGrass();
 
+      // sand bunker
       ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
 
+      // landing zone overlay
       ctx.fillStyle = 'rgba(60,140,85,.22)';
       ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
 
       drawBasket();
 
+      // particles
       for(const p of particles){
         let c = '#ffffff';
         if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent');
@@ -794,6 +855,7 @@
       drawVignette();
     }
 
+    // --- Sky gradient
     function drawSkyGradient(){
       const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
       skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim());
@@ -802,6 +864,7 @@
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
 
+    // --- Sun
     function drawSun(){
       const m = backdrop.sun; if(!m) return;
       const parX = 0.05, parY = 0.02;
@@ -826,6 +889,7 @@
       ctx.restore();
     }
 
+    // --- FAR landmarks (behind clouds & mountains), anchored to far ridge
     function drawFarLandmarks(){
       if(!backdrop.landmarksFar.length) return;
       const L0 = backdrop.mountains[0]; const EMBED = 1.5;
@@ -851,10 +915,7 @@
         const roofTopY = baselineY - towerH - roofH;
         ctx.beginPath(); ctx.moveTo(x - wTop*0.75, baselineY - towerH); ctx.lineTo(x + wTop*0.75, baselineY - towerH); ctx.lineTo(x, roofTopY); ctx.closePath(); ctx.fill();
         const hubY = baselineY - towerH - roofH*0.25, hubR=3.2*s; ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
-        // spin speed follows |vertical wind|
-        const dir = (windUp>=0)? 1 : -1;
-        const windSpin = (Math.abs(windUp)/WIND_UP_MAX) * (reducedMotion? 0.15: 0.55);
-        const ang0 = clock * (spin*0.25 + windSpin) * dir + rand01(seed,2)*TAU;
+        const dir = windAx>=0? 1 : -1; const localSpeed = (reducedMotion? 0.08: spin*0.55) * dir; const ang0 = clock * localSpeed + rand01(seed,2)*TAU;
         ctx.save(); ctx.translate(x, hubY); ctx.rotate(ang0);
         const bladeLen=54*s, bladeW=8*s, rungGap=10*s, rungW=1.2*s;
         for(let k=0;k<4;k++){
@@ -877,6 +938,7 @@
       }
     }
 
+    // --- Clouds (in front of landmarks)
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -894,7 +956,7 @@
         let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
         ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
         const baseR = 18 + rand01(seed,50)*22;
-        const puffCount = 4 + Math.floor(rand01(seed,11)*4);
+        const puffCount = 4 + Math.floor(rand01(seed,11)*4); // 4–7
         for(let i=0;i<puffCount;i++){
           const r  = (baseR + rand01(seed,20+i)*22) * s;
           const ox = (i - (puffCount-1)/2) * (r*0.55) + (rand01(seed,30+i)-0.5)*r*0.3;
@@ -923,6 +985,7 @@
       }
     }
 
+    // --- Mountains (biome-defined layers)
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       backdrop.mountains.forEach((L, idx)=>{
@@ -967,11 +1030,11 @@
         ctx.stroke(); ctx.globalAlpha=1; 
       } 
 
-      // Disc colors
-      let fillCol = '#f8fafc';          // default/white
-      if(currentDisc.id==='DRV') fillCol = '#49d0ff';   // blue
-      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d'; // orange
-      else if(currentDisc.id==='MID') fillCol = '#f8fafc';  // white
+      // Disc color by type
+      let fillCol = '#f8fafc'; // default/white
+      if(currentDisc.id==='DRV') fillCol = '#49d0ff';        // blue
+      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';   // orange
+      else if(currentDisc.id==='MID') fillCol = '#f8fafc';   // white
 
       ctx.save();
       ctx.translate(disc.x - view.x, disc.y - view.y);
@@ -980,6 +1043,7 @@
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
       const R = disc.r;
       ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
+      // rim hint
       ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
       ctx.restore();
     }
@@ -1006,15 +1070,19 @@
       const poleH = 74, cageTop = groundY - 24, rimY = groundY - 46;
       const rimW = 28, cageW = 24;
 
+      // pole
       ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x, groundY - poleH); ctx.stroke();
 
+      // tray/cage
       ctx.fillStyle = 'rgba(0,0,0,0.80)';
       ctx.fillRect(x - cageW/2, cageTop, cageW, 8);
       ctx.fillRect(x - 2, cageTop - 10, 4, 10);
 
+      // rim ring
       ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
 
+      // chains (simple)
       ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
         const t = i/6 * TAU;
@@ -1027,11 +1095,15 @@
     }
 
     function checkBasketCatch(){
+      // simple AABB in chain zone with downward velocity
       const x = disc.x, y = disc.y, vy = disc.vy;
       const rimY = groundYAt(hole.cupX) - 46;
       const cageTop = groundYAt(hole.cupX) - 24;
-      const rimHalf = 14;
-      return (vy > 30 && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf);
+      const rimHalf = 14; // rimW/2
+      if(vy > 30 && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf){
+        return true;
+      }
+      return false;
     }
 
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
@@ -1040,17 +1112,9 @@
     function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
     window.addEventListener('resize', resize); resize();
 
-    // ===== Main loop (with tiny guard so a stray error doesn’t kill everything)
+    // ===== Main loop
     let last=0; let clock=0;
-    function loop(t){
-      try {
-        const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt;
-        update(dt); draw();
-      } catch(e){
-        console.error(e);
-      }
-      requestAnimationFrame(loop);
-    }
+    function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt; update(dt); draw(); requestAnimationFrame(loop); }
     requestAnimationFrame(loop);
 
     // ===== UI wiring
@@ -1065,6 +1129,18 @@
 
     // Build initial UI
     buildDiscs(); updateWindUI();
+
+    // ====== Self-tests (console: DuskDriveTests.run())
+    window.DuskDriveTests = {
+      run(){
+        let ok=0, fail=0;
+        function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
+        test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
+        test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
+        test('Backdrop builds and draws', ()=>{ buildBackdrop(); });
+        console.log(`Tests finished: ${ok} passed, ${fail} failed.`);
+      }
+    };
   }
 })();
 </script>
