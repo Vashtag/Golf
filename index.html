@@ -444,7 +444,7 @@
         const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(- (dx*dx) / (2,sigma*sigma));
+          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // fixed gaussian
           points[i].y += amp * k;
         }
       }
@@ -515,11 +515,11 @@
 
       const basinsAll = scanBasins();
 
-      // ======= Water from basins (bank-to-bank) =======
+      // ======= Water from basins (STRICTLY within banks) =======
       const waters=[];
       (function buildWaters(){
         const minWidth = 160;
-        const padMin = 12, padMax = 26;
+
         // prefer wider & mid-course
         const waterCandidates = basinsAll
           .filter(b => b.width >= minWidth)
@@ -542,25 +542,26 @@
 
         for(const b of waterCandidates){
           if(waters.length >= 2) break;
-          let pad = padMin + Math.random()*(padMax-padMin);
-          let x0 = clamp(b.x0 - pad, 60, w-60);
-          let x1 = clamp(b.x1 + pad, 60, w-60);
+
+          // stick to basin edges; tiny shrink avoids z-fighting with silhouette
+          let x0 = clamp(b.x0 + 1, 60, w-60);
+          let x1 = clamp(b.x1 - 1, 60, w-60);
           [x0,x1] = clipAwayFromGreen(x0,x1);
           if(x1 - x0 < minWidth) continue;
 
-          // avoid strong overlap with previously placed ponds
+          // avoid overlap with an existing pond
           const overlaps = waters.some(p => Math.min(p.x+p.w, x1) - Math.max(p.x, x0) > 40);
           if(overlaps) continue;
 
           waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h: h - b.surfaceY + 60, seed:(Math.random()*1e9)|0 });
         }
 
-        // fallback: put one near the green if none
+        // fallback: put one near the green if none (still within that basin’s banks)
         if(!waters.length){
-          // choose basin closest to cup
           const near = basinsAll.sort((a,b)=>Math.abs(a.cx-cupX)-Math.abs(b.cx-cupX))[0];
           if(near){
-            let x0 = clamp(near.x0-18,60,w-60), x1 = clamp(near.x1+18,60,w-60);
+            let x0 = clamp(near.x0 + 1,60,w-60), x1 = clamp(near.x1 - 1,60,w-60);
+            [x0,x1] = clipAwayFromGreen(x0,x1);
             if(x1-x0 >= minWidth){
               waters.push({ x:x0, w:(x1-x0), y:near.surfaceY, h:h-near.surfaceY+60, seed:(Math.random()*1e9)|0 });
             }
@@ -569,22 +570,18 @@
       })();
 
       // ======= Sand bunkers from *other* basins =======
-      // One fairway valley bunker + one/two around green valleys.
       const sands=[];
 
       function basinBlockedByWater(b){
         return waters.some(W => !(b.x1 < W.x || b.x0 > (W.x + W.w)));
       }
       function placeBunkerFromBasin(b, sizeScale=0.35){
-        // center inside basin, radius from basin width, clamp sizes
         let cx = clamp(b.cx, 80, w-80);
-        // keep out of water span
         for(const ww of waters){
           if(cx >= ww.x && cx <= ww.x+ww.w){
             cx = (cx < ww.x + ww.w*0.5)? (ww.x - 20) : (ww.x + ww.w + 20);
           }
         }
-        // keep slightly off the flag/green stripe
         if(cx > gx0-18 && cx < gx1+18) return false;
 
         const cy = sampleY(points, cx) - 8;
@@ -612,7 +609,7 @@
         }
       }
 
-      // Rough patches (keep as is for texture variety)
+      // Rough patches (texture)
       const roughs=[];
       const roughN = Math.floor(Math.random()*4);
       for(let i=0;i<roughN;i++){
