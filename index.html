@@ -206,12 +206,12 @@
     };
 
     // ==== DISC PHYSICS — airtime & skip tuning ====
-    const GRAV = 1500;
-    const AIR_DRAG = 0.00050;
-    const LIFT_K   = 0.00450;
-    const TURN_K   = 54;       // used as turn-rate scalar (see rotation fix)
-    const VREF     = 1600;     // speed norm for turn→fade
-    const CAMBER   = 0.06;     // slight inherent upward AoA
+    const GRAV = 1500;            // ↓ gravity to hang longer
+    const AIR_DRAG = 0.00050;     // ↓ a touch less drag
+    const LIFT_K   = 0.00450;     // ↑ more lift
+    const TURN_K   = 54;          // horizontal curve strength
+    const VREF     = 1600;        // speed norm for turn→fade
+    const CAMBER   = 0.06;        // slight inherent upward AoA
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
     const SPIN_DECAY = 0.35;
@@ -228,9 +228,8 @@
 
     // Throw style (affects curve direction): RHBH = +1, LHBH = -1
     let hand = 'RHBH';
-    function spinSign(){ return hand==='RHBH' ? 1 : -1; }
 
-    // ---------- Helpers ----------
+    // ---------- Deterministic helpers ----------
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
@@ -374,7 +373,7 @@
       buildCloudField();
       if(hole) buildLandmarks();
 
-      // Flocks (seeded per hole)
+      // Flocks
       buildFlocks();
     }
 
@@ -682,44 +681,40 @@
 
       if(!disc.atRest){
         if(!disc.onGround){
-          // ======== AIRBORNE ========
-          // Turn/fade compute using current speed
-          let v = Math.hypot(disc.vx, disc.vy) || 1e-3;
-          let tPow = clamp(v / VREF, 0, 1);
+          const v = Math.hypot(disc.vx, disc.vy) || 0.0001;
+          const vx = disc.vx, vy = disc.vy;
+          const vAngle = Math.atan2(vy, vx);
+
+          // Aerodynamics (turn→fade, lift, drag)
+          const tPow = clamp(v / VREF, 0, 1);
           const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
-          const hyz = releaseMode;
-
-          const turnAmt = currentDisc.turn * (tPow*tPow) * (0.7 + 0.6*spinNorm) * (1 + 0.35*hyz);
-          const fadeAmt = currentDisc.fade * (1 - tPow)  * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
-          const bankBias = 0.12 * Math.sin(disc.bank);
-          const curve = (turnAmt - fadeAmt + bankBias);
-
-          // ---- ROTATION FIX: steer by rotating velocity (symmetric left/right) ----
-          const signHand = (hand==='RHBH'?1:-1);
-          const dtheta = (TURN_K * signHand * curve) / v * dt;   // small angle
-          const cosd = Math.cos(dtheta), sind = Math.sin(dtheta);
-          const vxr = disc.vx * cosd - disc.vy * sind;
-          const vyr = disc.vx * sind + disc.vy * cosd;
-          disc.vx = vxr; disc.vy = vyr;
-
-          // Recompute after rotation for aero forces
-          v = Math.hypot(disc.vx, disc.vy) || 1e-3;
-          const vAngle = Math.atan2(disc.vy, disc.vx);
 
           const aoaRaw = normalizeAngle(disc.orient - vAngle);
           const aoa = clamp(aoaRaw + CAMBER, -0.6, 0.6);
-
           const dragMag = AIR_DRAG * v * (1 + 0.7*Math.abs(aoa));
-          const dragX = -dragMag * disc.vx;
-          const dragY = -dragMag * disc.vy;
+          const dragX = -dragMag * vx;
+          const dragY = -dragMag * vy;
 
           const lift = LIFT_K * currentDisc.glide * v*v * aoa;
 
-          // Only physical accelerations now (wind/drag/lift/gravity)
-          const ax = (windOn? windAx:0) + dragX;
+          const turnPhase = tPow*tPow;
+          const fadePhase = (1 - tPow);
+          const hyz = releaseMode;
+          let turnAmt = currentDisc.turn * turnPhase * (0.7 + 0.6*spinNorm) * (1 + 0.35*hyz);
+          let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
+          const bankBias = 0.12 * Math.sin(disc.bank);
+          const curve = (turnAmt - fadeAmt + bankBias);
+
+          // >>> Symmetric curve direction:
+          // Instead of a fixed world +X for RHBH, push toward the *current travel direction*.
+          const handSign = (hand==='RHBH') ? 1 : -1;
+          const yawSign = (Math.abs(vx) > 0.1) ? Math.sign(vx) : (Math.cos(vAngle) >= 0 ? 1 : -1);
+          const curveAx = TURN_K * curve * handSign * yawSign;
+
+          // Wind + aero + gravity
+          const ax = (windOn? windAx:0) + dragX + curveAx;
           const ay = GRAV + dragY - lift;
 
-          // Integrate
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
@@ -730,7 +725,7 @@
 
           // nose bias (fast nose-down, slow nose-up)
           const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
-          const targetOrient = Math.atan2(disc.vy, disc.vx) + noseBias;
+          const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
           // ------- ground collision with skip -------
@@ -774,7 +769,7 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // ======== GROUND SLIDE ========
+          // ------- ground slide (stronger decel) -------
           const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
@@ -1042,9 +1037,9 @@
 
       // Disc color by type
       let fillCol = '#f8fafc'; // default/white
-      if(currentDisc.id==='DRV') fillCol = '#49d0ff';        // blue
-      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';   // orange
-      else if(currentDisc.id==='MID') fillCol = '#f8fafc';   // white
+      if(currentDisc.id==='DRV') fillCol = '#49d0ff';        // blue (driver)
+      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';   // orange (putter)
+      else if(currentDisc.id==='MID') fillCol = '#f8fafc';   // white (mid)
 
       ctx.save();
       ctx.translate(disc.x - view.x, disc.y - view.y);
@@ -1144,7 +1139,10 @@
     window.DuskDriveTests = {
       run(){
         let ok=0, fail=0;
-        function test(name, fn){ try{ fn(); console.log('%c✔ '+name','color:#10b981'); ok++; } catch(e){ console.error('✖ '+name, e); fail++; } }
+        function test(name, fn){
+          try{ fn(); console.log('%c✔ ' + name, 'color:#10b981'); ok++; }
+          catch(e){ console.error('✖ '+name, e); fail++; }
+        }
         test('No hole -> update/draw do not throw', ()=>{ update(0.016); draw(); });
         test('Start round -> update/draw work', ()=>{ newRound(); update(0.016); draw(); });
         test('Backdrop builds and draws', ()=>{ buildBackdrop(); });
