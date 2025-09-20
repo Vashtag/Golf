@@ -25,7 +25,6 @@
   .chip strong{font-weight:700}
   .wind{gap:.4rem}
   .wind .arrow{width:14px;height:14px;transform-origin:center;display:inline-block}
-  /* triangle; we rotate it to show up/down */
   .wind .arrow::before{
     content:"";
     display:block;width:0;height:0;
@@ -234,6 +233,9 @@
     let releaseMode = 0;
     let hand = 'RHBH';
 
+    // Motion setting (bug fix: must exist before use)
+    let reducedMotion = false;
+
     // ---------- Helpers ----------
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
@@ -275,7 +277,7 @@
       }
     }
 
-    // Biomes + backdrop (unchanged aside from windmill spin using vertical wind)
+    // === Biomes/backdrop (unchanged except spin follows vertical wind)
     const BIOMES = [
       { name:'dunes',
         sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
@@ -462,7 +464,6 @@
     }
     function updateFlocks(dt){
       if(!backdrop.flocks.length) return;
-      // Vertical-only wind: don't bias flock horizontal direction
       const speedBase = (reducedMotion? 10: 18);
       for(const F of backdrop.flocks){
         F.vx += ((speedBase * F.dir) - F.vx) * (1 - Math.exp(-dt*3));
@@ -684,7 +685,7 @@
             }
 
             const speed = Math.hypot(disc.vx, disc.vy);
-            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx)); // to ground
+            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx));
             const shallow = entryAngle < (12 * Math.PI/180);
             const fast    = speed > 900;
 
@@ -852,7 +853,7 @@
         const roofTopY = baselineY - towerH - roofH;
         ctx.beginPath(); ctx.moveTo(x - wTop*0.75, baselineY - towerH); ctx.lineTo(x + wTop*0.75, baselineY - towerH); ctx.lineTo(x, roofTopY); ctx.closePath(); ctx.fill();
         const hubY = baselineY - towerH - roofH*0.25, hubR=3.2*s; ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
-        // spin speed follows |vertical wind| (just for ambience)
+        // spin speed follows |vertical wind|
         const dir = (windUp>=0)? 1 : -1;
         const windSpin = (Math.abs(windUp)/WIND_UP_MAX) * (reducedMotion? 0.15: 0.55);
         const ang0 = clock * (spin*0.25 + windSpin) * dir + rand01(seed,2)*TAU;
