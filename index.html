@@ -3,10 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Side-View Silhouette Disc Golf (v3.4)</title>
+<title>Dusk Drive — Disc Golf (v3.6, vertical wind)</title>
 <style>
   :root{
-    /* defaults; overridden per biome at runtime */
     --bg1:#a54720; --bg2:#f38e41; --bg3:#ffe6ba; --water:#30160f;
     --fg:#050607; --text:#e6edf3; --muted:#a9b1ba;
     --accent:#ff8a3d; --accent2:#49d0ff; --accent3:#86efac;
@@ -26,7 +25,13 @@
   .chip strong{font-weight:700}
   .wind{gap:.4rem}
   .wind .arrow{width:14px;height:14px;transform-origin:center;display:inline-block}
-  .wind .arrow::before{content:"";display:block;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid var(--accent2);transform:translateY(-2px)}
+  /* triangle; we rotate it to show up/down */
+  .wind .arrow::before{
+    content:"";
+    display:block;width:0;height:0;
+    border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid var(--accent2);
+    transform:translateY(-2px)
+  }
 
   .bottombar{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding:.7rem}
   .panel{pointer-events:auto;background:var(--panel);backdrop-filter:blur(var(--panel-blur));border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:.55rem .7rem}
@@ -68,7 +73,11 @@
         <div class="chip"><span class="label">Strokes</span> <strong id="strokes">0</strong></div>
       </div>
       <div class="row">
-        <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
+        <div class="chip wind" title="Wind is vertical-only (updraft/downdraft)">
+          <span class="label">Wind</span>
+          <span id="windVal">0</span>
+          <span class="arrow" id="windArrow"></span>
+        </div>
         <button class="btn" id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
       </div>
     </div>
@@ -99,7 +108,7 @@
       <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, wind & glide, disc turn/fade.</div>
       <div class="grid">
         <div class="tag">Drivers • Fairways • Mids • Putters</div>
-        <div class="tag">Wind & Lift</div>
+        <div class="tag">Vertical Wind</div>
         <div class="tag">Turn/Fade Curve</div>
         <div class="tag">Procedural Holes</div>
       </div>
@@ -162,7 +171,7 @@
     const elWindArrow = document.getElementById('windArrow');
     const elPowermeter = document.getElementById('powermeter');
     const elPowerfill = document.getElementById('powerfill');
-    const clubSeg = document.getElementById('clubSeg'); // reused id; now "discs"
+    const clubSeg = document.getElementById('clubSeg');
     const spinSeg = document.getElementById('spinSeg');
     const handSeg = document.getElementById('handSeg');
 
@@ -188,7 +197,7 @@
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // Discs (speed: power scaling, glide: lift factor, turn(<0)/fade(>0) magnitudes)
+    // Discs
     const DISCS = [
       { id:'DRV', name:'Driver',  speed:1.20, glide:1.00, turn:-2.0, fade:2.5 },
       { id:'FAI', name:'Fairway', speed:0.92, glide:1.05, turn:-1.5, fade:2.0 },
@@ -196,7 +205,7 @@
       { id:'PUT', name:'Putter',  speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
     ];
 
-    // Surfaces tuned for discs (less bounce, more slide-stop + skip logic expects harder vs soft)
+    // Surfaces
     const SURF = {
       fairway: { fric: 740,  rest: 0.14 },
       rough:   { fric: 1000, rest: 0.10, powerMul: 0.88 },
@@ -205,31 +214,27 @@
       rock:    { fric: 620,  rest: 0.18 }
     };
 
-    // ==== DISC PHYSICS — airtime & skip tuning ====
-    const GRAV = 2000;            // ↓ gravity to hang longer
-    const AIR_DRAG = 0.00060;     // ↓ a touch less drag
-    const LIFT_K   = 0.00450;     // ↑ more lift
-    const TURN_K   = 54;          // horizontal curve strength
-    const VREF     = 1600;        // speed norm for turn→fade
-    const CAMBER   = 0.06;        // slight inherent upward AoA
+    // ==== DISC PHYSICS
+    const GRAV = 1500;
+    const AIR_DRAG = 0.00050;
+    const LIFT_K   = 0.00450;
+    const TURN_K   = 54;
+    const VREF     = 1600;
+    const CAMBER   = 0.06;
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
     const SPIN_DECAY = 0.35;
-    // ==============================================
 
-    let reducedMotion = false;
+    // Wind: vertical-only
+    let windOn = true;
+    const WIND_UP_MAX = 700;      // max vertical acceleration magnitude
+    let windUp = 0;               // + = updraft (extra lift), − = downdraft
 
-    // Wind
-    let windOn = true; let windAx = 0;
-
-    // Release angle: -1 hyzer, 0 flat, 1 anhyzer -> degrees
+    // Release + hand
     let releaseMode = 0;
-    function releaseDeg(){ return releaseMode * 15; }
-
-    // Throw style (affects curve direction): RHBH = +1, LHBH = -1
     let hand = 'RHBH';
 
-    // ---------- Deterministic helpers ----------
+    // ---------- Helpers ----------
     const RAND_MAX = 4294967295;
     function hash32(x){ x|=0; x ^= x>>>16; x = Math.imul(x, 0x7feb352d); x ^= x>>>15; x = Math.imul(x, 0x846ca68b); x ^= x>>>16; return x>>>0; }
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
@@ -270,7 +275,7 @@
       }
     }
 
-    // === Biomes (colors + mountain profiles) ===
+    // Biomes + backdrop (unchanged aside from windmill spin using vertical wind)
     const BIOMES = [
       { name:'dunes',
         sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
@@ -323,32 +328,14 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop (parallax + sun + clouds + far landmarks + flocks)
     let currentBiome = BIOMES[0];
-    const backdrop = {
-      seed:(Math.random()*1e9)|0,
-      mountains:[],
-      sun:null,
-      clouds:[],
-      cloudDir:1,
-      landmarksFar:[],
-      flocks:[]
-    };
+    const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], sun:null, clouds:[], cloudDir:1, landmarksFar:[], flocks:[] };
 
-    // Shape helpers
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
     function mesaWave(x){ const k=2.2; return Math.tanh(Math.sin(x)*k)/Math.tanh(k); }
     function roundWave(x){ const s=Math.sin(x); return Math.sign(s)*Math.pow(Math.abs(s),0.85); }
     function cragWave(x){ return 0.7*triangleWave(x) + 0.3*Math.sin(x*3.0); }
-    function shapeSample(shape, x){
-      switch(shape){
-        case 'mesa':   return mesaWave(x);
-        case 'round':  return roundWave(x);
-        case 'crag':   return cragWave(x);
-        case 'sin':
-        default:       return Math.sin(x);
-      }
-    }
+    function shapeSample(shape, x){ switch(shape){ case 'mesa':return mesaWave(x); case 'round':return roundWave(x); case 'crag':return cragWave(x); default:return Math.sin(x);} }
 
     function buildBackdrop(){
       const L = [];
@@ -361,25 +348,21 @@
       });
       backdrop.mountains = L;
 
-      // Sun
       const u = 0.20 + rand01(backdrop.seed,101)*0.60;
       const v = 0.16 + rand01(backdrop.seed,102)*0.20;
       const phase = rand01(backdrop.seed,103)*TAU;
       const baseR = 20 + Math.floor(rand01(backdrop.seed,104)*12);
       backdrop.sun = { u, v, phase, baseR };
 
-      // Clouds
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
       if(hole) buildLandmarks();
-
-      // Flocks
       buildFlocks();
     }
 
     function buildCloudField(){
       backdrop.clouds.length = 0;
-      const count = 3 + Math.floor(rand01(backdrop.seed,300)*4); // 3–6
+      const count = 3 + Math.floor(rand01(backdrop.seed,300)*4);
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xA11C10 + i*131));
         const u = rand01(s,1);
@@ -404,7 +387,6 @@
       return y;
     }
 
-    // ---- Ambient Far Landmarks
     function buildLandmarks(){
       backdrop.landmarksFar = [];
       if(!hole) return;
@@ -413,10 +395,7 @@
         [hole.green.x0-160, hole.green.x1+160],
         [hole.water.x-140, hole.water.x+hole.water.w+140]
       ];
-      function allowedX(x){
-        for(const r of exRanges){ if(x>=r[0] && x<=r[1]) return false; }
-        return x>60 && x < (hole.w-60);
-      }
+      function allowedX(x){ for(const r of exRanges){ if(x>=r[0] && x<=r[1]) return false; } return x>60 && x < (hole.w-60); }
       function pickX(k){
         let tries=0;
         while(tries++<40){
@@ -427,9 +406,8 @@
         return 200 + (k%10)*260;
       }
 
-      const farPar = currentBiome.layers[0].par; // match far ridge parallax
+      const farPar = currentBiome.layers[0].par;
 
-      // FAR windmills (0–2)
       const wmCount = Math.floor(rand01(backdrop.seed, 921) * 2.2);
       for(let i=0;i<wmCount;i++){
         const x = pickX(20+i);
@@ -439,7 +417,6 @@
         backdrop.landmarksFar.push({ type:'windmill', x, scale:sc, seed:varSeed, spin, parX:farPar, parY:0 });
       }
 
-      // FAR lighthouse (0–1) near water
       if(rand01(backdrop.seed, 951) < 0.35){
         let x = hole.water.x + (rand01(backdrop.seed, 952)<0.5 ? -120 : hole.water.w+120);
         x = Math.min(Math.max(80, x), WORLD.w-80);
@@ -451,20 +428,19 @@
       }
     }
 
-    // ===== Flocks
     function buildFlocks(){
       backdrop.flocks.length = 0;
       if(!backdrop.mountains.length) return;
       const farPar = backdrop.mountains[0].parallax;
 
-      const count = 1 + Math.floor(rand01(backdrop.seed,1200)*3); // 1–3 flocks
+      const count = 1 + Math.floor(rand01(backdrop.seed,1200)*3);
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xF10C + i*97));
         const x = WORLD.w * rand01(s,1);
         const y = WORLD.h * (0.18 + rand01(s,2)*0.26);
         const dir = rand01(s,3) < 0.5 ? -1 : 1;
         const birds = [];
-        const n = 6 + Math.floor(rand01(s,4)*10); // 6–15 birds
+        const n = 6 + Math.floor(rand01(s,4)*10);
         for(let k=0;k<n;k++){
           const row = (k>>1) + 1;
           const wing = (k%2===0)? -1 : 1;
@@ -486,14 +462,10 @@
     }
     function updateFlocks(dt){
       if(!backdrop.flocks.length) return;
-      const windNorm = windOn ? Math.max(-1, Math.min(1, windAx/900)) : 0;
+      // Vertical-only wind: don't bias flock horizontal direction
       const speedBase = (reducedMotion? 10: 18);
-      const speedWind = (reducedMotion? 18: 32) * Math.abs(windNorm);
-
       for(const F of backdrop.flocks){
-        const targetDir = (Math.abs(windNorm) > 0.05) ? Math.sign(windNorm) : F.dir;
-        const targetVx = (speedBase + speedWind) * targetDir;
-        F.vx += (targetVx - F.vx) * (1 - Math.exp(-dt*3));
+        F.vx += ((speedBase * F.dir) - F.vx) * (1 - Math.exp(-dt*3));
         F.vy = Math.sin(clock*0.9 + F.phase) * (reducedMotion? 1.2 : 2.2);
         F.x += F.vx * dt; F.y += F.vy * dt;
         const margin = 140;
@@ -504,38 +476,9 @@
         if(F.y > yMax) F.y = yMax - 4;
       }
     }
-    function drawFlocks(){
-      if(!backdrop.flocks.length) return;
-      ctx.save(); ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(0,0,0,0.48)';
-      const w = canvas.width / DPR, h = canvas.height / DPR;
-      for(const F of backdrop.flocks){
-        const angle = Math.atan2(F.vy, (F.vx||0.0001));
-        const cx = F.x - view.x * F.parX;
-        const cy = F.y - view.y * F.parY;
-        if(cx < -180 || cx > w + 180 || cy < -120 || cy > h + 120) continue;
-        const cosA = Math.cos(angle), sinA = Math.sin(angle);
-        for(const b of F.birds){
-          const rx = b.ox * cosA - b.oy * sinA;
-          const ry = b.ox * sinA + b.oy * cosA;
-          const bx = cx + rx * 0.8;
-          const by = cy + ry * 0.8;
-          const hz = b.baseHz * (reducedMotion ? 0.45 : 1.0);
-          const flap = Math.sin(clock * hz * TAU + b.ph);
-          const baseOpen = 0.45, flapAmp = reducedMotion ? 0.18 : 0.42;
-          const open = baseOpen + flap * flapAmp;
-          const len = 6.0 * b.sc;
-          ctx.beginPath();
-          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(angle + Math.PI - open)*len,  by + Math.sin(angle + Math.PI - open)*len);
-          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(angle + Math.PI + open)*len,  by + Math.sin(angle + Math.PI + open)*len);
-          ctx.stroke();
-        }
-      }
-      ctx.restore();
-    }
 
     // ===== World / Hole
-    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0,
-                   spin:0, spin0:1, bank:0 };
+    const disc = { x:0,y:0,vx:0,vy:0,r:7.5, atRest:true, onGround:true, lastSafe:{x:0,y:0}, orient:0, spin:0, spin0:1, bank:0 };
     let strokes=0;
     let holeIndex=0, roundData=null;
     let hole=null;
@@ -553,7 +496,6 @@
 
       const cupX = lerp(w*0.68, w*0.9, Math.random());
 
-      // "Green" here is just a landing zone near basket
       const gWidth = 260; const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2; const slope = (Math.random()*0.6-0.3); let greenY=0;
       for(let i=0;i<points.length;i++){
         if(points[i].x>=gx0 && points[i].x<=gx1){ const t = (points[i].x-gx0)/gWidth; const gy = (baseY-30) + slope*(t-0.5)*40; points[i].y = gy; greenY = gy; }
@@ -597,7 +539,10 @@
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
-      windAx = windOn ? (Math.random()*2 - 1) * 900 : 0; updateWindUI();
+      // vertical-only wind (random per hole)
+      windUp = windOn ? (Math.random()*2 - 1) * WIND_UP_MAX : 0;
+      updateWindUI();
+
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
     }
@@ -620,15 +565,21 @@
         b.addEventListener('click',()=>selectDisc(idx));
         clubSeg.appendChild(b);
       });
-      selectDisc(1); // default Fairway
+      selectDisc(1);
     }
     let currentDisc = DISCS[1];
     function selectDisc(i){ currentDisc = DISCS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
     spinSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; releaseMode = parseInt(btn.dataset.spin,10); [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
     handSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; hand = btn.dataset.hand; [...handSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); });
 
-    // ===== Wind UI
-    function updateWindUI(){ const dir = windAx>=0? 1:-1; const mag = Math.abs(windAx); elWindVal.textContent = (mag/900).toFixed(1)+'x'; elWindArrow.style.transform = `rotate(${dir>0?0:180}deg)`; }
+    // ===== Wind UI (vertical)
+    function updateWindUI(){
+      const dirUp = windUp >= 0;
+      const mag = Math.abs(windUp);
+      elWindVal.textContent = (mag / WIND_UP_MAX).toFixed(1)+'x';
+      // rotate triangle to show up (−90deg) or down (+90deg)
+      elWindArrow.style.transform = `rotate(${dirUp? -90 : 90}deg)`;
+    }
 
     // ===== Input
     function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
@@ -645,7 +596,7 @@
       if(!hole || !disc.atRest) return;
       const d = currentDisc;
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
-      const base = 1650; // boosted for better carry/distance
+      const base = 1650;
       const power = (0.25 + 0.75*meter) * d.speed * powerMul;
       const speed = base * power;
       const dir = aimAngle;
@@ -653,8 +604,7 @@
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
 
-      // Init aero
-      disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180); // slight nose-down
+      disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180);
       disc.spin0  = 14 + 20*power;
       disc.spin   = disc.spin0;
       disc.bank   = (releaseMode * 16) * Math.PI/180;
@@ -663,11 +613,7 @@
     }
 
     // ===== Physics update
-    function normalizeAngle(a){
-      while(a > Math.PI) a -= TAU;
-      while(a < -Math.PI) a += TAU;
-      return a;
-    }
+    function normalizeAngle(a){ while(a > Math.PI) a -= TAU; while(a < -Math.PI) a += TAU; return a; }
 
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
@@ -676,7 +622,6 @@
 
       if(!hole){ return; }
 
-      // particles
       for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
 
       if(!disc.atRest){
@@ -705,15 +650,14 @@
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
 
-          // >>> Symmetric curve direction:
-          // Instead of a fixed world +X for RHBH, push toward the *current travel direction*.
+          // Symmetric curve direction based on travel direction
           const handSign = (hand==='RHBH') ? 1 : -1;
           const yawSign = (Math.abs(vx) > 0.1) ? Math.sign(vx) : (Math.cos(vAngle) >= 0 ? 1 : -1);
           const curveAx = TURN_K * curve * handSign * yawSign;
 
-          // Wind + aero + gravity
-          const ax = (windOn? windAx:0) + dragX + curveAx;
-          const ay = GRAV + dragY - lift;
+          // WIND: vertical-only
+          const ax = dragX + curveAx;                         // no lateral wind
+          const ay = GRAV + dragY - lift - (windOn ? windUp : 0); // updraft reduces downward accel; downdraft increases it
 
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
@@ -734,25 +678,21 @@
             const surface = surfaceAt(disc.x);
             disc.y = gy - disc.r - 0.01;
 
-            // particles
             if(Math.abs(disc.vy) > 120){
               if(surface==='sand') spawnParticles('sand',  disc.x, disc.y+disc.r, 12);
               else                 spawnParticles('dust',  disc.x, disc.y+disc.r,  8);
             }
 
-            // choose skip vs normal
             const speed = Math.hypot(disc.vx, disc.vy);
             const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx)); // to ground
             const shallow = entryAngle < (12 * Math.PI/180);
             const fast    = speed > 900;
 
             if(surface!=='sand' && surface!=='green' && shallow && fast){
-              // SKIP: small pop + modest forward loss
               disc.vy = -Math.max(180, Math.abs(disc.vy)*0.55);
               disc.vx *= 0.88;
               disc.onGround = false;
             } else {
-              // Normal reduced bounce and heavy lateral loss
               const rest = SURF[surface]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
               disc.vx *= 0.84;
@@ -769,7 +709,7 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // ------- ground slide (stronger decel) -------
+          // ------- ground slide -------
           const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
@@ -778,7 +718,7 @@
             const surface = surfaceAt(disc.x); 
             const fric = SURF[surface]?.fric ?? 740; 
             const speed = Math.abs(disc.vx); 
-            let dec = fric * 2.1;             // stronger slow-down
+            let dec = fric * 2.1;
             if(surface === 'sand')  dec = fric * 2.6;
             if(surface === 'green') dec = fric * 2.3;
 
@@ -815,18 +755,16 @@
       drawSkyGradient();
       drawSun();
       drawFarLandmarks();
-      drawFlocks();          // birds before clouds
+      drawFlocks();
       drawClouds();
       drawMountains();
 
       if(!hole){ drawVignette(); return; }
 
-      // water
       const cs = getComputedStyle(document.documentElement);
       ctx.fillStyle = cs.getPropertyValue('--water').trim() || '#30160f';
       const w = hole.water; ctx.fillRect((w.x - view.x), (w.y - view.y), w.w, hole.h - w.y + 80);
 
-      // ground silhouette path (course)
       ctx.fillStyle = cs.getPropertyValue('--fg');
       ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
@@ -834,16 +772,13 @@
 
       drawGrass();
 
-      // sand bunker
       ctx.fillStyle = '#1b160f'; ctx.beginPath(); ctx.arc(hole.sand.x - view.x, hole.sand.y - view.y, hole.sand.r, 0, TAU); ctx.fill();
 
-      // landing zone overlay
       ctx.fillStyle = 'rgba(60,140,85,.22)';
       ctx.fillRect(hole.green.x0 - view.x, hole.green.y - 2 - view.y, (hole.green.x1 - hole.green.x0), 10);
 
       drawBasket();
 
-      // particles
       for(const p of particles){
         let c = '#ffffff';
         if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent');
@@ -860,7 +795,6 @@
       drawVignette();
     }
 
-    // --- Sky gradient
     function drawSkyGradient(){
       const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
       skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim());
@@ -869,7 +803,6 @@
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
 
-    // --- Sun
     function drawSun(){
       const m = backdrop.sun; if(!m) return;
       const parX = 0.05, parY = 0.02;
@@ -894,7 +827,6 @@
       ctx.restore();
     }
 
-    // --- FAR landmarks (behind clouds & mountains), anchored to far ridge
     function drawFarLandmarks(){
       if(!backdrop.landmarksFar.length) return;
       const L0 = backdrop.mountains[0]; const EMBED = 1.5;
@@ -920,7 +852,10 @@
         const roofTopY = baselineY - towerH - roofH;
         ctx.beginPath(); ctx.moveTo(x - wTop*0.75, baselineY - towerH); ctx.lineTo(x + wTop*0.75, baselineY - towerH); ctx.lineTo(x, roofTopY); ctx.closePath(); ctx.fill();
         const hubY = baselineY - towerH - roofH*0.25, hubR=3.2*s; ctx.beginPath(); ctx.arc(x, hubY, hubR, 0, TAU); ctx.fill();
-        const dir = windAx>=0? 1 : -1; const localSpeed = (reducedMotion? 0.08: spin*0.55) * dir; const ang0 = clock * localSpeed + rand01(seed,2)*TAU;
+        // spin speed follows |vertical wind| (just for ambience)
+        const dir = (windUp>=0)? 1 : -1;
+        const windSpin = (Math.abs(windUp)/WIND_UP_MAX) * (reducedMotion? 0.15: 0.55);
+        const ang0 = clock * (spin*0.25 + windSpin) * dir + rand01(seed,2)*TAU;
         ctx.save(); ctx.translate(x, hubY); ctx.rotate(ang0);
         const bladeLen=54*s, bladeW=8*s, rungGap=10*s, rungW=1.2*s;
         for(let k=0;k<4;k++){
@@ -943,7 +878,7 @@
       }
     }
 
-    // --- Clouds (in front of landmarks)
+    // --- Clouds
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -961,7 +896,7 @@
         let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
         ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
         const baseR = 18 + rand01(seed,50)*22;
-        const puffCount = 4 + Math.floor(rand01(seed,11)*4); // 4–7
+        const puffCount = 4 + Math.floor(rand01(seed,11)*4);
         for(let i=0;i<puffCount;i++){
           const r  = (baseR + rand01(seed,20+i)*22) * s;
           const ox = (i - (puffCount-1)/2) * (r*0.55) + (rand01(seed,30+i)-0.5)*r*0.3;
@@ -990,7 +925,7 @@
       }
     }
 
-    // --- Mountains (biome-defined layers)
+    // --- Mountains
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       backdrop.mountains.forEach((L, idx)=>{
@@ -1035,11 +970,11 @@
         ctx.stroke(); ctx.globalAlpha=1; 
       } 
 
-      // Disc color by type
-      let fillCol = '#f8fafc'; // default/white
-      if(currentDisc.id==='DRV') fillCol = '#49d0ff';        // blue (driver)
-      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';   // orange (putter)
-      else if(currentDisc.id==='MID') fillCol = '#f8fafc';   // white (mid)
+      // Disc colors
+      let fillCol = '#f8fafc';          // default / white
+      if(currentDisc.id==='DRV') fillCol = '#49d0ff';   // blue
+      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d'; // orange
+      else if(currentDisc.id==='MID') fillCol = '#f8fafc';  // white
 
       ctx.save();
       ctx.translate(disc.x - view.x, disc.y - view.y);
@@ -1048,7 +983,6 @@
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
       const R = disc.r;
       ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
-      // rim hint
       ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
       ctx.restore();
     }
@@ -1075,19 +1009,15 @@
       const poleH = 74, cageTop = groundY - 24, rimY = groundY - 46;
       const rimW = 28, cageW = 24;
 
-      // pole
       ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x, groundY - poleH); ctx.stroke();
 
-      // tray/cage
       ctx.fillStyle = 'rgba(0,0,0,0.80)';
       ctx.fillRect(x - cageW/2, cageTop, cageW, 8);
       ctx.fillRect(x - 2, cageTop - 10, 4, 10);
 
-      // rim ring
       ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
 
-      // chains (simple)
       ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
         const t = i/6 * TAU;
@@ -1100,15 +1030,11 @@
     }
 
     function checkBasketCatch(){
-      // simple AABB in chain zone with downward velocity
       const x = disc.x, y = disc.y, vy = disc.vy;
       const rimY = groundYAt(hole.cupX) - 46;
       const cageTop = groundYAt(hole.cupX) - 24;
-      const rimHalf = 14; // rimW/2
-      if(vy > 30 && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf){
-        return true;
-      }
-      return false;
+      const rimHalf = 14;
+      return (vy > 30 && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf);
     }
 
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
