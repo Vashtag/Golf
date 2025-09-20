@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Disc Golf (valley-driven water & sand)</title>
+<title>Dusk Drive — Disc Golf (with windmills)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -206,30 +206,32 @@
     };
 
     // ==== PHYSICS v2: Disc-like flight (flatter + glide) ====
-    const GRAV = 1150;                  // a bit lighter than before (was 1500)
-    const AIR_DRAG = 0.00036;           // tuned with v^2 effect via component form
-    const LIFT_K   = 0.00640;           // stronger lift for long forward ride
-    const TURN_K   = 52;                // lateral yaw→“curve” proxy (side view)
+    const GRAV = 1150;                  // was 1500
+    const AIR_DRAG = 0.00036;
+    const LIFT_K   = 0.00640;           // stronger glide
+    const TURN_K   = 52;                // side-view lateral “curve”
     const VREF     = 1600;
-    const CAMBER   = 0.07;              // inherent positive lift bias (~4°)
-    const NOSE_FAST_DEG = -8;           // fast = nose-down
-    const NOSE_SLOW_DEG =  8;           // slow = gentle nose-up
-    const SPIN_DECAY = 0.22;            // slower decay = later fade
-    const PITCH_STAB = 5.2;             // how fast the disc’s pitch follows vAngle
-    const ROLL_PRECESS = 14.0;          // yaw feeds bank (gyro precession)
-    const BANK_DAMP = 1.6;              // roll damping
-    const GROUND_EFF_RANGE = 64;        // stronger float when close to ground
-    const STALL_AOA = 0.35;             // ~20°: extra drag + lift cut when slow
+    const CAMBER   = 0.07;              // ~4°
+    const NOSE_FAST_DEG = -8;
+    const NOSE_SLOW_DEG =  8;
+    const SPIN_DECAY = 0.22;            // slower → later fade
+    const PITCH_STAB = 5.2;
+    const ROLL_PRECESS = 14.0;
+    const BANK_DAMP = 1.6;
+    const GROUND_EFF_RANGE = 64;
+    const STALL_AOA = 0.35;             // ~20°
     const STALL_DRAG = 2.0;
+
     // ===== Vertical wind (lift only)
     let windOn = true;
     let windLift = 0;             // -1 .. +1 (down .. up)
     const WIND_LIFT_SCALE = 0.50; // ±50% lift modulation at max
 
     // Release angle / throw style
-    let releaseMode = 0;
+    let releaseMode = 0;          // -1 hyzer, 0 flat, 1 anhyzer
     function releaseDeg(){ return releaseMode * 15; }
     let hand = 'RHBH';
+    let reducedMotion = false;
 
     // ---------- Helpers ----------
     const RAND_MAX = 4294967295;
@@ -324,14 +326,15 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop (sun + clouds + mountains)
+    // Backdrop (sun + clouds + mountains + windmills)
     let currentBiome = BIOMES[0];
     const backdrop = {
       seed:(Math.random()*1e9)|0,
       mountains:[],
       sun:null,
       clouds:[],
-      cloudDir:1
+      cloudDir:1,
+      windmills:[]        // <— newly added
     };
 
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
@@ -369,6 +372,9 @@
       // Clouds
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
+
+      // Windmills
+      buildWindmills();
     }
 
     function buildCloudField(){
@@ -384,6 +390,25 @@
         const alpha = 0.05 + rand01(s,7)*0.08;
         const scale = 0.9 + rand01(s,8)*1.6;
         backdrop.clouds.push({ seed:s, u, v, parX, parY, speed, alpha, scale });
+      }
+    }
+
+    // New: windmills
+    function buildWindmills(){
+      backdrop.windmills.length = 0;
+      const count = 3 + Math.floor(rand01(backdrop.seed,810)*4); // 3–6
+      const used = [];
+      for(let i=0, tries=count*6; i<tries && backdrop.windmills.length<count; i++){
+        const s = hash32(backdrop.seed ^ (0xC0FFEE + i*997));
+        const u = 0.12 + rand01(s,1)*0.76;     // 12%..88% along course
+        const x = WORLD.w * u;
+        if(!used.every(px => Math.abs(px - x) > 380)) continue; // spacing
+        used.push(x);
+        const h = 70 + rand01(s,2)*36;         // mast height
+        const r = 14 + rand01(s,3)*10;         // rotor radius
+        const speed = 1.2 + rand01(s,4)*1.5;   // rad/s baseline
+        const spin0 = rand01(s,5)*TAU;
+        backdrop.windmills.push({ x, h, r, speed, spin0 });
       }
     }
 
@@ -447,7 +472,7 @@
         const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(-(dx*dx)/(2,sigma*sigma)); // fixed gaussian  (comma is harmless here)
+          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // proper gaussian
           points[i].y += amp * k;
         }
       }
@@ -797,18 +822,17 @@
           let aoa = clamp(aoaRaw + CAMBER, -0.5, 0.5);
           if(tPow > 0.35) aoa = Math.max(aoa, -0.02);      // avoid early negative lift nosedives
 
-          // Quadratic drag per component (v * component = ~v^2 along the velocity)
+          // Quadratic drag per component, with stall
           let Cd = AIR_DRAG * (1 + 0.8*Math.abs(aoa));
-          // Stall region: when slow & high AoA, drag spikes and lift softens
           if(Math.abs(aoa) > STALL_AOA && tPow < 0.40){ Cd *= STALL_DRAG; }
           const dragX = -Cd * v * vx;
           const dragY = -Cd * v * vy;
 
-          // Lift ~ v^2 * AoA (positive AoA gives upward lift). Wind modulates only lift.
+          // Lift ~ v^2 * AoA (positive AoA up). Wind modulates lift.
           const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * WIND_LIFT_SCALE) : 1);
           let lift = LIFT_K * currentDisc.glide * v*v * aoa * windMul;
 
-          // Ground effect: extra float close to ground
+          // Ground effect near turf
           const hAGL = (groundYAt(disc.x) - disc.y);
           if(hAGL > 0 && hAGL < GROUND_EFF_RANGE){
             const ge = (1 - hAGL/GROUND_EFF_RANGE);
@@ -816,12 +840,12 @@
           }
           if(Math.abs(aoa) > STALL_AOA && tPow < 0.40){ lift *= 0.60; }
 
-          // Turn (early, speed+spin) and Fade (late, low spin) → side “curve”
+          // Turn (early) and Fade (late) → side “curve”
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
           let yaw = currentDisc.turn * turnPhase * (0.7 + 0.6*spinNorm)
                   - currentDisc.fade * fadePhase * (0.7 + 0.4*(1 - spinNorm));
-          // bank couples to yaw (hyzer tends to hold, anhy tends to turn more)
+          // bank couples to yaw
           yaw += 0.22 * Math.sin(disc.bank);
 
           const curveAx = TURN_K * yaw * (hand==='RHBH'?1:-1);
@@ -1181,6 +1205,56 @@
       }
     }
 
+    // ===== Background windmills (drawn behind ground silhouette)
+    function drawWindmills(){
+      if(!backdrop.windmills?.length) return;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.88)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+      ctx.lineWidth = 2;
+
+      const w = canvas.width / DPR;
+
+      for(const W of backdrop.windmills){
+        const sx = W.x - view.x;                 // lock to course
+        if(sx < -140 || sx > w + 140) continue;
+
+        const gy = groundYAt(W.x) - view.y;      // skyline at this world-x
+        const topY = gy - W.h;
+
+        // mast
+        ctx.fillRect(sx - 2, topY, 4, W.h);
+
+        // nacelle + hub
+        ctx.fillRect(sx - 6, topY - 8, 12, 8);
+        const cx = sx, cy = topY - 6;
+        ctx.beginPath(); ctx.arc(cx, cy, 2, 0, TAU); ctx.fill();
+
+        // blades (spin with wind)
+        const windFactor = 1 + (windOn ? Math.abs(windLift)*1.6 : 0);
+        const theta = W.spin0 + clock * W.speed * windFactor;
+
+        blade(cx, cy, theta, W.r);
+        blade(cx, cy, theta + TAU/3, W.r);
+        blade(cx, cy, theta + 2*TAU/3, W.r);
+      }
+
+      ctx.restore();
+
+      function blade(cx, cy, ang, R){
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(ang);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(R, -R*0.18);
+        ctx.lineTo(R*0.92,  R*0.20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
     // ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -1188,6 +1262,9 @@
       drawSun();
       drawClouds();
       drawMountains();
+
+      // Windmills are behind the course silhouette
+      drawWindmills();
 
       if(!hole){ drawVignette(); return; }
 
