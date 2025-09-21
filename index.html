@@ -1357,7 +1357,7 @@
       }
 
       drawDisc();
-      if(aiming){ drawPredictiveDots(computePredictiveDots()); drawAimArrow(); }
+      if(aiming){ drawAimArrow(); }
 
       drawVignette();
     }
@@ -1519,88 +1519,6 @@
       ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); 
       ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill(); 
       ctx.restore(); 
-    }
-
-    // ---- Predictive dots (light integrator, ~0.6s) ----
-    function computePredictiveDots(){
-      const DOTS = 5;              // 4–6 requested; we use 5
-      const SIM_T = 0.6;           // seconds
-      const STEP  = 1/60;          // light integrator
-      const samples = [];
-
-      const d = currentDisc;
-      const surface = surfaceAt(disc.x);
-      let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
-      const base = 1650;
-      const power = (0.25 + 0.75*meter) * d.speed * powerMul;
-
-      let vx = Math.cos(aimAngle) * base * power;
-      let vy = Math.sin(aimAngle) * base * power;
-      let x  = disc.x;
-      let y  = disc.y;
-
-      let orient = aimAngle + (NOSE_FAST_DEG * Math.PI/180);
-      const spin0 = 14 + 20*power;
-      let spin = spin0;
-      const bank = (releaseMode * 16) * Math.PI/180;
-
-      let t = 0, nextSamp = SIM_T / DOTS;
-      while(t < SIM_T && samples.length < DOTS){
-        const v = Math.hypot(vx, vy) || 0.0001;
-        const vAngle = Math.atan2(vy, vx);
-        const tPow = clamp(v / VREF, 0, 1);
-        const spinNorm = clamp(spin / (spin0 || 1), 0, 1);
-
-        const aoaRaw = normalizeAngle(orient - vAngle);
-        const aoa = clamp(aoaRaw + CAMBER, -0.6, 0.6);
-        const dragMag = AIR_DRAG * v * (1 + 0.7*Math.abs(aoa));
-        const dragX = -dragMag * vx;
-        const dragY = -dragMag * vy;
-
-        const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * WIND_LIFT_SCALE) : 1);
-        const lift = LIFT_K * d.glide * v*v * aoa * windMul;
-
-        const turnPhase = tPow*tPow;
-        const fadePhase = (1 - tPow);
-        const hyz = releaseMode;
-        let turnAmt = d.turn * turnPhase * (0.7 + 0.6*spinNorm) * (1 + 0.35*hyz);
-        let fadeAmt = d.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
-        const bankBias = 0.12 * Math.sin(bank);
-        const curve = (turnAmt - fadeAmt + bankBias);
-        const curveAx = TURN_K * curve * (hand==='RHBH'?1:-1);
-
-        const ax = dragX + curveAx;
-        const ay = GRAV + dragY - lift;
-
-        vx += ax*STEP; vy += ay*STEP;
-        x  += vx*STEP; y  += vy*STEP;
-
-        spin *= Math.exp(-SPIN_DECAY*STEP);
-        const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
-        const targetOrient = vAngle + noseBias;
-        orient += (targetOrient - orient) * (1 - Math.exp(-STEP*3.4));
-
-        t += STEP;
-        if(t + 1e-6 >= nextSamp){
-          samples.push({x, y});
-          nextSamp += SIM_T / DOTS;
-        }
-      }
-      return samples;
-    }
-    function drawPredictiveDots(dots){
-      ctx.save();
-      const col = getComputedStyle(document.documentElement).getPropertyValue('--accent3') || '#86efac';
-      for(let i=0;i<dots.length;i++){
-        const sx = dots[i].x - view.x;
-        const sy = dots[i].y - view.y;
-        const r = 3 + i*0.4;
-        ctx.globalAlpha = 0.55 - i*0.08;
-        ctx.fillStyle = col;
-        ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      ctx.restore();
     }
 
     function drawBasket(){
