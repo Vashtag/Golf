@@ -888,6 +888,10 @@
           // basket scoring
           if(checkBasketCatch()){
             AudioMini.chains();
+            // tiny chain sparkles
+            const cupX = hole.cupX;
+            const gY = groundYAt(cupX);
+            spawnParticles('spark', cupX, gY - 35, 18);
             if(navigator.vibrate) navigator.vibrate([30,40,30]);
             disc.atRest=true; disc.vx=disc.vy=0;
             setTimeout(()=>{ endHole(); }, 520);
