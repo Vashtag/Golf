@@ -19,6 +19,9 @@
 
   /* HUD */
   .hud{position:fixed;inset:0;pointer-events:none}
+  /* Make buttons inside HUD clickable despite parent blocking events */
+  .hud .btn{pointer-events:auto}
+
   .row{display:flex;gap:.5rem;align-items:center}
   .topbar{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem}
   .chip{pointer-events:auto;background:var(--panel);backdrop-filter:blur(var(--panel-blur));border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:.4rem .7rem;font-size:.9rem;display:flex;gap:.6rem;align-items:center}
@@ -126,7 +129,7 @@
           <input type="checkbox" id="chkReduced" />
         </label>
         <label class="chip" style="justify-content:space-between">
-          <span>Audio (minimal ambience & SFX)</span>
+          <span>Audio (ambience & SFX)</span>
           <input type="checkbox" id="chkAudio" />
         </label>
         <label class="chip" style="justify-content:space-between">
@@ -236,7 +239,7 @@
     function lerp(a,b,t){ return a + (b-a)*t; }
     const ease = (t)=>t*t*(3-2*t);
 
-    // ===== Ambient Audio (existing)
+    // ===== Ambient Audio (minimal hum + wind)
     const AudioMini = (()=>{ let ctx=null, windNode=null, masterGain=null; let enabled=false;
       function init(){ if(enabled) return;
         ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -268,24 +271,25 @@
       }
       function preload(){
         if(throws.length || chains.length) return;
-        for(let i=1;i<=7;i++) throws.push(make(`audio/throw${i}.mp3`, 0.9));
-        for(let i=1;i<=4;i++) chains.push(make(`audio/chain${i}.mp3`, 1.0));
+        for(let i=1;i<=7;i++) throws.push(make(`./audio/throw${i}.mp3`, 0.9));
+        for(let i=1;i<=4;i++) chains.push(make(`./audio/chain${i}.mp3`, 1.0));
       }
       function init(){ preload(); unlocked = true; }
       function setEnabled(on){
         enabled = !!on;
         if(!enabled){
-          // stop any currently playing samples
           [...throws, ...chains].forEach(a=>{ try{ a.pause(); a.currentTime = 0; }catch{} });
         }
       }
       function playFrom(arr, vol=1.0, rateMin=0.98, rateMax=1.02){
         if(!enabled || !unlocked || !arr.length) return;
-        const i = Math.floor(Math.random()*arr.length);
-        const src = arr[i].cloneNode(true);
-        src.volume = vol;
-        src.playbackRate = rateMin + Math.random()*(rateMax-rateMin);
-        src.play().catch(()=>{ /* ignore autoplay issues */ });
+        const i = (Math.random()*arr.length)|0;
+        const srcUrl = arr[i].src || arr[i].currentSrc;
+        const a = new Audio(srcUrl);
+        a.preload = 'auto';
+        a.volume = vol;
+        a.playbackRate = rateMin + Math.random()*(rateMax-rateMin);
+        a.play().catch(()=>{});
       }
       return {
         init,
@@ -313,7 +317,7 @@
           {par:0.08, base:0.52, a1:30,  a2:16,  f1:0.00050, f2:0.00020, shade:0.02, shape:'sin'},
           {par:0.12, base:0.56, a1:50,  a2:24,  f1:0.00065, f2:0.00026, shade:0.035,shape:'sin'},
           {par:0.18, base:0.61, a1:70,  a2:34,  f1:0.00082, f2:0.00032, shade:0.05, shape:'sin'},
-          {par:0.26, base:0.66, a1:104, a2:48,  f1:0.00100, f2:0.00042, shade:0.07, shape:'sin'},
+          {par:0.26, base:0.66, a1:104, a2:48,  f1:0.00100, f2:0.00042, shade:0.07,shape:'sin'},
           {par:0.33, base:0.70, a1:116, a2:54,  f1:0.00115, f2:0.00048, shade:0.085,shape:'sin'},
           {par:0.40, base:0.74, a1:126, a2:58,  f1:0.00125, f2:0.00052, shade:0.10, shape:'sin'}
         ]
@@ -630,23 +634,6 @@
         return true;
       }
 
-      const lzTarget = lerp(w*0.32, cupX-420, 0.55);
-      const fairBasin = basinsAll
-        .filter(b => b.cx > w*0.20 && b.cx < cupX-260 && !basinBlockedByWater(b))
-        .sort((a,b)=> Math.abs(a.cx - lzTarget) - Math.abs(b.cx - lzTarget))[0];
-      if(fairBasin) placeBunkerFromBasin(fairBasin, 0.33);
-
-      const greenBasins = basinsAll
-        .filter(b => !basinBlockedByWater(b))
-        .sort((a,b)=> Math.abs(a.cx - cupX) - Math.abs(b.cx - cupX));
-      let placedGreen=0;
-      for(const b of greenBasins){
-        if(placedGreen>=2) break;
-        if(b.cx >= gx0-160 && b.cx <= gx1+160){
-          if(placeBunkerFromBasin(b, 0.30)) placedGreen++;
-        }
-      }
-
       const roughs=[];
       const roughN = Math.floor(Math.random()*4);
       for(let i=0;i<roughN;i++){
@@ -671,6 +658,7 @@
       const dist = (cupX - teeX);
       let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
 
+      // green window / water carving were handled earlier; just return
       return {
         w, h, points, step, cupX,
         green:{x0:gx0,x1:gx1,y:greenY},
@@ -793,8 +781,7 @@
       disc.spin   = disc.spin0;
       disc.bank   = (releaseMode * 16) * Math.PI/180;
 
-      disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes;
-      if(navigator.vibrate) navigator.vibrate(16);
+      disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16);
       Sfx.playThrow(); // randomized throw SFX
     }
 
@@ -849,7 +836,7 @@
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
-          const noseBias = (lerp(-6, 7, 1 - tPow)) * Math.PI/180;
+          const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
           const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
@@ -1671,6 +1658,15 @@
     let last=0; let clock=0;
     function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt; update(dt); draw(); requestAnimationFrame(loop); }
     requestAnimationFrame(loop);
+
+    // ===== Audio unlock on first interaction (works even before opening Settings)
+    window.addEventListener('pointerdown', () => {
+      try { Sfx.init(); } catch {}
+      if (chkAudio && chkAudio.checked) {
+        try { Sfx.setEnabled(true); } catch {}
+        try { AudioMini.setEnabled(true); } catch {}
+      }
+    }, { once:true });
 
     // ===== UI wiring
     btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; Sfx.init(); newRound(); });
