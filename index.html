@@ -68,7 +68,7 @@
         <div class="chip"><span class="label">Hole</span> <strong id="holeNum">1</strong>/<span id="holesTotal">3</span></div>
         <div class="chip"><span class="label">Par</span> <strong id="parLabel">3</strong></div>
         <div class="chip"><span class="label">Strokes</span> <strong id="strokes">0</strong></div>
-        <div class="chip" id="bossChip" style="display:none">🗻 BOSS: Canyon Bridge</div>
+        <div class="chip" id="bossChip" style="display:none">🌀 BOSS: Canyon Thermal</div>
       </div>
       <div class="row">
         <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
@@ -207,12 +207,12 @@
       rough:   { fric: 1000, rest: 0.10, powerMul: 0.88 },
       sand:    { fric: 1400, rest: 0.05, powerMul: 0.70 },
       green:   { fric: 520,  rest: 0.10 },
-      rock:    { fric: 620,  rest: 0.18 },
-      bridge:  { fric: 860,  rest: 0.08 } // slim bridge deck
+      rock:    { fric: 620,  rest: 0.18 }
     };
 
     // ==== DISC PHYSICS ====
-    const GRAV = 1500;
+    const AIR_DRAG = 0.00050;
+    const LIFT_K   = 0.00450;
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
 
@@ -457,22 +457,21 @@
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[] };
 
-    // ===== Boss helpers (Canyon Bridge) =====
-    function genCanyonBridgeBoss(){
+    // ===== Boss helpers (Canyon Thermal) =====
+    function genCanyonThermalBoss(){
       const w = WORLD.w, h = WORLD.h, step=40;
       const baseY = h*0.72;
 
       // Canyon parameters
+      const canyonW = 420 + Math.random()*100; // 420–520
       const cx = w*0.52;
-      const canyonW = 620;               // wide gap
       const leftEdge = cx - canyonW/2;
       const rightEdge = cx + canyonW/2;
-      const canyonBottom = baseY + 260;  // deep
-      const waterY = canyonBottom - 10;  // water surface near bottom
+      const depth = 180 + Math.random()*60;    // 180–240
+      const canyonBottom = baseY + depth;
 
-      // Bridge
-      const bridgeY = baseY + 30;        // slim deck spanning the gap
-      const bridgeThick = 6;
+      // Water: flood the bottom of the canyon
+      const waterY = canyonBottom - 10;
 
       // Green beyond
       const cupX = rightEdge + 520;
@@ -480,50 +479,47 @@
       const gx0 = cupX - gWidth/2, gx1 = cupX + gWidth/2;
       const greenY = baseY - 16;
 
-      // Build terrain points with a flat tee/landing, a sharp canyon, then rise to green
+      // Terrain points: tee/lay-up → canyon → approach/green
       const points=[];
       for(let x=0;x<=w;x+=step){
         let y = baseY;
 
-        // Gentle tee & generous landing zone before gap
-        if(x < leftEdge - 180){
+        // generous landing before gap
+        if(x < leftEdge - 200){
           y = baseY - Math.sin(x*0.0012)*24;
         }
-        // Ramp down into canyon walls
-        else if(x >= leftEdge - 180 && x < leftEdge + 60){
-          const t = (x - (leftEdge - 180)) / (240);
-          y = lerp(baseY - 10, canyonBottom, t*t);
+        // Ramp down into canyon wall
+        else if(x >= leftEdge - 160 && x < leftEdge + 60){
+          const t = (x - (leftEdge - 160)) / 220;
+          y = lerp(baseY - 8, canyonBottom, t*t);
         }
-        // Canyon floor
+        // Canyon floor span
         else if(x >= leftEdge + 60 && x <= rightEdge - 60){
           y = canyonBottom;
         }
-        // Ramp up
+        // Ramp up out of canyon
         else if(x > rightEdge - 60 && x < rightEdge + 200){
           const t = (x - (rightEdge - 60)) / 260;
           y = lerp(canyonBottom, baseY - 6, t);
         }
-        // Approach & green area
+        // Beyond canyon toward green
         else if(x >= rightEdge + 200){
           y = baseY - 6 - Math.sin((x-rightEdge)*0.001)*10;
         }
 
-        // Carve the green window flatter
         if(x>=gx0 && x<=gx1) y = greenY;
-
         points.push({x,y});
       }
 
-      // Water body filling canyon span
-      const waters = [{ x:leftEdge+8, w:(rightEdge-leftEdge-16), y:waterY, h:h-waterY+80, seed:(Math.random()*1e9)|0 }];
+      // Water body filling the canyon
+      const waters = [{ x:leftEdge+6, w:(rightEdge-leftEdge-12), y:waterY, h:h-waterY+80, seed:(Math.random()*1e9)|0 }];
 
-      // A couple of bunkers near lay-up & beyond bridge
+      // Bunkers to shape decisions
       const sands = [
-        { x:leftEdge-220, y: sampleY(points, leftEdge-220) - 8, r: 64, seed:(Math.random()*1e9)|0 },
-        { x:rightEdge+260, y: sampleY(points, rightEdge+260) - 8, r: 52, seed:(Math.random()*1e9)|0 }
+        { x:leftEdge-200, y: sampleY(points, leftEdge-200) - 8, r: 58, seed:(Math.random()*1e9)|0 },
+        { x:rightEdge+260, y: sampleY(points, rightEdge+260) - 8, r: 50, seed:(Math.random()*1e9)|0 }
       ];
 
-      // Rough patches for texture
       const roughs = [
         { x:leftEdge-120, y: sampleY(points, leftEdge-120)-6, r:46 },
         { x:rightEdge+160, y: sampleY(points, rightEdge+160)-6, r:42 }
@@ -532,18 +528,28 @@
       const teeX = 160;
       const teeY = sampleY(points, teeX) - 2;
 
-      // Thermal column centered over canyon
+      // Thermal column: slight offset toward aggressive line (to the right)
+      const off = (0.08 + Math.random()*0.06) * canyonW; // ~8–14% of width
+      const thX = cx + off;
+      const thY = baseY + 20;
+      const rx = 120 + Math.random()*40;   // 120–160
+      const ry = 200 + Math.random()*60;   // 200–260
+
       const thermals = [{
-        x: cx,
-        y: baseY + 40,      // starts a bit below fairway height
-        r: 160,             // radius
-        strength: 1150      // upward accel (tapers with distance & speed)
+        x: thX, y: thY,
+        rx, ry,
+        boostMin: 0.45,     // +45% local lift at core (min)
+        boostMax: 0.70,     // up to +70%
+        core: Math.random(),// picks a value between min/max for this thermal
+        wiggleAmp: 0.05,    // ~3° bank wiggle
+        wiggleAoA: 0.03,    // ~1.7° AoA wiggle
+        wiggleFreq: 11 + Math.random()*4, // fast oscillation
+        seed: Math.random()*TAU
       }];
 
       return {
-        boss:true, bossName:'Canyon Bridge',
+        boss:true, bossName:'Canyon Thermal',
         w, h, points, step, cupX,
-        bridge:{ x0:leftEdge+6, x1:rightEdge-6, y:bridgeY, thick:bridgeThick },
         green:{x0:gx0,x1:gx1,y:greenY},
         waters,
         sands,
@@ -744,7 +750,6 @@
         sands,
         roughs,
         thermals:[],
-        bridge:null,
         tee:{x:teeX,y:teeY},
         par
       };
@@ -759,10 +764,8 @@
     }
 
     function groundYAt(x){ x = clamp(x, 0, hole.w); const i = Math.min(Math.floor(x/hole.step), hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
-    function bridgeYAt(x){ if(!hole?.bridge) return Infinity; const B=hole.bridge; return (x>=B.x0 && x<=B.x1)? B.y : Infinity; }
 
     function surfaceAt(x){
-      if(hole?.bridge && x>=hole.bridge.x0 && x<=hole.bridge.x1) return 'bridge';
       if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
       const y = groundYAt(x);
       for(const s of hole.sands){ if(Math.hypot(x - s.x, y - s.y) <= s.r) return 'sand'; }
@@ -786,7 +789,7 @@
       applyTheme(biome);
 
       const isBoss = ((holeIndex+1) % 3 === 0);
-      hole = isBoss ? genCanyonBridgeBoss() : genHole();
+      hole = isBoss ? genCanyonThermalBoss() : genHole();
 
       buildScenery();
 
@@ -894,14 +897,40 @@
           const tPow = clamp(v / 1600, 0, 1);
           const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
 
+          // AoA baseline
           const aoaRaw = normalizeAngle(disc.orient - vAngle);
-          const aoa = clamp(aoaRaw + 0.06, -0.6, 0.6);
-          const dragMag = 0.00050 * v * (1 + 0.7*Math.abs(aoa));
+
+          // Thermal effects (multiplier + turbulence)
+          let thermalMul = 1.0;
+          let wiggleBank = 0.0;
+          let wiggleAoA  = 0.0;
+          if(hole?.thermals?.length){
+            for(const th of hole.thermals){
+              const dx = disc.x - th.x, dy = disc.y - th.y;
+              // elliptical Gaussian falloff (0..1)
+              const g = Math.exp(-0.5*((dx*dx)/(th.rx*th.rx) + (dy*dy)/(th.ry*th.ry)));
+              if(g > 0.001){
+                const boostCore = th.boostMin + (th.boostMax - th.boostMin) * th.core; // +0.45..+0.70
+                const local = 1 + boostCore * g;
+                if(local > thermalMul) thermalMul = local; // take strongest if multiple
+                const phase = th.seed + (performance.now()/1000)*th.wiggleFreq;
+                const ampScale = g;
+                wiggleBank += th.wiggleAmp * ampScale * Math.sin(phase);           // ~±0.05 rad
+                wiggleAoA  += th.wiggleAoA  * ampScale * Math.sin(phase*1.15+0.6); // ~±0.03 rad
+              }
+            }
+          }
+
+          // Effective AoA with wiggle; clamp to reasonable range
+          const aoa = clamp(aoaRaw + 0.06 + wiggleAoA, -0.6, 0.6);
+
+          const dragMag = AIR_DRAG * v * (1 + 0.7*Math.abs(aoa));
           const dragX = -dragMag * vx;
           const dragY = -dragMag * vy;
 
+          // Global wind + local thermal lift multiplier
           const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * 0.50) : 1);
-          const lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
+          const lift = LIFT_K * currentDisc.glide * v*v * aoa * windMul * thermalMul;
 
           // Curvature (turn/fade/bank)
           const turnPhase = tPow*tPow;
@@ -909,27 +938,13 @@
           const hyz = releaseMode;
           let turnAmt = currentDisc.turn * turnPhase * (0.7 + 0.6*spinNorm) * (1 + 0.35*hyz);
           let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
-          const bankBias = 0.12 * Math.sin(disc.bank);
+          // include turbulence wobble in bank effect (non-persistent)
+          const bankBias = 0.12 * Math.sin(disc.bank + wiggleBank);
           const curve = (turnAmt - fadeAmt + bankBias);
           const curveAx = 54 * curve * (hand==='RHBH'?1:-1);
 
-          // Thermal updraft (localized)
-          let updraft = 0;
-          if(hole?.thermals?.length){
-            for(const th of hole.thermals){
-              const dx = disc.x - th.x, dy = disc.y - th.y;
-              const d = Math.hypot(dx, dy);
-              if(d < th.r){
-                const t = 1 - (d/th.r);
-                // Scale with speed a bit so fast, high shots benefit most
-                const speedBias = 0.4 + Math.min(1, v/1600)*0.6;
-                updraft -= th.strength * t * speedBias;
-              }
-            }
-          }
-
           const ax = dragX + curveAx;
-          const ay = 1500 + dragY - lift + updraft;
+          const ay = 1500 + dragY - lift;
 
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
@@ -942,16 +957,13 @@
           const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
-          // Ground/bridge collision
-          let gy = groundYAt(disc.x);
-          let surf = surfaceAt(disc.x);
-          const by = bridgeYAt(disc.x);
-          if(by < gy){ gy = by; surf = 'bridge'; }
-
+          // Ground collision
+          const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
             disc.y = gy - disc.r - 0.01;
 
             if(Math.abs(disc.vy) > 120){
+              const surf = surfaceAt(disc.x);
               if(surf==='sand') spawnParticles('sand',  disc.x, disc.y+disc.r, 12);
               else              spawnParticles('dust',  disc.x, disc.y+disc.r,  8);
             }
@@ -961,14 +973,15 @@
             const shallow = entryAngle < (12 * Math.PI/180);
             const fast    = speed > 900;
 
-            if(surf!=='sand' && surf!=='green' && surf!=='bridge' && shallow && fast){
+            const surf = surfaceAt(disc.x);
+            if(surf!=='sand' && surf!=='green' && shallow && fast){
               disc.vy = -Math.max(180, Math.abs(disc.vy)*0.55);
               disc.vx *= 0.88;
               disc.onGround = false;
             } else {
               const rest = SURF[surf]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
-              disc.vx *= (surf==='bridge'? 0.80 : 0.84);
+              disc.vx *= 0.84;
               if(Math.abs(disc.vy) < 120) disc.vy = 0;
               disc.onGround = true;
             }
@@ -984,19 +997,16 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // Rolling — include bridge as a support surface
-          let gy = groundYAt(disc.x);
-          const by = bridgeYAt(disc.x);
-          if(by < gy) gy = by;
-
+          // Rolling
+          const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
           } else {
             disc.y = gy - disc.r; 
-            const surf = (by < gy+1) ? 'bridge' : surfaceAt(disc.x);
+            const surf = surfaceAt(disc.x); 
             const fric = SURF[surf]?.fric ?? 740; 
             const speed = Math.abs(disc.vx); 
-            let dec = fric * (surf==='bridge'? 2.0 : 2.1);
+            let dec = fric * 2.1;
             if(surf === 'sand')  dec = fric * 2.6;
             if(surf === 'green') dec = fric * 2.3;
 
@@ -1036,7 +1046,6 @@
         [hole.green.x0-80, hole.green.x1+80],
       ];
       for(const w of hole.waters){ avoid.push([w.x-60, w.x+w.w+60]); }
-      if(hole.bridge){ avoid.push([hole.bridge.x0-40, hole.bridge.x1+40]); }
       function allowedX(x){
         for(const r of avoid){ if(x>=r[0] && x<=r[1]) return false; }
         return x>40 && x < hole.w-40;
@@ -1061,7 +1070,7 @@
         scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
 
-      // Fences
+      // Fences (kept for world texture)
       function addFence(x0, x1){
         if(x1 < x0){ const t=x0; x0=x1; x1=t; }
         x0 = clamp(x0, 40, hole.w-40);
@@ -1160,7 +1169,7 @@
       ctx.restore();
     }
 
-    // ===== Stable fences (precomputed posts) =====
+    // ===== Stable fences
     function drawFences(){
       if(!scenery.fences.length) return;
       ctx.save();
@@ -1366,7 +1375,7 @@
       }
     }
 
-    // ===== Background mountains, sun, clouds (unchanged) =====
+    // ===== Background: sky/sun/clouds/mountains
     function drawSkyGradient(){
       const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
       skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim());
@@ -1517,35 +1526,6 @@
       ctx.restore(); 
     }
 
-    function drawBridge(){
-      if(!hole?.bridge) return;
-      const B = hole.bridge;
-      const x0 = B.x0 - view.x, x1 = B.x1 - view.x, y = B.y - view.y;
-
-      // deck
-      ctx.save();
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.fillRect(x0, y, (x1-x0), B.thick);
-      ctx.strokeRect(x0, y, (x1-x0), B.thick);
-
-      // subtle planks
-      const step = 28;
-      ctx.globalAlpha = 0.35;
-      for(let x=x0+6; x<x1-6; x+=step){
-        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y+B.thick); ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-
-      // simple cables/sheen
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-      ctx.beginPath();
-      ctx.moveTo(x0, y-6); ctx.lineTo(x1, y-6);
-      ctx.stroke();
-      ctx.restore();
-    }
-
     function drawBasket(){
       const x = hole.cupX - view.x;
       const groundY = groundYAt(hole.cupX) - view.y;
@@ -1576,7 +1556,7 @@
       ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x, poleTopY); ctx.lineTo(x, poleTopY - stub); ctx.stroke();
 
-      // Flag (unchanged)
+      // Flag
       const anchorX = x;
       const anchorY = poleTopY - stub;
 
@@ -1662,7 +1642,6 @@
       for(const s of hole.sands){ drawBunkerHole(s); }
 
       drawScenery();
-      drawBridge();
       drawBasket();
 
       for(const p of particles){
