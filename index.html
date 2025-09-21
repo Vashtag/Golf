@@ -369,7 +369,7 @@
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
 
-      // Birds (distant flocks)
+      // Birds
       buildBirdFlocks();
 
       // Windmills
@@ -396,7 +396,7 @@
     function buildWindmills(){
       backdrop.windmills.length = 0;
 
-      const count = 1 + Math.floor(rand01(backdrop.seed,810)*4); // 3–6
+      const count = 1 + Math.floor(rand01(backdrop.seed,810)*4);
       const used = [];
       for(let i=0, tries=count*8; i<tries && backdrop.windmills.length<count; i++){
         const s = hash32(backdrop.seed ^ (0xC0FFEE + i*997));
@@ -417,24 +417,24 @@
       }
     }
 
-    // ===== Birds: distant flocks with wing flaps (NEW) =====
+    // ===== Birds: distant flocks with gentle wing flaps =====
     function buildBirdFlocks(){
       backdrop.birds.length = 0;
       const flockCount = 1 + Math.floor(rand01(backdrop.seed,600)*2); // 1–2 flocks
       for(let i=0;i<flockCount;i++){
         const s = hash32(backdrop.seed ^ (0xB1RD5 + i*911));
-        const u0 = rand01(s,1);                       // starting world fraction
-        const v  = 0.18 + rand01(s,2)*0.20;           // high sky band
-        const dir = rand01(s,3) < 0.5 ? -1 : 1;       // left/right
-        const speed = 20 + rand01(s,4)*28;            // px/s drift
-        const parX = 0.06 + rand01(s,5)*0.04;         // slight parallax
+        const u0 = rand01(s,1);                         // starting world fraction
+        const v  = 0.18 + rand01(s,2)*0.20;             // high in the sky
+        const dir = rand01(s,3) < 0.5 ? -1 : 1;         // left or right
+        const speed = 18 + rand01(s,4)*26;              // px/s drift
+        const parX = 0.06 + rand01(s,5)*0.04;           // slight parallax
         const parY = 0.02 + rand01(s,6)*0.02;
-        const scale = 0.6 + rand01(s,7)*0.9;          // global scale of the flock glyphs
-        const count = 5 + Math.floor(rand01(s,8)*7);  // 5–11 birds
-        const spread = 60 + rand01(s,9)*120;          // spacing along X
-        const flapSpeed = 4 + rand01(s,10)*3;         // flap rate
-        const wobbleAmp = 4 + rand01(s,11)*6;         // subtle vertical wobble
-        const alpha = 0.55 + rand01(s,12)*0.25;       // silhouette strength
+        const scale = 0.7 + rand01(s,7)*0.7;            // flock scale
+        const count = 5 + Math.floor(rand01(s,8)*6);    // 5–11 birds
+        const spread = 50 + rand01(s,9)*110;            // spacing along X
+        const flapSpeed = 4 + rand01(s,10)*2.5;         // flap rate
+        const wobbleAmp = 3 + rand01(s,11)*5;           // subtle vertical wobble
+        const alpha = 0.45 + rand01(s,12)*0.35;         // silhouette strength
         backdrop.birds.push({seed:s,u0,v,dir,speed,parX,parY,scale,count,spread,flapSpeed,wobbleAmp,alpha});
       }
     }
@@ -499,7 +499,7 @@
         const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(-(dx*dx)/(2,sigma*sigma)); // fixed gaussian
+          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // fixed gaussian
           points[i].y += amp * k;
         }
       }
@@ -1340,7 +1340,7 @@
       }
     }
 
-    // ===== Birds rendering (NEW) =====
+    // ===== Birds rendering =====
     function drawBirdFlocks(){
       if(!backdrop.birds?.length) return;
       const w = canvas.width / DPR;
@@ -1348,7 +1348,7 @@
 
       ctx.save();
       for(const F of backdrop.birds){
-        // base world X position (wrap by drawing clones across span)
+        // world X position with wrap clones
         const baseX = WORLD.w * F.u0 + F.dir * clock * F.speed;
         const yBase = WORLD.h * F.v - view.y * F.parY;
 
@@ -1357,15 +1357,12 @@
           if(baseScreenX < -300 || baseScreenX > w + 300) continue;
 
           for(let i=0;i<F.count;i++){
-            // V-ish formation with slight wobble
             const t = i - (F.count-1)/2;
             const xoff = t * (F.spread*0.6);
             const yoff = (t<0 ? 1 : -1) * Math.abs(t) * 6 + Math.sin(clock*0.8 + i)*F.wobbleAmp;
 
             const x = baseScreenX + xoff;
             const y = yBase + yoff;
-
-            // wing phase per bird
             const phase = (hash32(F.seed ^ (i*1337)) % 628) / 100;
 
             drawBirdGlyph(x, y, F.scale*(0.85 + 0.3*Math.abs(t)/(F.count)), F.flapSpeed, phase, F.alpha);
@@ -1380,8 +1377,8 @@
         const flapMul = reducedMotion ? 0.35 : 1;
         const flap = Math.sin(clock * flapSpeed + phase) * flapMul;
 
-        const span = 16*s;                 // half-span per side
-        const amp  = 5*s;                  // flap amplitude
+        const span = 16*s;   // half-span per wing
+        const amp  = 5*s;    // flap amplitude
         const lift = flap * amp;
 
         ctx.strokeStyle = 'rgba(0,0,0,0.75)';
@@ -1389,19 +1386,19 @@
         ctx.lineCap = 'round';
         ctx.globalAlpha = alpha;
 
-        // Left wing curve
+        // Left wing
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.quadraticCurveTo(-span*0.25, -lift, -span*0.5, 0);
         ctx.stroke();
 
-        // Right wing curve
+        // Right wing
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.quadraticCurveTo(span*0.25, -lift, span*0.5, 0);
         ctx.stroke();
 
-        // tiny body suggestion
+        // tiny body hint
         ctx.beginPath();
         ctx.moveTo(-1*s, 0.2*s);
         ctx.lineTo(1*s, 0.5*s);
@@ -1419,7 +1416,7 @@
       drawSun();
       drawClouds();
 
-      // NEW: birds in the far sky, between clouds and mountains
+      // NEW: birds between clouds and mountains
       drawBirdFlocks();
 
       drawMountains();
