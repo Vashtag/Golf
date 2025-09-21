@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Disc Golf (valley-driven water & sand)</title>
+<title>Dusk Drive — Disc Golf (with SFX)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -126,7 +126,7 @@
           <input type="checkbox" id="chkReduced" />
         </label>
         <label class="chip" style="justify-content:space-between">
-          <span>Audio (minimal ambience)</span>
+          <span>Sound effects</span>
           <input type="checkbox" id="chkAudio" />
         </label>
         <label class="chip" style="justify-content:space-between">
@@ -183,6 +183,102 @@
     const sumScore = document.getElementById('sumScore');
     const holeBreakdown = document.getElementById('holeBreakdown');
 
+    // ===== Sound FX loader/player (randomized banks)
+    const SoundFX = (() => {
+      let ctx = null;
+      let enabled = false;
+
+      const banks = {
+        throw: {
+          files: Array.from({length:7}, (_,i)=> `./audio/throw${i+1}.mp3`),
+          buffers: [],
+        },
+        chain: {
+          files: Array.from({length:4}, (_,i)=> `./audio/chain${i+1}.mp3`),
+          buffers: [],
+        }
+      };
+
+      async function init() {
+        if (ctx) return;
+        try {
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+          console.warn('WebAudio not available; will fall back to <audio>.', e);
+          return;
+        }
+        // Preload all banks
+        await Promise.all(Object.values(banks).map(async (bank) => {
+          await Promise.all(bank.files.map(async (url, i) => {
+            try {
+              const res = await fetch(url, {cache:'force-cache'});
+              const arr = await res.arrayBuffer();
+              const buf = await new Promise((resolve, reject)=>{
+                // Safari/WebKit compat
+                const p = ctx.decodeAudioData(arr, resolve, reject);
+                if (p && typeof p.then === 'function') p.then(resolve, reject);
+              });
+              bank.buffers[i] = buf;
+            } catch (err) {
+              console.warn('Failed to load sound', url, err);
+            }
+          }));
+        }));
+      }
+
+      function setEnabled(on) {
+        enabled = !!on;
+        if (!ctx) return;
+        if (enabled && ctx.state === 'suspended') ctx.resume();
+        if (!enabled && ctx.state === 'running') ctx.suspend();
+      }
+
+      function randomIndex(n){ return Math.floor(Math.random() * n); }
+
+      function playRandom(name, gain=1.0, rate=1.0){
+        if (!enabled) return;
+        const bank = banks[name];
+        if (!bank) return;
+
+        // If WebAudio ready and we have at least one buffer, use it
+        const ready = ctx && bank.buffers.some(Boolean);
+        if (ready) {
+          const list = bank.buffers.filter(Boolean);
+          const buf = list[randomIndex(list.length)];
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          // small pitch wiggle for variety
+          src.playbackRate.value = rate * (0.985 + Math.random()*0.03);
+
+          const g = ctx.createGain();
+          g.gain.value = gain;
+
+          src.connect(g);
+          g.connect(ctx.destination);
+          src.start();
+          return;
+        }
+
+        // Fallback: HTMLAudio (works even if WebAudio blocked)
+        const url = bank.files[randomIndex(bank.files.length)];
+        const a = new Audio(url);
+        a.volume = Math.max(0, Math.min(1, gain));
+        // Low-latency-ish hint
+        a.preload = 'auto';
+        a.play().catch(()=>{ /* autoplay might be blocked until user gesture */ });
+      }
+
+      // Call on a user gesture to unlock/resume context and kick off loading
+      async function userStart() {
+        try {
+          if (!ctx) await init();
+          if (ctx && ctx.state === 'suspended') await ctx.resume();
+        } catch {}
+      }
+
+      return { init, userStart, setEnabled, playRandom };
+    })();
+
     // ===== Game Config & State
     const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
@@ -234,29 +330,6 @@
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
-    const ease = (t)=>t*t*(3-2*t);
-
-    // Audio (minimal)
-    const AudioMini = (()=>{ let ctx=null, windNode=null, masterGain=null; let enabled=false;
-      function init(){ if(enabled) return;
-        ctx = new (window.AudioContext||window.webkitAudioContext)();
-        masterGain = ctx.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctx.destination);
-        const o1 = ctx.createOscillator(); o1.type='sine'; o1.frequency.value=120;
-        const o2 = ctx.createOscillator(); o2.type='sine'; o2.frequency.value=240; o2.detune.value=-7;
-        const g = ctx.createGain(); g.gain.value=0.05; o1.connect(g); o2.connect(g); g.connect(masterGain); o1.start(); o2.start();
-        const buff = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
-        const data = buff.getChannelData(0); for(let i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*0.6;}
-        const noise = ctx.createBufferSource(); noise.buffer=buff; noise.loop=true;
-        const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=400;
-        const wg = ctx.createGain(); wg.gain.value=0.05; noise.connect(lp); lp.connect(wg); wg.connect(masterGain); noise.start();
-        windNode = wg; enabled=true; if(!windOn) wg.gain.value=0.0;
-      }
-      function setEnabled(on){ if(on){init();} else { if(masterGain){masterGain.gain.value=0;} } }
-      function thwack(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='triangle'; o.frequency.setValueAtTime(220, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(60, ctx.currentTime+0.15); g.gain.setValueAtTime(0.3, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.2);} 
-      function chains(){ if(!enabled) return; const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(760, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(420, ctx.currentTime+0.09); g.gain.setValueAtTime(0.25, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.22); o.connect(g); g.connect(masterGain); o.start(); o.stop(ctx.currentTime+0.25);} 
-      function setWind(on){ if(!enabled||!windNode) return; windNode.gain.value = on?0.05:0.0; }
-      return { setEnabled, thwack, chains, setWind };
-    })();
 
     // Particles
     const particles=[];
@@ -357,18 +430,14 @@
       });
       backdrop.mountains = L;
 
-      // Sun
       const u = 0.20 + rand01(backdrop.seed,101)*0.60;
       const v = 0.16 + rand01(backdrop.seed,102)*0.20;
       const phase = rand01(backdrop.seed,103)*TAU;
       const baseR = 20 + Math.floor(rand01(backdrop.seed,104)*12);
       backdrop.sun = { u, v, phase, baseR };
 
-      // Clouds
       backdrop.cloudDir = rand01(backdrop.seed,399) < 0.5 ? -1 : 1;
       buildCloudField();
-
-      // Windmills
       buildWindmills();
     }
 
@@ -679,7 +748,6 @@
       applyTheme(biome);
 
       hole = genHole();
-
       buildScenery();
 
       backdrop.seed = (Math.random()*1e9)|0;
@@ -731,7 +799,15 @@
     // ===== Input
     function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
     function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
-    function onPointerDown(e){ if(!hole || !disc.atRest) return; const p = getPoint(e); const w=screenToWorld(p.x,p.y); aimAngle = Math.atan2((w.y - disc.y), (w.x - disc.x)); aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; e.preventDefault(); }
+    function onPointerDown(e){ 
+      if(!hole || !disc.atRest) return; 
+      // unlock audio on first user gesture if SFX are enabled
+      if (chkAudio.checked) SoundFX.userStart();
+      const p = getPoint(e); const w=screenToWorld(p.x,p.y); 
+      aimAngle = Math.atan2((w.y - disc.y), (w.x - disc.x)); 
+      aiming = true; meterOn = true; meter = 0; meterDir=1; elPowermeter.dataset.on='1'; 
+      e.preventDefault(); 
+    }
     function onPointerMove(e){ if(!aiming) return; const p = getPoint(e); const w=screenToWorld(p.x,p.y); aimAngle = Math.atan2((w.y - disc.y), (w.x - disc.x)); }
     function onPointerUp(e){ if(!aiming) return; aiming=false; meterOn=false; elPowermeter.dataset.on='0'; throwDisc(); }
     function getPoint(e){ if(e.changedTouches){ const t=e.changedTouches[0]; return { x:t.clientX*DPR, y:t.clientY*DPR }; } return { x:e.clientX*DPR, y:e.clientY*DPR }; }
@@ -739,6 +815,7 @@
     canvas.addEventListener('touchstart', onPointerDown, {passive:false}); window.addEventListener('touchmove', onPointerMove, {passive:false}); window.addEventListener('touchend', onPointerUp);
 
     // ===== Throw
+    let meter=0, meterDir=1, meterOn=false; let aiming=false, aimAngle=0;
     function throwDisc(){
       if(!hole || !disc.atRest) return;
       const d = currentDisc;
@@ -756,7 +833,10 @@
       disc.spin   = disc.spin0;
       disc.bank   = (releaseMode * 16) * Math.PI/180;
 
-      disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16); AudioMini.thwack();
+      disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes;
+      if(navigator.vibrate) navigator.vibrate(16);
+      // 🔊 Throw SFX (random throw1–throw7)
+      SoundFX.playRandom('throw', 0.9);
     }
 
     // ===== Physics update
@@ -779,17 +859,17 @@
           const vx = disc.vx, vy = disc.vy;
           const vAngle = Math.atan2(vy, vx);
 
-          const tPow = clamp(v / 1600, 0, 1);
+          const tPow = clamp(v / VREF, 0, 1);
           const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
 
           const aoaRaw = normalizeAngle(disc.orient - vAngle);
-          const aoa = clamp(aoaRaw + 0.06, -0.6, 0.6);
-          const dragMag = 0.00050 * v * (1 + 0.7*Math.abs(aoa));
+          const aoa = clamp(aoaRaw + CAMBER, -0.6, 0.6);
+          const dragMag = AIR_DRAG * v * (1 + 0.7*Math.abs(aoa));
           const dragX = -dragMag * vx;
           const dragY = -dragMag * vy;
 
-          const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * 0.50) : 1);
-          const lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
+          const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * WIND_LIFT_SCALE) : 1);
+          const lift = LIFT_K * currentDisc.glide * v*v * aoa * windMul;
 
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
@@ -798,19 +878,19 @@
           let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
-          const curveAx = 54 * curve * (hand==='RHBH'?1:-1);
+          const curveAx = TURN_K * curve * (hand==='RHBH'?1:-1);
 
           const ax = dragX + curveAx;
-          const ay = 1500 + dragY - lift;
+          const ay = GRAV + dragY - lift;
 
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          disc.spin *= Math.exp(-0.35*dt);
+          disc.spin *= Math.exp(-SPIN_DECAY*dt);
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
-          const noseBias = (lerp(-6, 7, 1 - tPow)) * Math.PI/180;
+          const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
           const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
@@ -843,7 +923,8 @@
           }
 
           if(checkBasketCatch()){
-            AudioMini.chains();
+            // 🔊 Chains SFX (random chain1–chain4)
+            SoundFX.playRandom('chain', 0.9);
             const cupX = hole.cupX;
             const gY = groundYAt(cupX);
             spawnParticles('spark', cupX, gY - 35, 18);
@@ -1107,6 +1188,7 @@
       ctx.restore();
     }
     function drawSandGrain(seed, r){
+      const TAU = Math.PI*2;
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(255,255,255,0.06)';
       const N = 140;
@@ -1233,7 +1315,7 @@
       }
     }
 
-    // ===== Background windmills =====
+    // ===== Background windmills (parallax) =====
     function drawWindmills(){
       if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
 
@@ -1634,14 +1716,29 @@
     requestAnimationFrame(loop);
 
     // ===== UI wiring
-    btnPlay.addEventListener('click', ()=>{ screenIntro.style.display='none'; newRound(); });
+    btnPlay.addEventListener('click', async ()=>{
+      screenIntro.style.display='none';
+      // Enable SFX if toggled on; init on first user gesture
+      if (chkAudio.checked) await SoundFX.userStart();
+      newRound();
+    });
     btnPlayAgain.addEventListener('click', ()=>{ screenSummary.style.display='none'; newRound(); });
     btnNewRound.addEventListener('click', ()=>{ newRound(); });
     btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
     btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
     chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; });
-    chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
+    chkAudio.addEventListener('change', async ()=>{
+      SoundFX.setEnabled(chkAudio.checked);
+      if (chkAudio.checked) await SoundFX.userStart();
+    });
     chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; updateWindUI(); });
+
+    // Preload banks quietly once the page is interactive (doesn't play, just fetch/decodes)
+    document.addEventListener('pointerdown', function once(){
+      document.removeEventListener('pointerdown', once, {capture:false});
+      if (chkAudio.checked) SoundFX.userStart();
+      else SoundFX.init(); // warm the cache even if off
+    }, {capture:false, once:true});
 
     buildDiscs(); updateWindUI();
   }
