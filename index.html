@@ -329,7 +329,7 @@
       sun:null,
       clouds:[],
       cloudDir:1,
-      windmills:[]   // windmills live on the last mountain layer
+      windmills:[]
     };
 
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
@@ -374,7 +374,7 @@
 
     function buildCloudField(){
       backdrop.clouds.length = 0;
-      const count = 3 + Math.floor(rand01(backdrop.seed,300)*4); // 3–6
+      const count = 3 + Math.floor(rand01(backdrop.seed,300)*4);
       for(let i=0;i<count;i++){
         const s = hash32(backdrop.seed ^ (0xA11C10 + i*131));
         const u = rand01(s,1);
@@ -388,26 +388,22 @@
       }
     }
 
-    // ===== Windmill generation (reference-style) =====
     function buildWindmills(){
       backdrop.windmills.length = 0;
-
-      const count = 1 + Math.floor(rand01(backdrop.seed,810)*4); // 3–6
+      const count = 1 + Math.floor(rand01(backdrop.seed,810)*4);
       const used = [];
       for(let i=0, tries=count*8; i<tries && backdrop.windmills.length<count; i++){
         const s = hash32(backdrop.seed ^ (0xC0FFEE + i*997));
-        const u = 0.12 + rand01(s,1)*0.76;     // avoid extreme edges
+        const u = 0.12 + rand01(s,1)*0.76;
         const x = WORLD.w * u;
-
-        // keep them apart
         if(!used.every(px => Math.abs(px - x) > 420)) continue;
         used.push(x);
 
-        const h = 90 + rand01(s,2)*48;         // tower height
-        const r = 26 + rand01(s,3)*10;         // blade radius
-        const speed = 0.8 + rand01(s,4)*1.0;   // rad/s
+        const h = 90 + rand01(s,2)*48;
+        const r = 26 + rand01(s,3)*10;
+        const speed = 0.8 + rand01(s,4)*1.0;
         const spin0 = rand01(s,5)*TAU;
-        const tilt = (rand01(s,6)-0.5) * (14*Math.PI/180); // slight nacelle tilt
+        const tilt = (rand01(s,6)-0.5) * (14*Math.PI/180);
 
         backdrop.windmills.push({ x, h, r, speed, spin0, tilt });
       }
@@ -442,11 +438,9 @@
       const w = WORLD.w, h = WORLD.h;
       const step=40;
 
-      // Global tilt (uphill/downhill)
-      const tilt = (Math.random()*2-1) * 0.16;   // -0.16..+0.16
+      const tilt = (Math.random()*2-1) * 0.16;
       const tiltAmp = 160;
 
-      // Base waves
       let seed = Math.random()*9999;
       function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
       const amp1 = 70 + nrand()*110, freq1 = 1/(520+ nrand()*420);
@@ -455,7 +449,6 @@
       const baseY0 = h*0.72;
       const points=[];
 
-      // Build initial terrain
       for(let x=0;x<=w;x+=step){
         const t = x/w;
         const tiltOffset = (t-0.5) * tiltAmp * tilt;
@@ -465,36 +458,32 @@
         points.push({x,y});
       }
 
-      // Local features: 0–2 ridges/valleys (gaussian bumps)
-      const featureCount = Math.floor(Math.random()*3); // 0–2
+      const featureCount = Math.floor(Math.random()*3);
       for(let f=0; f<featureCount; f++){
         const cx = lerp(w*0.18, w*0.82, Math.random());
         const sigma = 120 + Math.random()*220;
-        const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
+        const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90);
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // fixed gaussian
+          const k = Math.exp(-(dx*dx)/(2*sigma*sigma));
           points[i].y += amp * k;
         }
       }
 
-      // Cliff variant (rare)
       if(Math.random() < 0.33){
         const cx = lerp(w*0.30, w*0.70, Math.random());
-        const up = Math.random() < 0.5 ? -1 : 1; // drop or climb
+        const up = Math.random() < 0.5 ? -1 : 1;
         const drop = up * (120 + Math.random()*120);
         const sharp = 60 + Math.random()*80;
         for(let i=0;i<points.length;i++){
           const dx = (points[i].x - cx) / sharp;
-          const s = 1/(1+Math.exp(-dx)); // logistic
+          const s = 1/(1+Math.exp(-dx));
           points[i].y += drop * s;
         }
       }
 
-      // Choose basket position
       const cupX = lerp(w*0.68, w*0.90, Math.random());
 
-      // Green flatten (with slight slope variety)
       const gWidth = 200 + Math.random()*160;
       const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2;
       const greenSlope = (Math.random()*0.6-0.3);
@@ -509,18 +498,16 @@
         }
       }
 
-      // ========= Basin scan (valleys) used for both water and sand =========
       function scanBasins(){
         const n = points.length, out=[];
-        const bankMin = 32, bankMax = 64; // nominal “fill” above the bottom
+        const bankMin = 32, bankMax = 64;
         for(let i=2;i<n-2;i++){
           const yL = points[i-1].y, yC = points[i].y, yR = points[i+1].y;
-          if(!(yC < yL && yC < yR)) continue; // local minimum
+          if(!(yC < yL && yC < yR)) continue;
 
           const bottom = yC;
           let surface = bottom + (bankMin + Math.random()*(bankMax - bankMin));
 
-          // extend to shoulders with this surface, then clamp by spill height
           let L=i, R=i;
           while(L>0 && points[L].y <= surface) L--;
           while(R<n-1 && points[R].y <= surface) R++;
@@ -529,7 +516,6 @@
           const spillY = Math.min(leftShoulder, rightShoulder) - 8;
           if(surface > spillY) surface = spillY;
 
-          // recompute extents with final surface
           L=i; R=i;
           while(L>0 && points[L].y <= surface) L--;
           while(R<n-1 && points[R].y <= surface) R++;
@@ -544,12 +530,9 @@
 
       const basinsAll = scanBasins();
 
-      // ======= Water from basins (STRICTLY within banks) =======
       const waters=[];
       (function buildWaters(){
         const minWidth = 160;
-
-        // prefer wider & mid-course
         const waterCandidates = basinsAll
           .filter(b => b.width >= minWidth)
           .sort((a,b)=>{
@@ -571,21 +554,15 @@
 
         for(const b of waterCandidates){
           if(waters.length >= 2) break;
-
-          // stick to basin edges; tiny shrink avoids z-fighting with silhouette
           let x0 = clamp(b.x0 + 1, 60, w-60);
           let x1 = clamp(b.x1 - 1, 60, w-60);
           [x0,x1] = clipAwayFromGreen(x0,x1);
           if(x1 - x0 < minWidth) continue;
-
-          // avoid overlap with an existing pond
           const overlaps = waters.some(p => Math.min(p.x+p.w, x1) - Math.max(p.x, x0) > 40);
           if(overlaps) continue;
-
           waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h: h - b.surfaceY + 60, seed:(Math.random()*1e9)|0 });
         }
 
-        // fallback: put one near the green if none (still within that basin’s banks)
         if(!waters.length){
           const near = basinsAll.sort((a,b)=>Math.abs(a.cx-cupX)-Math.abs(b.cx-cupX))[0];
           if(near){
@@ -598,7 +575,6 @@
         }
       })();
 
-      // ======= Sand bunkers from *other* basins =======
       const sands=[];
       function basinBlockedByWater(b){
         return waters.some(W => !(b.x1 < W.x || b.x0 > (W.x + W.w)));
@@ -611,21 +587,18 @@
           }
         }
         if(cx > gx0-18 && cx < gx1+18) return false;
-
         const cy = sampleY(points, cx) - 8;
         const r = clamp(b.width*sizeScale, 36, 90);
         sands.push({ x:cx, y:cy, r, seed:(Math.random()*1e9)|0 });
         return true;
       }
 
-      // Landing zone target (mid-course)
       const lzTarget = lerp(w*0.32, cupX-420, 0.55);
       const fairBasin = basinsAll
         .filter(b => b.cx > w*0.20 && b.cx < cupX-260 && !basinBlockedByWater(b))
         .sort((a,b)=> Math.abs(a.cx - lzTarget) - Math.abs(b.cx - lzTarget))[0];
       if(fairBasin) placeBunkerFromBasin(fairBasin, 0.33);
 
-      // Around green: choose 1–2 nearest valley basins not flooded
       const greenBasins = basinsAll
         .filter(b => !basinBlockedByWater(b))
         .sort((a,b)=> Math.abs(a.cx - cupX) - Math.abs(b.cx - cupX));
@@ -637,7 +610,6 @@
         }
       }
 
-      // Rough patches (texture)
       const roughs=[];
       const roughN = Math.floor(Math.random()*4);
       for(let i=0;i<roughN;i++){
@@ -646,13 +618,11 @@
         roughs.push({ x:rx, y:ry, r: 42 + Math.random()*30 });
       }
 
-      // Tee
       const teeX = 120;
       const teeIdx = Math.floor(teeX/step);
       const teeY = points[teeIdx].y - 2;
       points[teeIdx].y = teeY;
 
-      // Fun valley emphasis
       if(Math.random()<0.6){
         const vX = lerp(w*0.40, w*0.62, Math.random());
         const vIdx = Math.floor(vX/step);
@@ -686,7 +656,6 @@
     function groundYAt(x){ x = clamp(x, 0, hole.w); const i = Math.min(Math.floor(x/hole.step), hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
 
     function surfaceAt(x){
-      // priority: green > sand > rough > fairway
       if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
       const y = groundYAt(x);
       for(const s of hole.sands){ if(Math.hypot(x - s.x, y - s.y) <= s.r) return 'sand'; }
@@ -711,16 +680,15 @@
 
       hole = genHole();
 
-      // Scenery pass
       buildScenery();
 
-      backdrop.seed = (Math.random()*1e9)|0; // per-hole
+      backdrop.seed = (Math.random()*1e9)|0;
       buildBackdrop();
 
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
-      windLift = windOn ? (Math.random()*2 - 1) : 0; // -1 .. +1
+      windLift = windOn ? (Math.random()*2 - 1) : 0;
       updateWindUI();
 
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
@@ -745,7 +713,7 @@
         b.addEventListener('click',()=>selectDisc(idx));
         clubSeg.appendChild(b);
       });
-      selectDisc(1); // default Fairway
+      selectDisc(1);
     }
     let currentDisc = DISCS[1];
     function selectDisc(i){ currentDisc = DISCS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); }
@@ -756,7 +724,7 @@
     function updateWindUI(){
       const mag = Math.abs(windOn ? windLift : 0);
       elWindVal.textContent = mag.toFixed(1)+'x';
-      const rot = (windLift >= 0 ? 180 : 0); // arrow up for updraft
+      const rot = (windLift >= 0 ? 180 : 0);
       elWindArrow.style.transform = `rotate(${rot}deg)`;
     }
 
@@ -783,7 +751,6 @@
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
 
-      // Init aero
       disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180);
       disc.spin0  = 14 + 20*power;
       disc.spin   = disc.spin0;
@@ -804,7 +771,6 @@
 
       if(!hole){ return; }
 
-      // particles
       for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
 
       if(!disc.atRest){
@@ -813,19 +779,17 @@
           const vx = disc.vx, vy = disc.vy;
           const vAngle = Math.atan2(vy, vx);
 
-          // Aerodynamics (turn→fade, lift, drag)
-          const tPow = clamp(v / VREF, 0, 1);
+          const tPow = clamp(v / 1600, 0, 1);
           const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
 
           const aoaRaw = normalizeAngle(disc.orient - vAngle);
-          const aoa = clamp(aoaRaw + CAMBER, -0.6, 0.6);
-          const dragMag = AIR_DRAG * v * (1 + 0.7*Math.abs(aoa));
+          const aoa = clamp(aoaRaw + 0.06, -0.6, 0.6);
+          const dragMag = 0.00050 * v * (1 + 0.7*Math.abs(aoa));
           const dragX = -dragMag * vx;
           const dragY = -dragMag * vy;
 
-          // Vertical wind: modulate lift only
-          const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * WIND_LIFT_SCALE) : 1);
-          const lift = LIFT_K * currentDisc.glide * v*v * aoa * windMul;
+          const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * 0.50) : 1);
+          const lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
 
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
@@ -834,40 +798,34 @@
           let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
-          const curveAx = TURN_K * curve * (hand==='RHBH'?1:-1);
+          const curveAx = 54 * curve * (hand==='RHBH'?1:-1);
 
-          // No horizontal wind push; only drag + curve
           const ax = dragX + curveAx;
-          const ay = GRAV + dragY - lift;
+          const ay = 1500 + dragY - lift;
 
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          // spin & bank relax
-          disc.spin *= Math.exp(-SPIN_DECAY*dt);
+          disc.spin *= Math.exp(-0.35*dt);
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
-          // nose bias (fast nose-down, slow nose-up)
-          const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
+          const noseBias = (lerp(-6, 7, 1 - tPow)) * Math.PI/180;
           const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
-          // ------- ground collision with skip -------
           const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
             const surface = surfaceAt(disc.x);
             disc.y = gy - disc.r - 0.01;
 
-            // particles
             if(Math.abs(disc.vy) > 120){
               if(surface==='sand') spawnParticles('sand',  disc.x, disc.y+disc.r, 12);
               else                 spawnParticles('dust',  disc.x, disc.y+disc.r,  8);
             }
 
-            // choose skip vs normal
             const speed = Math.hypot(disc.vx, disc.vy);
-            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx)); // to ground
+            const entryAngle = Math.atan2(Math.abs(disc.vy), Math.abs(disc.vx));
             const shallow = entryAngle < (12 * Math.PI/180);
             const fast    = speed > 900;
 
@@ -884,10 +842,8 @@
             }
           }
 
-          // basket scoring
           if(checkBasketCatch()){
             AudioMini.chains();
-            // tiny chain sparkles
             const cupX = hole.cupX;
             const gY = groundYAt(cupX);
             spawnParticles('spark', cupX, gY - 35, 18);
@@ -896,7 +852,6 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // ------- ground slide -------
           const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
@@ -917,7 +872,6 @@
             if(Math.abs(disc.vx) < 8){ disc.vx=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; }
           }
         }
-        // hazards & bounds
         if(inWater(disc.x, disc.y+disc.r*0.6)){
           spawnParticles('splash', disc.x, disc.y, 16);
           if(navigator.vibrate) navigator.vibrate([40,40,30]);
@@ -929,7 +883,6 @@
       centerCameraOnDisc();
     }
 
-    // Camera follow
     function centerCameraOnDisc(){
       if(!hole){ return; }
       view.x = clamp(disc.x - view.w*0.45, 0, WORLD.w - view.w);
@@ -942,7 +895,7 @@
       scenery.rocks = [];
       scenery.fences = [];
       const rng = (i)=>rand01(backdrop.seed, 2000+i);
-      const countTrees = 24 + Math.floor(rng(1)*18); // 24–42
+      const countTrees = 24 + Math.floor(rng(1)*18);
       const avoid = [
         [hole.green.x0-80, hole.green.x1+80],
       ];
@@ -971,24 +924,36 @@
         scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
 
-      // Fences (simple rustic rails) — a few segments that avoid the green and water
+      // Fences — deterministic posts so no shaking
       function addFence(x0, x1){
         if(x1 < x0){ const t=x0; x0=x1; x1=t; }
         x0 = clamp(x0, 40, hole.w-40);
         x1 = clamp(x1, 40, hole.w-40);
-        // trim away from green
         if(x0 < hole.green.x1 && x1 > hole.green.x0){
           if(Math.abs(x0 - hole.green.x0) < Math.abs(x1 - hole.green.x1)) x0 = hole.green.x1 + 16;
           else x1 = hole.green.x0 - 16;
         }
         if(x1 - x0 < 80) return;
-        scenery.fences.push({
+
+        const F = {
           x0, x1,
           step: 28 + Math.random()*10,
           height: 16 + Math.random()*8,
           rails: (Math.random()<0.35?3:2),
-          seed:(Math.random()*1e9)|0
-        });
+          seed: (Math.random()*1e9)|0,
+          posts: []
+        };
+
+        // Precompute post positions + stable per-post jitter
+        let idx = 0;
+        for(let x = x0; x <= x1; x += F.step){
+          const tilt  = (rand01(F.seed, idx*2+1) - 0.5) * 0.12;
+          const hMul  = 0.88 + rand01(F.seed, idx*2+2) * 0.25;
+          F.posts.push({ x, tilt, hMul });
+          idx++;
+        }
+
+        scenery.fences.push(F);
       }
 
       const baseX = hole.tee.x + 140;
@@ -1043,7 +1008,6 @@
 
         const trunkW = clamp(t.h*0.045, 3, 7);
         ctx.fillRect(x - trunkW/2, y - t.h, trunkW, t.h);
-        // stump/widened base
         ctx.beginPath(); ctx.moveTo(x - trunkW*0.8, y); ctx.lineTo(x + trunkW*0.8, y); ctx.lineTo(x, y - trunkW*0.4); ctx.closePath(); ctx.fill();
 
         const tierGap = 10;
@@ -1060,56 +1024,51 @@
       ctx.restore();
     }
 
-    // ===== Simple rustic fences (no text; no bridges) =====
+    // ===== Stable fences (precomputed posts; no per-frame randomness) =====
     function drawFences(){
       if(!scenery.fences.length) return;
       ctx.save();
       ctx.strokeStyle = 'rgba(0,0,0,0.94)';
-      ctx.fillStyle = 'rgba(0,0,0,0.94)';
+      ctx.fillStyle   = 'rgba(0,0,0,0.94)';
 
       for(const F of scenery.fences){
-        const step = F.step;
-        const pts = [];
-        for(let x=F.x0; x<=F.x1; x+=step){
-          const y = groundYAt(x);
-          pts.push({x, y});
-        }
         // Posts
-        for(const p of pts){
-          const sx = p.x - view.x;
-          const sy = p.y - view.y;
+        for(const P of F.posts){
+          const x = P.x;
+          const y = groundYAt(x);
+          const sx = x - view.x;
+          const sy = y - view.y;
           if(sx<-40 || sx>canvas.width/DPR+40) continue;
 
-          const yR = groundYAt(p.x+6);
-          const ang = Math.atan2(yR - p.y, 6) + (Math.random()*0.12 - 0.06);
-          const h = F.height * (0.88 + Math.random()*0.25);
-          const w = 3;
+          const yR  = groundYAt(x+6);
+          const ang = Math.atan2(yR - y, 6) + P.tilt;
+          const h   = F.height * P.hMul;
+          const w   = 3;
 
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(ang - Math.PI/2);
+          // half-pixel snap to reduce aliasing shimmer
+          ctx.translate(0.5, 0.5);
           ctx.fillRect(-w/2, 0, w, h);
-          // little cap
           ctx.fillRect(-w/2 - 1, 0, w+2, 2);
           ctx.restore();
         }
 
-        // Rails (2–3)
-        const railOffset = [];
-        if(F.rails === 3) railOffset.push(6, 12, 18); else railOffset.push(8, 16);
-
+        // Rails follow the posts
+        const railOffset = (F.rails === 3) ? [6,12,18] : [8,16];
         ctx.lineWidth = 2;
         for(const off of railOffset){
           ctx.beginPath();
           let started=false;
-          for(const p of pts){
-            const sx = p.x - view.x;
-            const sy = p.y - view.y - off;
+          for(const P of F.posts){
+            const sx = P.x - view.x;
+            const sy = groundYAt(P.x) - view.y - off;
             if(sx<-60 || sx>canvas.width/DPR+60) continue;
             if(!started){ ctx.moveTo(sx, sy); started=true; }
             else ctx.lineTo(sx, sy);
           }
-          ctx.stroke();
+          if(started) ctx.stroke();
         }
       }
       ctx.restore();
@@ -1120,30 +1079,26 @@
       const cx = s.x - view.x, cy = s.y - view.y;
       const r = s.r;
 
-      // align ellipse with ground slope
       const yL = groundYAt(s.x - 6), yR = groundYAt(s.x + 6);
       const ang = Math.atan2(yR - yL, 12);
 
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(ang);
-      ctx.scale(1.10, 0.68); // flattened oval
+      ctx.scale(1.10, 0.68);
 
-      // subtle rim highlight
       const ring = ctx.createRadialGradient(0, 0, r*0.72, 0, 0, r);
       ring.addColorStop(0, 'rgba(255,255,255,0)');
       ring.addColorStop(1, 'rgba(255,255,255,0.08)');
       ctx.fillStyle = ring;
       ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
 
-      // slight inner shadow toward the downslope
       const shade = ctx.createRadialGradient(0, r*0.22, r*0.18, 0, 0, r);
       shade.addColorStop(0, 'rgba(0,0,0,0.30)');
       shade.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = shade;
       ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
 
-      // grain, clipped to the ellipse
       ctx.save();
       ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.clip();
       drawSandGrain(s.seed, r);
@@ -1154,14 +1109,14 @@
     function drawSandGrain(seed, r){
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-      const N = 140; // grain density
+      const N = 140;
       for(let i=0;i<N;i++){
         const u = rand01(seed, i*7+1);
         const v = rand01(seed, i*7+2);
         const theta = v * TAU;
-        const rad = Math.sqrt(u) * r * 0.85;       // bias grains toward center
+        const rad = Math.sqrt(u) * r * 0.85;
         const x = Math.cos(theta) * rad;
-        const y = Math.sin(theta) * rad * 0.82;    // match oval scale
+        const y = Math.sin(theta) * rad * 0.82;
         const dir = (rand01(seed, i*7+3)-0.5) * TAU;
         const len = 2 + rand01(seed, i*7+4)*4;
 
@@ -1191,11 +1146,9 @@
       ctx.rect(left, top, width, height);
       ctx.clip();
 
-      // base
       ctx.fillStyle = baseCol;
       ctx.fillRect(left, top, width, height);
 
-      // depth gradient
       const g = ctx.createLinearGradient(0, top, 0, top + height);
       g.addColorStop(0.00, 'rgba(0,0,0,0.10)');
       g.addColorStop(0.65, 'rgba(0,0,0,0.18)');
@@ -1203,7 +1156,6 @@
       ctx.fillStyle = g;
       ctx.fillRect(left, top, width, height);
 
-      // ripples
       const rippleA = { freq: 0.035, amp: 1.3, speed: 1.6 };
       const rippleB = { freq: 0.070, amp: 0.9,  speed: -1.2 };
       const step = 14;
@@ -1231,9 +1183,8 @@
       }
       ctx.stroke();
 
-      // shimmer streaks
       const rr = (i)=> (hash32((W.seed ^ (i*2654435761))>>>0) >>> 0) / 4294967295;
-      const streaks = 4 + Math.floor(rr(1) * 4); // 4–7
+      const streaks = 4 + Math.floor(rr(1) * 4);
       for(let i=0;i<streaks;i++){
         const yRand = rr(10+i);
         const y = top + 6 + yRand * Math.min(38, height - 10);
@@ -1247,7 +1198,6 @@
         ctx.globalAlpha = 1;
       }
 
-      // shoreline foam
       drawFoamBand(left, top, width, W.seed);
 
       ctx.restore();
@@ -1255,7 +1205,7 @@
     function drawFoamBand(left, top, width, seed){
       const f1 = 0.045, a1 = 1.4;
       const f2 = 0.090, a2 = 0.8;
-      const phase = (hash32(seed ^ 0xBEEF) % 628) / 100; // 0..~6.28
+      const phase = (hash32(seed ^ 0xBEEF) % 628) / 100;
       const step = 10;
 
       const haloGrad = ctx.createLinearGradient(0, top, 0, top + 6);
@@ -1283,12 +1233,12 @@
       }
     }
 
-    // ===== Background windmills (on last mountain layer) =====
+    // ===== Background windmills =====
     function drawWindmills(){
       if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
 
       const L = backdrop.mountains[backdrop.mountains.length - 1];
-      const idx = backdrop.mountains.length - 1;     // for vertical parallax
+      const idx = backdrop.mountains.length - 1;
       const parX = L.parallax;
       const parY = 0.06 * idx;
 
@@ -1309,7 +1259,6 @@
         const towerTopY = baseY - W.h;
         const cx = sx, cy = towerTopY - 10;
 
-        // tower
         ctx.beginPath();
         const tw = Math.max(16, W.h * 0.14);
         const bw = tw * 1.25;
@@ -1319,7 +1268,6 @@
         ctx.lineTo(sx - tw/2, towerTopY);
         ctx.closePath(); ctx.fill();
 
-        // feet
         ctx.beginPath();
         ctx.moveTo(sx - bw/2, baseY);
         ctx.lineTo(sx - bw/2 - 10, baseY + 6);
@@ -1327,13 +1275,13 @@
         ctx.lineTo(sx + bw/2 + 10, baseY + 6);
         ctx.stroke();
 
-        // balcony
         const railW = Math.max(40, tw*2.2);
         const railH = 10;
         const railY = towerTopY + 4;
         ctx.fillRect(sx - railW/2, railY, railW, 6);
         ctx.save(); ctx.globalAlpha = 0.95;
-        ctx.strokeStyle = 'rgba(0,0,0,0.88)'; ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+        ctx.lineWidth = 1;
         ctx.strokeRect(sx - railW/2, railY - railH, railW, railH);
         const vBars = 6;
         for(let i=1;i<vBars;i++){
@@ -1343,7 +1291,6 @@
         ctx.beginPath(); ctx.moveTo(sx - railW/2, railY - railH/2); ctx.lineTo(sx + railW/2, railY - railH/2); ctx.stroke();
         ctx.restore();
 
-        // nacelle + rotor
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(W.tilt);
@@ -1399,13 +1346,9 @@
 
       if(!hole){ drawVignette(); return; }
 
-      // Windmills behind course silhouette
       drawWindmills();
-
-      // water first (so terrain silhouette carves shoreline)
       drawWaterBodies();
 
-      // ground silhouette path (course)
       const cs = getComputedStyle(document.documentElement);
       ctx.fillStyle = cs.getPropertyValue('--fg');
       ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
@@ -1414,13 +1357,11 @@
 
       drawGrass();
 
-      // recessed, grainy bunkers
       for(const s of hole.sands){ drawBunkerHole(s); }
 
       drawScenery();
       drawBasket();
 
-      // particles
       for(const p of particles){
         let c = '#ffffff';
         if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent');
@@ -1437,7 +1378,6 @@
       drawVignette();
     }
 
-    // --- Sky gradient
     function drawSkyGradient(){
       const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
       skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim());
@@ -1446,7 +1386,6 @@
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
 
-    // --- Sun
     function drawSun(){
       const m = backdrop.sun; if(!m) return;
       const parX = 0.05, parY = 0.02;
@@ -1471,7 +1410,6 @@
       ctx.restore();
     }
 
-    // --- Clouds
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -1489,7 +1427,7 @@
         let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
         ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
         const baseR = 18 + rand01(seed,50)*22;
-        const puffCount = 4 + Math.floor(rand01(seed,11)*4); // 4–7
+        const puffCount = 4 + Math.floor(rand01(seed,11)*4);
         for(let i=0;i<puffCount;i++){
           const r  = (baseR + rand01(seed,20+i)*22) * s;
           const ox = (i - (puffCount-1)/2) * (r*0.55) + (rand01(seed,30+i)-0.5)*r*0.3;
@@ -1518,7 +1456,6 @@
       }
     }
 
-    // --- Mountains
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       backdrop.mountains.forEach((L, idx)=>{
@@ -1534,7 +1471,6 @@
       });
     }
 
-    // --- Grass
     const GRASS_STEP = 26, GRASS_DENSITY = 3;
     function drawGrass(){
       if(!hole){ return; }
@@ -1563,7 +1499,6 @@
         ctx.stroke(); ctx.globalAlpha=1; 
       } 
 
-      // Disc color by type
       let fillCol = '#f8fafc';
       if(currentDisc.id==='DRV') fillCol = '#49d0ff';
       else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';
@@ -1602,19 +1537,15 @@
       const poleH = 74, cageTop = groundY - 24, rimY = groundY - 46;
       const rimW = 28, cageW = 24;
 
-      // pole
       ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x, groundY - poleH); ctx.stroke();
 
-      // tray/cage
       ctx.fillStyle = 'rgba(0,0,0,0.80)';
       ctx.fillRect(x - cageW/2, cageTop, cageW, 8);
       ctx.fillRect(x - 2, cageTop - 10, 4, 10);
 
-      // rim ring
       ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
 
-      // chains (simple)
       ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
         const t = i/6 * TAU;
@@ -1625,7 +1556,6 @@
         ctx.stroke();
       }
 
-      // Flag (waves with wind)
       const poleTopY = groundY - poleH;
       const stub = 16;
       ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
@@ -1634,7 +1564,7 @@
       const anchorX = x;
       const anchorY = poleTopY - stub;
 
-      const dir  = (windOn ? (windLift >= 0 ? 1 : -1) : 1); // updraft→right, downdraft→left
+      const dir  = (windOn ? (windLift >= 0 ? 1 : -1) : 1);
       const wmag = windOn ? Math.abs(windLift) : 0;
 
       const len    = 34 + wmag*26;
@@ -1651,7 +1581,6 @@
       ctx.strokeStyle = 'rgba(0,0,0,0.25)';
       ctx.lineWidth = 1;
 
-      // top edge
       ctx.beginPath();
       for(let i=0;i<=N;i++){
         const t = i/N;
@@ -1660,7 +1589,6 @@
         const py = anchorY + wave;
         if(i===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
-      // bottom edge back
       for(let i=N;i>=0;i--){
         const t = i/N;
         const px = anchorX + dir * t * len;
@@ -1670,7 +1598,6 @@
       }
       ctx.closePath(); ctx.fill(); ctx.stroke();
 
-      // tiny pennant notch
       const tipX = anchorX + dir * len;
       const tipY = anchorY + Math.sin(phase + TAU)*amp*0.6 + height*0.5;
       ctx.beginPath();
@@ -1688,7 +1615,7 @@
       const x = disc.x, y = disc.y, vy = disc.vy;
       const rimY = groundYAt(hole.cupX) - 46;
       const cageTop = groundYAt(hole.cupX) - 24;
-      const rimHalf = 14; // rimW/2
+      const rimHalf = 14;
       if(vy > 30 && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf){
         return true;
       }
@@ -1716,7 +1643,6 @@
     chkAudio.addEventListener('change', ()=>{ AudioMini.setEnabled(chkAudio.checked); });
     chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; updateWindUI(); });
 
-    // Build initial UI
     buildDiscs(); updateWindUI();
   }
 })();
