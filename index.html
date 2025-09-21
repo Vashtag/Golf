@@ -434,8 +434,8 @@
     // Aim/meter state
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
-    // Scenery (trees/boulders + NEW extras)
-    let scenery = { trees:[], rocks:[], bridges:[], fences:[], signs:[] };
+    // Scenery
+    let scenery = { trees:[], rocks:[], fences:[] };
 
     // ===== Procedural hole with variants =====
     function genHole(){
@@ -473,7 +473,7 @@
         const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(-(dx*dx)/(2*sigma*sigma));
+          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // fixed gaussian
           points[i].y += amp * k;
         }
       }
@@ -486,7 +486,7 @@
         const sharp = 60 + Math.random()*80;
         for(let i=0;i<points.length;i++){
           const dx = (points[i].x - cx) / sharp;
-          const s = 1/(1+Math.exp(-dx));
+          const s = 1/(1+Math.exp(-dx)); // logistic
           points[i].y += drop * s;
         }
       }
@@ -512,12 +512,15 @@
       // ========= Basin scan (valleys) used for both water and sand =========
       function scanBasins(){
         const n = points.length, out=[];
-        const bankMin = 32, bankMax = 64;
+        const bankMin = 32, bankMax = 64; // nominal “fill” above the bottom
         for(let i=2;i<n-2;i++){
           const yL = points[i-1].y, yC = points[i].y, yR = points[i+1].y;
-          if(!(yC < yL && yC < yR)) continue;
+          if(!(yC < yL && yC < yR)) continue; // local minimum
+
           const bottom = yC;
           let surface = bottom + (bankMin + Math.random()*(bankMax - bankMin));
+
+          // extend to shoulders with this surface, then clamp by spill height
           let L=i, R=i;
           while(L>0 && points[L].y <= surface) L--;
           while(R<n-1 && points[R].y <= surface) R++;
@@ -525,9 +528,12 @@
           const rightShoulder = Math.min(points[Math.min(R+1,n-1)].y, points[Math.min(R+2,n-1)].y);
           const spillY = Math.min(leftShoulder, rightShoulder) - 8;
           if(surface > spillY) surface = spillY;
+
+          // recompute extents with final surface
           L=i; R=i;
           while(L>0 && points[L].y <= surface) L--;
           while(R<n-1 && points[R].y <= surface) R++;
+
           const x0 = points[L].x, x1 = points[R].x;
           const width = x1 - x0;
           const cx = (x0 + x1) * 0.5;
@@ -543,6 +549,7 @@
       (function buildWaters(){
         const minWidth = 160;
 
+        // prefer wider & mid-course
         const waterCandidates = basinsAll
           .filter(b => b.width >= minWidth)
           .sort((a,b)=>{
@@ -564,15 +571,21 @@
 
         for(const b of waterCandidates){
           if(waters.length >= 2) break;
+
+          // stick to basin edges; tiny shrink avoids z-fighting with silhouette
           let x0 = clamp(b.x0 + 1, 60, w-60);
           let x1 = clamp(b.x1 - 1, 60, w-60);
           [x0,x1] = clipAwayFromGreen(x0,x1);
           if(x1 - x0 < minWidth) continue;
+
+          // avoid overlap with an existing pond
           const overlaps = waters.some(p => Math.min(p.x+p.w, x1) - Math.max(p.x, x0) > 40);
           if(overlaps) continue;
+
           waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h: h - b.surfaceY + 60, seed:(Math.random()*1e9)|0 });
         }
 
+        // fallback: put one near the green if none (still within that basin’s banks)
         if(!waters.length){
           const near = basinsAll.sort((a,b)=>Math.abs(a.cx-cupX)-Math.abs(b.cx-cupX))[0];
           if(near){
@@ -598,16 +611,21 @@
           }
         }
         if(cx > gx0-18 && cx < gx1+18) return false;
+
         const cy = sampleY(points, cx) - 8;
         const r = clamp(b.width*sizeScale, 36, 90);
         sands.push({ x:cx, y:cy, r, seed:(Math.random()*1e9)|0 });
         return true;
       }
+
+      // Landing zone target (mid-course)
       const lzTarget = lerp(w*0.32, cupX-420, 0.55);
       const fairBasin = basinsAll
         .filter(b => b.cx > w*0.20 && b.cx < cupX-260 && !basinBlockedByWater(b))
         .sort((a,b)=> Math.abs(a.cx - lzTarget) - Math.abs(b.cx - lzTarget))[0];
       if(fairBasin) placeBunkerFromBasin(fairBasin, 0.33);
+
+      // Around green: choose 1–2 nearest valley basins not flooded
       const greenBasins = basinsAll
         .filter(b => !basinBlockedByWater(b))
         .sort((a,b)=> Math.abs(a.cx - cupX) - Math.abs(b.cx - cupX));
@@ -653,8 +671,7 @@
         sands,
         roughs,
         tee:{x:teeX,y:teeY},
-        par,
-        basins: basinsAll   // <— expose basins for bridges/valley work
+        par
       };
     }
 
@@ -694,7 +711,7 @@
 
       hole = genHole();
 
-      // Scenery pass (trees/rocks + extras)
+      // Scenery pass
       buildScenery();
 
       backdrop.seed = (Math.random()*1e9)|0; // per-hole
@@ -919,14 +936,11 @@
       view.y = clamp(groundYAt(disc.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
-    // ===== Scenery (bigger trees, small rock clusters)
+    // ===== Scenery (trees, rocks, fences; NO bridges or in-world text) =====
     function buildScenery(){
       scenery.trees = [];
       scenery.rocks = [];
-      scenery.bridges = [];
       scenery.fences = [];
-      scenery.signs  = [];
-
       const rng = (i)=>rand01(backdrop.seed, 2000+i);
       const countTrees = 24 + Math.floor(rng(1)*18); // 24–42
       const avoid = [
@@ -957,69 +971,40 @@
         scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
 
-      // ===== EXTRAS: Bridges / Fences / Signs =====
-
-      // Bridges over water
-      for(const W of hole.waters){
-        const x0 = W.x + 12, x1 = W.x + W.w - 12;
-        if(x1 - x0 < 120) continue;
-        const yL = groundYAt(x0), yR = groundYAt(x1);
-        const deckY = Math.min(yL, yR) - 16;
-        scenery.bridges.push({ x0, x1, y: deckY, kind:'water', ref: W, style: (rng(700) < 0.5 ? 'arch':'flat') });
-      }
-
-      // Optional bridge across a deep dry valley
-      if(rng(701) < 0.55 && hole.basins?.length){
-        const valley = hole.basins
-          .filter(b=>{
-            const depth = b.surfaceY - b.bottomY;
-            const wide  = b.width >= 220;
-            const overlapsWater = hole.waters.some(W => !(b.x1 < W.x || b.x0 > W.x+W.w));
-            // avoid green, avoid water, prefer mid-course
-            const awayFromGreen = (b.x1 < hole.green.x0-40) || (b.x0 > hole.green.x1+40);
-            return depth>36 && wide && !overlapsWater && awayFromGreen;
-          })
-          .sort((a,b)=> Math.abs((a.cx) - (hole.w*0.5)) - Math.abs((b.cx) - (hole.w*0.5)) )[0];
-        if(valley){
-          const x0 = valley.x0 + 12, x1 = valley.x1 - 12;
-          const deckY = valley.surfaceY - 14;
-          scenery.bridges.push({ x0, x1, y: deckY, kind:'valley', ref: valley, style: (rng(702)<0.6?'arch':'flat') });
+      // Fences (simple rustic rails) — a few segments that avoid the green and water
+      function addFence(x0, x1){
+        if(x1 < x0){ const t=x0; x0=x1; x1=t; }
+        x0 = clamp(x0, 40, hole.w-40);
+        x1 = clamp(x1, 40, hole.w-40);
+        // trim away from green
+        if(x0 < hole.green.x1 && x1 > hole.green.x0){
+          if(Math.abs(x0 - hole.green.x0) < Math.abs(x1 - hole.green.x1)) x0 = hole.green.x1 + 16;
+          else x1 = hole.green.x0 - 16;
         }
-      }
-
-      // Fence segments (near tee / near green)
-      function addFence(x0,x1){
-        x0 = clamp(x0, 20, hole.w-20);
-        x1 = clamp(x1, 20, hole.w-20);
         if(x1 - x0 < 80) return;
-        const posts=[];
-        const step=28;
-        for(let x=x0; x<=x1; x+=step){
-          posts.push({ x, y: groundYAt(x), h: 14 + Math.floor(rng(x*17)*6) });
-        }
-        scenery.fences.push({ posts });
+        scenery.fences.push({
+          x0, x1,
+          step: 28 + Math.random()*10,
+          height: 16 + Math.random()*8,
+          rails: (Math.random()<0.35?3:2),
+          seed:(Math.random()*1e9)|0
+        });
       }
-      if(rng(710) < 0.75) addFence(hole.tee.x + 160, hole.tee.x + 380);
-      if(rng(711) < 0.55) addFence(hole.cupX - 260, hole.cupX - 80);
 
-      // Signs
-      const teeSignX = clamp(hole.tee.x + 30, 30, hole.w-30);
-      scenery.signs.push({ x:teeSignX, y:groundYAt(teeSignX), type:'tee', text:`Hole ${holeIndex+1} • Par ${hole.par}` });
-
-      if(hole.waters.length){
-        for(const W of hole.waters){
-          const sX = clamp(W.x - 26, 40, hole.w-40);
-          scenery.signs.push({ x:sX, y:groundYAt(sX), type:'warn', text:'WATER' });
-        }
+      const baseX = hole.tee.x + 140;
+      if(baseX < hole.cupX - 120) addFence(baseX, baseX + 260 + Math.random()*200);
+      if(Math.random() < 0.65){
+        const mid = lerp(hole.tee.x+320, hole.cupX-200, Math.random());
+        addFence(mid - (120+Math.random()*120), mid + (120+Math.random()*120));
       }
-      if(hole.sands.length && rng(720) < 0.5){
-        const S = hole.sands[0];
-        const sX = clamp(S.x - 30, 40, hole.w-40);
-        scenery.signs.push({ x:sX, y:groundYAt(sX), type:'bunker', text:'BUNKER' });
+      if(Math.random() < 0.45){
+        addFence(hole.cupX - (260+Math.random()*120), hole.cupX - 80);
       }
     }
 
     function drawScenery(){
+      drawFences();
+
       // Rocks
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.92)';
@@ -1029,6 +1014,7 @@
         ctx.save();
         ctx.translate(x,y);
         ctx.rotate(r.skew);
+
         function rr(seed,i){ return (hash32(seed ^ (i*2654435761))>>>0)/4294967295; }
         const lumps = 2 + Math.floor(rr(r.seed,1)*3);
         for(let i=0;i<lumps;i++){
@@ -1042,6 +1028,7 @@
           ctx.beginPath(); ctx.ellipse(0, 0, rad, rad*0.65, 0, 0, TAU); ctx.fill();
           ctx.restore();
         }
+
         ctx.restore();
       }
       ctx.restore();
@@ -1068,6 +1055,61 @@
           ctx.lineTo(x - width/2 + sway, y - level + tierGap);
           ctx.lineTo(x + width/2 + sway, y - level + tierGap);
           ctx.closePath(); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    // ===== Simple rustic fences (no text; no bridges) =====
+    function drawFences(){
+      if(!scenery.fences.length) return;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.94)';
+      ctx.fillStyle = 'rgba(0,0,0,0.94)';
+
+      for(const F of scenery.fences){
+        const step = F.step;
+        const pts = [];
+        for(let x=F.x0; x<=F.x1; x+=step){
+          const y = groundYAt(x);
+          pts.push({x, y});
+        }
+        // Posts
+        for(const p of pts){
+          const sx = p.x - view.x;
+          const sy = p.y - view.y;
+          if(sx<-40 || sx>canvas.width/DPR+40) continue;
+
+          const yR = groundYAt(p.x+6);
+          const ang = Math.atan2(yR - p.y, 6) + (Math.random()*0.12 - 0.06);
+          const h = F.height * (0.88 + Math.random()*0.25);
+          const w = 3;
+
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.rotate(ang - Math.PI/2);
+          ctx.fillRect(-w/2, 0, w, h);
+          // little cap
+          ctx.fillRect(-w/2 - 1, 0, w+2, 2);
+          ctx.restore();
+        }
+
+        // Rails (2–3)
+        const railOffset = [];
+        if(F.rails === 3) railOffset.push(6, 12, 18); else railOffset.push(8, 16);
+
+        ctx.lineWidth = 2;
+        for(const off of railOffset){
+          ctx.beginPath();
+          let started=false;
+          for(const p of pts){
+            const sx = p.x - view.x;
+            const sy = p.y - view.y - off;
+            if(sx<-60 || sx>canvas.width/DPR+60) continue;
+            if(!started){ ctx.moveTo(sx, sy); started=true; }
+            else ctx.lineTo(sx, sy);
+          }
+          ctx.stroke();
         }
       }
       ctx.restore();
@@ -1117,9 +1159,9 @@
         const u = rand01(seed, i*7+1);
         const v = rand01(seed, i*7+2);
         const theta = v * TAU;
-        const rad = Math.sqrt(u) * r * 0.85;
+        const rad = Math.sqrt(u) * r * 0.85;       // bias grains toward center
         const x = Math.cos(theta) * rad;
-        const y = Math.sin(theta) * rad * 0.82;
+        const y = Math.sin(theta) * rad * 0.82;    // match oval scale
         const dir = (rand01(seed, i*7+3)-0.5) * TAU;
         const len = 2 + rand01(seed, i*7+4)*4;
 
@@ -1246,7 +1288,7 @@
       if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
 
       const L = backdrop.mountains[backdrop.mountains.length - 1];
-      const idx = backdrop.mountains.length - 1;
+      const idx = backdrop.mountains.length - 1;     // for vertical parallax
       const parX = L.parallax;
       const parY = 0.06 * idx;
 
@@ -1260,12 +1302,14 @@
       for(const W of backdrop.windmills){
         const sx = W.x - view.x * parX;
         if(sx < -200 || sx > w + 200) continue;
+
         let baseY = mountainYAt(L, W.x) - view.y * parY;
         baseY += 2;
+
         const towerTopY = baseY - W.h;
         const cx = sx, cy = towerTopY - 10;
 
-        // Tower
+        // tower
         ctx.beginPath();
         const tw = Math.max(16, W.h * 0.14);
         const bw = tw * 1.25;
@@ -1283,15 +1327,13 @@
         ctx.lineTo(sx + bw/2 + 10, baseY + 6);
         ctx.stroke();
 
-        // Balcony
+        // balcony
         const railW = Math.max(40, tw*2.2);
         const railH = 10;
         const railY = towerTopY + 4;
         ctx.fillRect(sx - railW/2, railY, railW, 6);
-        ctx.save();
-        ctx.globalAlpha = 0.95;
-        ctx.strokeStyle = 'rgba(0,0,0,0.88)';
-        ctx.lineWidth = 1;
+        ctx.save(); ctx.globalAlpha = 0.95;
+        ctx.strokeStyle = 'rgba(0,0,0,0.88)'; ctx.lineWidth = 1;
         ctx.strokeRect(sx - railW/2, railY - railH, railW, railH);
         const vBars = 6;
         for(let i=1;i<vBars;i++){
@@ -1301,18 +1343,21 @@
         ctx.beginPath(); ctx.moveTo(sx - railW/2, railY - railH/2); ctx.lineTo(sx + railW/2, railY - railH/2); ctx.stroke();
         ctx.restore();
 
-        // Nacelle + hub + blades
+        // nacelle + rotor
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(W.tilt);
         ctx.fillRect(-8, -6, 16, 6);
         ctx.beginPath(); ctx.arc(0, 0, 3, 0, TAU); ctx.fill();
+
         const windFactor = 1 + (windOn ? Math.abs(windLift)*1.2 : 0);
         const theta = W.spin0 + clock * W.speed * windFactor;
+
         drawBlade(theta,         W.r);
         drawBlade(theta+TAU/4,   W.r);
         drawBlade(theta+TAU/2,   W.r);
         drawBlade(theta+3*TAU/4, W.r);
+
         ctx.restore();
       }
 
@@ -1321,12 +1366,15 @@
       function drawBlade(angle, R){
         ctx.save();
         ctx.rotate(angle);
+
         const bw = Math.max(6, R*0.16);
         const bl = R;
         const root = 4;
+
         ctx.beginPath();
         ctx.rect(root, -bw/2, bl-root, bw);
         ctx.fill();
+
         ctx.save();
         ctx.globalAlpha = 0.45;
         const segs = 5;
@@ -1336,6 +1384,7 @@
         }
         ctx.beginPath(); ctx.moveTo(root, 0); ctx.lineTo(bl, 0); ctx.stroke();
         ctx.restore();
+
         ctx.restore();
       }
     }
@@ -1368,15 +1417,7 @@
       // recessed, grainy bunkers
       for(const s of hole.sands){ drawBunkerHole(s); }
 
-      // trees & rocks
       drawScenery();
-
-      // NEW: bridges, fences, signage
-      drawBridges();
-      drawFences();
-      drawSigns();
-
-      // basket atop scenery
       drawBasket();
 
       // particles
@@ -1512,152 +1553,6 @@
       ctx.restore();
     }
 
-    // --- Bridges
-    function drawBridges(){
-      if(!scenery.bridges.length) return;
-      ctx.save();
-      ctx.strokeStyle = 'rgba(0,0,0,0.94)';
-      ctx.fillStyle   = 'rgba(0,0,0,0.94)';
-
-      for(const B of scenery.bridges){
-        const sx0 = B.x0 - view.x, sx1 = B.x1 - view.x;
-        const wy  = B.y - view.y;
-        const w = sx1 - sx0;
-        const archH = (B.style==='arch') ? Math.min(16, w*0.05) : 0;
-
-        // Deck (thick stroke path)
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.moveTo(sx0, wy);
-        ctx.quadraticCurveTo((sx0+sx1)/2, wy - archH, sx1, wy);
-        ctx.stroke();
-
-        // Top rail
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(sx0, wy-10);
-        ctx.quadraticCurveTo((sx0+sx1)/2, wy - 10 - archH, sx1, wy-10);
-        ctx.stroke();
-
-        // Balusters
-        ctx.lineWidth = 1.5;
-        const step = 34;
-        for(let x=B.x0+10; x<=B.x1-10; x+=step){
-          const t = (x - B.x0)/(B.x1 - B.x0);
-          const curveY = wy - Math.sin(Math.PI*t) * archH;
-          const px = x - view.x;
-          ctx.beginPath();
-          ctx.moveTo(px, curveY);
-          ctx.lineTo(px, curveY-12);
-          ctx.stroke();
-        }
-
-        // Piers/supports
-        const pierCount = (B.kind==='water') ? Math.max(0, Math.floor(w/140)) : 0;
-        for(let i=1;i<=pierCount;i++){
-          const t = i/(pierCount+1);
-          const px = lerp(sx0, sx1, t);
-          const worldX = lerp(B.x0, B.x1, t);
-          let baseYWorld;
-          if(B.kind==='water'){
-            // if multiple waters, pick the one under this X, else ground
-            let under = null;
-            for(const W of hole.waters){ if(worldX>=W.x && worldX<=W.x+W.w){ under=W; break; } }
-            baseYWorld = under ? under.y : groundYAt(worldX);
-          } else {
-            baseYWorld = groundYAt(worldX);
-          }
-          const baseY = baseYWorld - view.y;
-          ctx.beginPath();
-          ctx.moveTo(px, wy);
-          ctx.lineTo(px, baseY);
-          ctx.stroke();
-        }
-      }
-
-      ctx.restore();
-    }
-
-    // --- Fences
-    function drawFences(){
-      if(!scenery.fences.length) return;
-      ctx.save();
-      ctx.strokeStyle = 'rgba(0,0,0,0.94)';
-      ctx.fillStyle   = 'rgba(0,0,0,0.94)';
-      ctx.lineWidth = 2;
-
-      for(const F of scenery.fences){
-        if(F.posts.length<2) continue;
-        // Rails: connect mid-height points
-        ctx.beginPath();
-        for(let i=0;i<F.posts.length;i++){
-          const p = F.posts[i];
-          const x = p.x - view.x, y = p.y - view.y;
-          const mh = y - (p.h*0.6);
-          if(i===0) ctx.moveTo(x, mh); else ctx.lineTo(x, mh);
-        }
-        ctx.stroke();
-
-        ctx.beginPath();
-        for(let i=0;i<F.posts.length;i++){
-          const p = F.posts[i];
-          const x = p.x - view.x, y = p.y - view.y;
-          const mh = y - (p.h*0.3);
-          if(i===0) ctx.moveTo(x, mh); else ctx.lineTo(x, mh);
-        }
-        ctx.stroke();
-
-        // Posts
-        for(const p of F.posts){
-          const x = p.x - view.x, y = p.y - view.y;
-          ctx.fillRect(x-2, y - p.h, 4, p.h);
-        }
-      }
-
-      ctx.restore();
-    }
-
-    // --- Signs
-    function drawSigns(){
-      if(!scenery.signs.length) return;
-      ctx.save();
-      for(const S of scenery.signs){
-        const x = S.x - view.x, y = S.y - view.y;
-        // post
-        ctx.fillStyle = 'rgba(0,0,0,0.94)';
-        ctx.fillRect(x-2, y-22, 4, 22);
-
-        // board
-        let w=64, h=16;
-        if(S.type==='warn' || S.type==='bunker'){ w=54; h=14; }
-        const bx = x + 6, by = y - 22 - h + 10;
-        ctx.fillRect(bx, by, w, h);
-
-        // text (light so it reads on dark board)
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.font = '10px system-ui, -apple-system, Segoe UI, Roboto';
-        ctx.textBaseline='middle';
-        ctx.save();
-        ctx.beginPath(); // simple clip to board area
-        ctx.rect(bx, by, w, h); ctx.clip();
-        const pad = 4;
-        ctx.fillText(S.text, bx+pad, by + h/2);
-        ctx.restore();
-
-        // tiny pointer arrow on hazard signs
-        if(S.type==='warn'){
-          ctx.beginPath();
-          ctx.moveTo(bx+w, by+h/2);
-          ctx.lineTo(bx+w+6, by+h/2-4);
-          ctx.lineTo(bx+w+6, by+h/2+4);
-          ctx.closePath();
-          ctx.fillStyle='rgba(0,0,0,0.94)';
-          ctx.fill();
-        }
-      }
-      ctx.restore();
-    }
-
     function drawDisc(){ 
       const cs = getComputedStyle(document.documentElement); 
       const trailColor = cs.getPropertyValue('--accent'); 
@@ -1730,10 +1625,9 @@
         ctx.stroke();
       }
 
-      // ---- Flag (waves with wind) ----
+      // Flag (waves with wind)
       const poleTopY = groundY - poleH;
-      const stub = 16; // small mast above pole
-      // mast
+      const stub = 16;
       ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x, poleTopY); ctx.lineTo(x, poleTopY - stub); ctx.stroke();
 
@@ -1751,8 +1645,8 @@
       const N      = 8;
 
       ctx.save();
-      const cs2 = getComputedStyle(document.documentElement);
-      const flagCol = cs2.getPropertyValue('--accent').trim() || '#ff8a3d';
+      const cs = getComputedStyle(document.documentElement);
+      const flagCol = cs.getPropertyValue('--accent').trim() || '#ff8a3d';
       ctx.fillStyle = flagCol;
       ctx.strokeStyle = 'rgba(0,0,0,0.25)';
       ctx.lineWidth = 1;
