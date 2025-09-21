@@ -96,7 +96,7 @@
   <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
     <div class="card">
       <h1>🥏 Dusk Drive — Disc Golf</h1>
-      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind & lift, varied terrain.</div>
+      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind & glide, varied terrain.</div>
       <div class="grid">
         <div class="tag">Drivers • Fairways • Mids • Putters</div>
         <div class="tag">Vertical Wind & Lift</div>
@@ -321,7 +321,7 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop (sun + clouds + mountains + birds)
+    // Backdrop (sun + clouds + mountains)
     let currentBiome = BIOMES[0];
     const backdrop = {
       seed:(Math.random()*1e9)|0,
@@ -329,8 +329,7 @@
       sun:null,
       clouds:[],
       cloudDir:1,
-      windmills:[],
-      birds:[] // NEW: flocks
+      windmills:[]   // windmills live on the last mountain layer
     };
 
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
@@ -371,9 +370,6 @@
 
       // Windmills
       buildWindmills();
-
-      // Birds
-      buildBirdFlocks();
     }
 
     function buildCloudField(){
@@ -396,7 +392,7 @@
     function buildWindmills(){
       backdrop.windmills.length = 0;
 
-      const count = 1 + Math.floor(rand01(backdrop.seed,810)*4); // 2–5
+      const count = 1 + Math.floor(rand01(backdrop.seed,810)*4); // 3–6
       const used = [];
       for(let i=0, tries=count*8; i<tries && backdrop.windmills.length<count; i++){
         const s = hash32(backdrop.seed ^ (0xC0FFEE + i*997));
@@ -414,39 +410,6 @@
         const tilt = (rand01(s,6)-0.5) * (14*Math.PI/180); // slight nacelle tilt
 
         backdrop.windmills.push({ x, h, r, speed, spin0, tilt });
-      }
-    }
-
-    /* ===== Distant bird flocks (generation) ===== */
-    function buildBirdFlocks(){
-      backdrop.birds.length = 0;
-
-      const nFlocks = 1 + Math.floor(rand01(backdrop.seed,6000)*2); // 1–2 flocks
-      for(let i=0;i<nFlocks;i++){
-        const s = hash32(backdrop.seed ^ (0xB1RD5 + i*977));
-        const dir = rand01(s,1) < 0.5 ? -1 : 1;                // left or right
-        const v = 0.18 + rand01(s,2)*0.25;                     // altitude (0..1 of WORLD.h)
-        const parX = 0.10 + rand01(s,3)*0.06;                  // subtle parallax
-        const parY = 0.03 + rand01(s,4)*0.03;
-        const skySpeed = 36 + rand01(s,5)*64;                  // px/sec
-        const count = 6 + Math.floor(rand01(s,6)*8);           // 6–13 birds
-        const spacing = 16 + rand01(s,7)*14;                   // within V
-        const scale = 0.8 + rand01(s,8)*0.6;                   // base scale
-        const baseX = rand01(s,9)*WORLD.w;                     // start offset
-        const flap = 2.0 + rand01(s,10)*2.0;                   // 2–4 Hz flap
-
-        const offsets = [];
-        for(let k=0;k<count;k++){
-          const row = Math.floor(k/2)+1;                       // 1,1,2,2,3,3,...
-          const side = (k%2===0) ? -1 : 1;                     // left/right of leader
-          const ox = side * row * spacing;
-          const oy = row * spacing * 0.45 + (rand01(s,50+k)-0.5)*2.5;
-          const phase = rand01(s,100+k)*TAU;
-          const sMul = Math.max(0.7, 1 - row*0.05);            // slight size falloff
-          offsets.push({ ox, oy, phase, sMul });
-        }
-
-        backdrop.birds.push({ dir, v, parX, parY, skySpeed, scale, baseX, flap, offsets });
       }
     }
 
@@ -510,7 +473,7 @@
         const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90); // valley or ridge
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(-(dx*dx)/(2,sigma*sigma)); // fixed gaussian
+          const k = Math.exp(-(dx*dx)/(2*sigma*sigma)); // fixed gaussian
           points[i].y += amp * k;
         }
       }
@@ -663,7 +626,7 @@
         .sort((a,b)=> Math.abs(a.cx - lzTarget) - Math.abs(b.cx - lzTarget))[0];
       if(fairBasin) placeBunkerFromBasin(fairBasin, 0.33);
 
-      // Around green
+      // Around green: choose 1–2 nearest valley basins not flooded
       const greenBasins = basinsAll
         .filter(b => !basinBlockedByWater(b))
         .sort((a,b)=> Math.abs(a.cx - cupX) - Math.abs(b.cx - cupX));
@@ -1351,78 +1314,6 @@
       }
     }
 
-    /* ===== Distant bird flocks (render) ===== */
-    function drawBirdFlocks(){
-      if(!backdrop.birds?.length) return;
-
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.88)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.88)';
-      ctx.lineWidth = 1;
-
-      for(const F of backdrop.birds){
-        // World-space x that loops well off-screen so they slide across the horizon
-        const span = WORLD.w + 800;
-        let u = (F.baseX + clock*F.skySpeed*F.dir) % span; if(u<0) u += span;
-        const xw = -400 + u;
-
-        // Parallaxed screen position of flock anchor
-        const baseX = xw - view.x*F.parX;
-        const baseY = WORLD.h*F.v - view.y*F.parY;
-
-        for(let i=0;i<F.offsets.length;i++){
-          const off = F.offsets[i];
-          const sign = (F.dir>0) ? 1 : -1;
-          const bx = baseX + sign*off.ox;
-          const by = baseY + off.oy + Math.sin(clock*1.5 + i)*0.6; // tiny bob
-
-          // Cull if far offscreen
-          if(bx < -80 || bx > canvas.width/DPR + 80) continue;
-
-          drawTinyBird(bx, by, F.scale*off.sMul, F.dir, F.flap, off.phase);
-        }
-      }
-
-      ctx.restore();
-
-      function drawTinyBird(x,y,scale,dir,flapHz,phase){
-        ctx.save();
-        ctx.translate(x,y);
-        ctx.scale(scale, scale);
-        ctx.scale(dir, 1); // face flight direction
-
-        const flapAmp = reducedMotion ? 0.20 : 0.55;           // respect Reduced motion
-        const wing = Math.sin(clock*flapHz*TAU + phase) * flapAmp;
-
-        // body (tiny ellipse)
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 2.2, 1.2, 0, 0, TAU);
-        ctx.fill();
-
-        // wings — two little tapered triangles that “beat”
-        drawWing(+1, wing);
-        drawWing(-1, wing);
-
-        // stubby tail
-        ctx.fillRect(-0.8, 0.9, 1.6, 0.8);
-
-        ctx.restore();
-      }
-
-      function drawWing(sign, wing){
-        ctx.save();
-        ctx.scale(sign, 1);
-        ctx.rotate(-wing*0.9 - 0.12);          // slight forward tilt
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(8, -3);
-        ctx.lineTo(6.2, 0.6);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-
     // ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -1430,8 +1321,6 @@
       drawSun();
       drawClouds();
       drawMountains();
-
-      drawBirdFlocks();          // NEW: birds in front of mountains, behind course
 
       if(!hole){ drawVignette(); return; }
 
@@ -1616,37 +1505,20 @@
       ctx.restore();
     }
 
-    /* ===== Dotted aim guide that fades with distance ===== */
-    function drawAimArrow(){
-      const b = worldToScreen(disc.x, disc.y);
-      const len = 80 + meter*160;           // same reach as before
-      const spacing = 12;                   // distance between dots (px)
-      const dots = Math.max(6, Math.floor(len/spacing));
-      const a = aimAngle;
-      const cs = getComputedStyle(document.documentElement);
-      const col = cs.getPropertyValue('--accent3').trim() || '#86efac';
-
-      ctx.save();
-      ctx.scale(DPR, DPR);
-      ctx.fillStyle = col;
-
-      for(let i=1;i<=dots;i++){
-        const t = i/dots;                    // 0→1 along the guide
-        const dist = i*spacing;
-        const x = (b.x + Math.cos(a)*dist)/DPR;
-        const y = (b.y + Math.sin(a)*dist)/DPR;
-
-        // fade + size falloff with distance
-        ctx.globalAlpha = Math.max(0.12, 0.95*(1 - t*t)); // faster fade near the end
-        const r = Math.max(0.9, 2.4*(1 - t));             // small dots, slightly smaller farther out
-
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, TAU);
-        ctx.fill();
-      }
-
-      ctx.globalAlpha = 1;
-      ctx.restore();
+    function drawAimArrow(){ 
+      const b = worldToScreen(disc.x, disc.y); 
+      const len = 80 + meter*160; 
+      const x2 = b.x + Math.cos(aimAngle)*len; 
+      const y2 = b.y + Math.sin(aimAngle)*len; 
+      ctx.save(); ctx.scale(DPR,DPR); 
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent3'); ctx.lineWidth=3; ctx.globalAlpha=0.9; 
+      ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke(); 
+      const a=aimAngle; const ah = 10; const aw = 7; 
+      ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR); 
+      ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR); 
+      ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR); 
+      ctx.closePath(); ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.fill(); 
+      ctx.restore(); 
     }
 
     function drawBasket(){
@@ -1699,8 +1571,8 @@
       const N      = 8;
 
       ctx.save();
-      const cs2 = getComputedStyle(document.documentElement);
-      const flagCol = cs2.getPropertyValue('--accent').trim() || '#ff8a3d';
+      const cs = getComputedStyle(document.documentElement);
+      const flagCol = cs.getPropertyValue('--accent').trim() || '#ff8a3d';
       ctx.fillStyle = flagCol;
       ctx.strokeStyle = 'rgba(0,0,0,0.25)';
       ctx.lineWidth = 1;
@@ -1717,10 +1589,10 @@
       // bottom edge back
       for(let i=N;i>=0;i--){
         const t = i/N;
-        thepx = anchorX + dir * t * len;
+        const px = anchorX + dir * t * len;
         const wave = Math.sin(phase + t*TAU + 0.6) * amp * (0.6 + 0.4*Math.cos(t*TAU*0.5));
         const py = anchorY + height + wave*0.6;
-        ctx.lineTo(thepx, py);
+        ctx.lineTo(px, py);
       }
       ctx.closePath(); ctx.fill(); ctx.stroke();
 
