@@ -187,8 +187,7 @@
     const holeBreakdown = document.getElementById('holeBreakdown');
 
     // ===== Game Config & State
-    // (boss after every 3rd normal hole => 4th hole is boss)
-    const HOLES_PER_ROUND = 4; elHolesTotal.textContent = HOLES_PER_ROUND;
+    const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
@@ -239,7 +238,6 @@
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
     const ease = (t)=>t*t*(3-2*t);
-    const isBossHole = (idx)=> ((idx+1) % 4 === 0);
 
     // ===== Ambient Audio (minimal hum + wind)
     const AudioMini = (()=>{ let ctx=null, windNode=null, masterGain=null; let enabled=false;
@@ -476,18 +474,18 @@
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[] };
 
-    // ===== Procedural hole with variants (now supports boss) =====
-    function genHole(isBoss=false){
+    // ===== Procedural hole with variants =====
+    function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
 
-      const tilt = (Math.random()*2-1) * (isBoss ? 0.22 : 0.16);
-      const tiltAmp = (isBoss ? 210 : 160);
+      const tilt = (Math.random()*2-1) * 0.16;
+      const tiltAmp = 160;
 
       let seed = Math.random()*9999;
       function nrand(){ seed = Math.sin(seed)*10000; return seed - Math.floor(seed); }
-      const amp1 = (isBoss ? 1.25 : 1.0) * (70 + nrand()*110), freq1 = 1/(520+ nrand()*420);
-      const amp2 = (isBoss ? 1.15 : 1.0) * (22 + nrand()*42),  freq2 = 1/(220 + nrand()*250);
+      const amp1 = 70 + nrand()*110, freq1 = 1/(520+ nrand()*420);
+      const amp2 = 22 + nrand()*42,  freq2 = 1/(220 + nrand()*250);
 
       const baseY0 = h*0.72;
       const points=[];
@@ -501,12 +499,11 @@
         points.push({x,y});
       }
 
-      // Natural bumps
       const featureCount = Math.floor(Math.random()*3);
       for(let f=0; f<featureCount; f++){
         const cx = lerp(w*0.18, w*0.82, Math.random());
         const sigma = 120 + Math.random()*220;
-        const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90) * (isBoss?1.1:1);
+        const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90);
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
           const k = Math.exp(-(dx*dx)/(2*sigma*sigma));
@@ -514,11 +511,10 @@
         }
       }
 
-      // Occasional long slope/cliff
       if(Math.random() < 0.33){
         const cx = lerp(w*0.30, w*0.70, Math.random());
         const up = Math.random() < 0.5 ? -1 : 1;
-        const drop = up * ((120 + Math.random()*120) * (isBoss?1.15:1));
+        const drop = up * (120 + Math.random()*120);
         const sharp = 60 + Math.random()*80;
         for(let i=0;i<points.length;i++){
           const dx = (points[i].x - cx) / sharp;
@@ -527,29 +523,8 @@
         }
       }
 
-      // Tee/cup
       const cupX = lerp(w*0.68, w*0.90, Math.random());
-      const teeX = 120;
 
-      // Boss canyon (guaranteed big gap between tee and cup)
-      let canyon=null;
-      if(isBoss){
-        const cx = lerp(teeX+500, cupX-500, Math.random());
-        const halfW = 240 + Math.random()*160;     // 240–400
-        const depth = 140 + Math.random()*120;     // 140–260
-        canyon = { cx, x0:cx-halfW, x1:cx+halfW };
-        for(let i=0;i<points.length;i++){
-          const dx = points[i].x - cx;
-          const t = clamp(1 - Math.abs(dx)/halfW, 0, 1);
-          if(t>0){
-            // smooth U profile
-            const push = (1 - Math.cos(t*Math.PI)) * 0.5; // 0..1
-            points[i].y += depth * push;
-          }
-        }
-      }
-
-      // Green carve/flatten
       const gWidth = 200 + Math.random()*160;
       const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2;
       const greenSlope = (Math.random()*0.6-0.3);
@@ -564,24 +539,9 @@
         }
       }
 
-      // Tee height adjustment
-      const teeIdx = Math.floor(teeX/step);
-      const teeY = points[teeIdx].y - 2;
-      points[teeIdx].y = teeY;
-
-      // Add a ridge sometimes
-      if(Math.random()<0.6){
-        const vX = lerp(w*0.40, w*0.62, Math.random());
-        const vIdx = Math.floor(vX/step);
-        for(let i=-3;i<=3;i++){
-          const k=vIdx+i; if(points[k]) points[k].y += Math.abs(i)* (16 + Math.random()*12);
-        }
-      }
-
-      // Basin scan for waters/bunkers (boss has higher banks to make water sit lower)
       function scanBasins(){
         const n = points.length, out=[];
-        const bankMin = isBoss ? 54 : 32, bankMax = isBoss ? 96 : 64;
+        const bankMin = 32, bankMax = 64;
         for(let i=2;i<n-2;i++){
           const yL = points[i-1].y, yC = points[i].y, yR = points[i+1].y;
           if(!(yC < yL && yC < yR)) continue;
@@ -611,49 +571,9 @@
 
       const basinsAll = scanBasins();
 
-      // Helpers
-      function sampleY(points, x){
-        const st = points[1].x - points[0].x;
-        const ii = Math.min(Math.max(Math.floor(x/st),0), points.length-2);
-        const p0 = points[ii], p1 = points[ii+1];
-        const t = (x - p0.x)/(p1.x - p0.x);
-        return lerp(p0.y, p1.y, t);
-      }
-
-      // Water placement
       const waters=[];
       (function buildWaters(){
-        const baseMin = isBoss ? 260 : 160;
-        const minWidth = baseMin;
-
-        // utility: clip away from green window
-        function clipAwayFromGreen(x0,x1){
-          if(x0 < gx1 && x1 > gx0){
-            const leftOverlap  = Math.max(0, gx1 - x0);
-            const rightOverlap = Math.max(0, x1 - gx0);
-            if(leftOverlap < rightOverlap) x0 = gx1; else x1 = gx0;
-          }
-          return [x0,x1];
-        }
-
-        // If boss: force one water overlapping the canyon area
-        if(isBoss && canyon){
-          // pick widest basin overlapping canyon
-          const target = basinsAll
-            .filter(b => b.x1 > canyon.x0 && b.x0 < canyon.x1)
-            .sort((a,b)=>b.width - a.width)[0];
-
-          if(target){
-            let x0 = clamp(target.x0 + 1, 60, w-60);
-            let x1 = clamp(target.x1 - 1, 60, w-60);
-            [x0,x1] = clipAwayFromGreen(x0,x1);
-            if(x1 - x0 >= minWidth){
-              waters.push({ x:x0, w:(x1-x0), y:target.surfaceY, h: h - target.surfaceY + 60, seed:(Math.random()*1e9)|0 });
-            }
-          }
-        }
-
-        // Regular candidates for additional waters (avoid overlap)
+        const minWidth = 160;
         const waterCandidates = basinsAll
           .filter(b => b.width >= minWidth)
           .sort((a,b)=>{
@@ -664,8 +584,17 @@
             return ma - mb;
           });
 
+        function clipAwayFromGreen(x0,x1){
+          if(x0 < gx1 && x1 > gx0){
+            const leftOverlap  = Math.max(0, gx1 - x0);
+            const rightOverlap = Math.max(0, x1 - gx0);
+            if(leftOverlap < rightOverlap) x0 = gx1; else x1 = gx0;
+          }
+          return [x0,x1];
+        }
+
         for(const b of waterCandidates){
-          if(waters.length >= (isBoss ? 2 : 2)) break; // keep same cap; boss already has 1 forced
+          if(waters.length >= 2) break;
           let x0 = clamp(b.x0 + 1, 60, w-60);
           let x1 = clamp(b.x1 - 1, 60, w-60);
           [x0,x1] = clipAwayFromGreen(x0,x1);
@@ -675,7 +604,6 @@
           waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h: h - b.surfaceY + 60, seed:(Math.random()*1e9)|0 });
         }
 
-        // Fallback if none (shouldn't happen on boss; still keep)
         if(!waters.length){
           const near = basinsAll.sort((a,b)=>Math.abs(a.cx-cupX)-Math.abs(b.cx-cupX))[0];
           if(near){
@@ -688,7 +616,6 @@
         }
       })();
 
-      // Bunkers (avoid water & green)
       const sands=[];
       function basinBlockedByWater(b){
         return waters.some(W => !(b.x1 < W.x || b.x0 > (W.x + W.w)));
@@ -715,10 +642,50 @@
         roughs.push({ x:rx, y:ry, r: 42 + Math.random()*30 });
       }
 
+      const teeX = 120;
+      const teeIdx = Math.floor(teeX/step);
+      const teeY = points[teeIdx].y - 2;
+      points[teeIdx].y = teeY;
+
+      if(Math.random()<0.6){
+        const vX = lerp(w*0.40, w*0.62, Math.random());
+        const vIdx = Math.floor(vX/step);
+        for(let i=-3;i<=3;i++){
+          const k=vIdx+i; if(points[k]) points[k].y += Math.abs(i)* (16 + Math.random()*12);
+        }
+      }
+
       const dist = (cupX - teeX);
       let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
-      if(isBoss && par < 5) par += 1; // tougher gap => bump par a bit
 
+      // --- WIND GEYSER (one per hole, mid-fairway, away from tee/green/water) ---
+      const geyser = (function makeGeyser(){
+        const margin = 360;
+        let minX = Math.max(teeX + margin, 80);
+        let maxX = Math.min(cupX - margin, w - 80);
+        if(maxX <= minX){
+          // short hole fallback: pick a tight band near center
+          const a = lerp(teeX, cupX, 0.45), b = lerp(teeX, cupX, 0.55);
+          minX = Math.min(a,b); maxX = Math.max(a,b);
+        }
+        let gx = clamp( lerp(minX, maxX, 0.5 + (Math.random()-0.5)*0.25 ), minX, maxX );
+
+        // nudge away from water edges
+        for(let tries=0; tries<12; tries++){
+          const hitWater = waters.some(W => gx > (W.x - 40) && gx < (W.x + W.w + 40));
+          if(!hitWater) break;
+          gx = clamp( lerp(minX, maxX, Math.random()), minX, maxX );
+        }
+
+        const gy = sampleY(points, gx);
+        const height = 180 + Math.random()*120;     // vertical reach above ground
+        const rx = 70 + Math.random()*30;           // horizontal radius
+        const drift = { amp: 22 + Math.random()*18, speed: 0.10 + Math.random()*0.12, phase: Math.random()*Math.PI*2 };
+        const seed = (Math.random()*1e9)|0;
+        return { x:gx, y:gy, rx, height, strength:0.60, drift, seed };
+      })();
+
+      // green window / water carving were handled earlier; just return
       return {
         w, h, points, step, cupX,
         green:{x0:gx0,x1:gx1,y:greenY},
@@ -727,7 +694,7 @@
         roughs,
         tee:{x:teeX,y:teeY},
         par,
-        boss:isBoss
+        geyser        // <— Wind Geyser data for this hole
       };
     }
 
@@ -764,8 +731,7 @@
       currentBiome = biome;
       applyTheme(biome);
 
-      const boss = isBossHole(holeIndex);
-      hole = genHole(boss);
+      hole = genHole();
 
       buildScenery();
 
@@ -877,7 +843,24 @@
           const dragY = -dragMag * vy;
 
           const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * 0.50) : 1);
-          const lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
+
+          // ===== Wind Geyser vertical-only updraft (no horizontal shove)
+          let geyMul = 1;
+          if(hole?.geyser){
+            const G = hole.geyser;
+            const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp; // gentle drift
+            const baseY = groundYAt(gx);                                                // follow ground
+            const dx = Math.abs(disc.x - gx);
+            const xFall = Math.exp(-0.5 * (dx*dx) / (G.rx*G.rx));                        // Gaussian radial falloff
+            const yRatio = clamp((baseY - disc.y) / G.height, 0, 1);                     // stronger higher up
+            const profile = xFall * yRatio;
+            if(profile > 0){
+              const turb = 0.06 * Math.sin(clock*18 + (disc.x+disc.y)*0.02 + (G.seed & 1023)); // tiny turbulence wiggle
+              geyMul = 1 + G.strength * profile * (1 + turb);                                   // up to +60% at core
+            }
+          }
+
+          const lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul * geyMul;
 
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
@@ -894,7 +877,7 @@
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          disc.spin *= Math.exp(-.35*dt);
+          disc.spin *= Math.exp(-0.35*dt);
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
@@ -1321,6 +1304,54 @@
       }
     }
 
+    // ===== Wind Geyser rendering (subtle vertical plume) =====
+    function drawGeyser(){
+      if(!hole?.geyser) return;
+      const G = hole.geyser;
+      const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
+      const cx = gx - view.x;
+      const baseY = groundYAt(gx) - view.y;
+      const topY = baseY - G.height;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+
+      // Soft core ellipse column
+      ctx.beginPath();
+      ctx.ellipse(cx, (topY+baseY)/2, G.rx, G.height/2, 0, 0, Math.PI*2);
+      const grad = ctx.createLinearGradient(0, topY, 0, baseY);
+      grad.addColorStop(0.00, 'rgba(73,208,255,0.06)');
+      grad.addColorStop(0.70, 'rgba(134,239,172,0.05)');
+      grad.addColorStop(1.00, 'rgba(73,208,255,0.02)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Rising filaments
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+      const fil = 5;
+      for(let i=0;i<fil;i++){
+        const t = (i/(fil-1) - 0.5) * 1.2;
+        const wig = Math.sin(clock*1.6 + i*0.8)*3;
+        const x = cx + t*G.rx*0.9 + wig;
+        ctx.beginPath();
+        ctx.moveTo(x, baseY);
+        ctx.lineTo(x, topY + 10 + Math.sin(clock*1.1 + i)*8);
+        ctx.stroke();
+      }
+
+      // Soft halo near the base
+      const halo = ctx.createRadialGradient(cx, baseY-6, 2, cx, baseY-6, G.rx*1.2);
+      halo.addColorStop(0,'rgba(255,255,255,0.10)');
+      halo.addColorStop(1,'rgba(255,255,255,0.00)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(cx, baseY-6, G.rx*1.2, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
     // ===== Background windmills =====
     function drawWindmills(){
       if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
@@ -1444,6 +1475,7 @@
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
 
       drawGrass();
+      drawGeyser(); // <— render subtle updraft column over terrain
 
       for(const s of hole.sands){ drawBunkerHole(s); }
 
