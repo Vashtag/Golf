@@ -19,6 +19,7 @@
 
   /* HUD */
   .hud{position:fixed;inset:0;pointer-events:none}
+  /* Make buttons inside HUD clickable despite parent blocking events */
   .hud .btn{pointer-events:auto}
 
   .row{display:flex;gap:.5rem;align-items:center}
@@ -68,7 +69,6 @@
         <div class="chip"><span class="label">Hole</span> <strong id="holeNum">1</strong>/<span id="holesTotal">3</span></div>
         <div class="chip"><span class="label">Par</span> <strong id="parLabel">3</strong></div>
         <div class="chip"><span class="label">Strokes</span> <strong id="strokes">0</strong></div>
-        <div class="chip" id="bossChip" style="display:none">🌀 BOSS: Canyon Thermal</div>
       </div>
       <div class="row">
         <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
@@ -186,8 +186,6 @@
     const sumScore = document.getElementById('sumScore');
     const holeBreakdown = document.getElementById('holeBreakdown');
 
-    const bossChip = document.getElementById('bossChip');
-
     // ===== Game Config & State
     const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
@@ -211,16 +209,22 @@
     };
 
     // ==== DISC PHYSICS ====
+    const GRAV = 1500;
     const AIR_DRAG = 0.00050;
     const LIFT_K   = 0.00450;
+    const TURN_K   = 54;
+    const VREF     = 1600;
+    const CAMBER   = 0.06;
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
+    const SPIN_DECAY = 0.35;
 
     let reducedMotion = false;
 
     // ===== Vertical wind (lift only)
     let windOn = true;
     let windLift = 0;             // -1 .. +1 (down .. up)
+    const WIND_LIFT_SCALE = 0.50; // ±50% lift modulation at max
 
     // Release angle / throw style
     let releaseMode = 0;
@@ -258,10 +262,13 @@
     // ===== SFX: randomized throw & chain samples from /audio =====
     const Sfx = (()=>{
       let enabled = false;
-      let unlocked = false;
+      let unlocked = false; // user-gesture gate (iOS/Chrome mobile)
       const throws = [];
       const chains = [];
-      function make(path, vol=1.0){ const a = new Audio(path); a.preload = 'auto'; a.volume = vol; return a; }
+
+      function make(path, vol=1.0){
+        const a = new Audio(path); a.preload = 'auto'; a.volume = vol; return a;
+      }
       function preload(){
         if(throws.length || chains.length) return;
         for(let i=1;i<=7;i++) throws.push(make(`./audio/throw${i}.mp3`, 0.9));
@@ -270,16 +277,26 @@
       function init(){ preload(); unlocked = true; }
       function setEnabled(on){
         enabled = !!on;
-        if(!enabled){ [...throws, ...chains].forEach(a=>{ try{ a.pause(); a.currentTime = 0; }catch{} }); }
+        if(!enabled){
+          [...throws, ...chains].forEach(a=>{ try{ a.pause(); a.currentTime = 0; }catch{} });
+        }
       }
       function playFrom(arr, vol=1.0, rateMin=0.98, rateMax=1.02){
         if(!enabled || !unlocked || !arr.length) return;
         const i = (Math.random()*arr.length)|0;
-        const src = arr[i].src || arr[i].currentSrc;
-        const a = new Audio(src); a.preload='auto'; a.volume=vol; a.playbackRate = rateMin + Math.random()*(rateMax-rateMin);
+        const srcUrl = arr[i].src || arr[i].currentSrc;
+        const a = new Audio(srcUrl);
+        a.preload = 'auto';
+        a.volume = vol;
+        a.playbackRate = rateMin + Math.random()*(rateMax-rateMin);
         a.play().catch(()=>{});
       }
-      return { init, setEnabled, playThrow(){playFrom(throws,0.9,0.97,1.06)}, playChain(){playFrom(chains,1.0,0.96,1.04)} };
+      return {
+        init,
+        setEnabled,
+        playThrow(){ playFrom(throws, 0.9, 0.97, 1.06); },
+        playChain(){ playFrom(chains, 1.0, 0.96, 1.04); }
+      };
     })();
 
     // Particles
@@ -457,110 +474,7 @@
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[] };
 
-    // ===== Boss helpers (Canyon Thermal) =====
-    function genCanyonThermalBoss(){
-      const w = WORLD.w, h = WORLD.h, step=40;
-      const baseY = h*0.72;
-
-      // Canyon parameters
-      const canyonW = 420 + Math.random()*100; // 420–520
-      const cx = w*0.52;
-      const leftEdge = cx - canyonW/2;
-      const rightEdge = cx + canyonW/2;
-      const depth = 180 + Math.random()*60;    // 180–240
-      const canyonBottom = baseY + depth;
-
-      // Water: flood the bottom of the canyon
-      const waterY = canyonBottom - 10;
-
-      // Green beyond
-      const cupX = rightEdge + 520;
-      const gWidth = 220;
-      const gx0 = cupX - gWidth/2, gx1 = cupX + gWidth/2;
-      const greenY = baseY - 16;
-
-      // Terrain points: tee/lay-up → canyon → approach/green
-      const points=[];
-      for(let x=0;x<=w;x+=step){
-        let y = baseY;
-
-        // generous landing before gap
-        if(x < leftEdge - 200){
-          y = baseY - Math.sin(x*0.0012)*24;
-        }
-        // Ramp down into canyon wall
-        else if(x >= leftEdge - 160 && x < leftEdge + 60){
-          const t = (x - (leftEdge - 160)) / 220;
-          y = lerp(baseY - 8, canyonBottom, t*t);
-        }
-        // Canyon floor span
-        else if(x >= leftEdge + 60 && x <= rightEdge - 60){
-          y = canyonBottom;
-        }
-        // Ramp up out of canyon
-        else if(x > rightEdge - 60 && x < rightEdge + 200){
-          const t = (x - (rightEdge - 60)) / 260;
-          y = lerp(canyonBottom, baseY - 6, t);
-        }
-        // Beyond canyon toward green
-        else if(x >= rightEdge + 200){
-          y = baseY - 6 - Math.sin((x-rightEdge)*0.001)*10;
-        }
-
-        if(x>=gx0 && x<=gx1) y = greenY;
-        points.push({x,y});
-      }
-
-      // Water body filling the canyon
-      const waters = [{ x:leftEdge+6, w:(rightEdge-leftEdge-12), y:waterY, h:h-waterY+80, seed:(Math.random()*1e9)|0 }];
-
-      // Bunkers to shape decisions
-      const sands = [
-        { x:leftEdge-200, y: sampleY(points, leftEdge-200) - 8, r: 58, seed:(Math.random()*1e9)|0 },
-        { x:rightEdge+260, y: sampleY(points, rightEdge+260) - 8, r: 50, seed:(Math.random()*1e9)|0 }
-      ];
-
-      const roughs = [
-        { x:leftEdge-120, y: sampleY(points, leftEdge-120)-6, r:46 },
-        { x:rightEdge+160, y: sampleY(points, rightEdge+160)-6, r:42 }
-      ];
-
-      const teeX = 160;
-      const teeY = sampleY(points, teeX) - 2;
-
-      // Thermal column: slight offset toward aggressive line (to the right)
-      const off = (0.08 + Math.random()*0.06) * canyonW; // ~8–14% of width
-      const thX = cx + off;
-      const thY = baseY + 20;
-      const rx = 120 + Math.random()*40;   // 120–160
-      const ry = 200 + Math.random()*60;   // 200–260
-
-      const thermals = [{
-        x: thX, y: thY,
-        rx, ry,
-        boostMin: 0.45,     // +45% local lift at core (min)
-        boostMax: 0.70,     // up to +70%
-        core: Math.random(),// picks a value between min/max for this thermal
-        wiggleAmp: 0.05,    // ~3° bank wiggle
-        wiggleAoA: 0.03,    // ~1.7° AoA wiggle
-        wiggleFreq: 11 + Math.random()*4, // fast oscillation
-        seed: Math.random()*TAU
-      }];
-
-      return {
-        boss:true, bossName:'Canyon Thermal',
-        w, h, points, step, cupX,
-        green:{x0:gx0,x1:gx1,y:greenY},
-        waters,
-        sands,
-        roughs,
-        thermals,
-        tee:{x:teeX,y:teeY},
-        par: 4
-      };
-    }
-
-    // ===== Procedural hole (regular) =====
+    // ===== Procedural hole with variants =====
     function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
@@ -687,7 +601,7 @@
           if(x1 - x0 < minWidth) continue;
           const overlaps = waters.some(p => Math.min(p.x+p.w, x1) - Math.max(p.x, x0) > 40);
           if(overlaps) continue;
-          waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h:h-b.surfaceY+60, seed:(Math.random()*1e9)|0 });
+          waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h: h - b.surfaceY + 60, seed:(Math.random()*1e9)|0 });
         }
 
         if(!waters.length){
@@ -713,6 +627,7 @@
             cx = (cx < ww.x + ww.w*0.5)? (ww.x - 20) : (ww.x + ww.w + 20);
           }
         }
+        if(cx > gx0-18 && cx < gx1+18) return false;
         const cy = sampleY(points, cx) - 8;
         const r = clamp(b.width*sizeScale, 36, 90);
         sands.push({ x:cx, y:cy, r, seed:(Math.random()*1e9)|0 });
@@ -743,13 +658,13 @@
       const dist = (cupX - teeX);
       let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
 
+      // green window / water carving were handled earlier; just return
       return {
         w, h, points, step, cupX,
         green:{x0:gx0,x1:gx1,y:greenY},
         waters,
         sands,
         roughs,
-        thermals:[],
         tee:{x:teeX,y:teeY},
         par
       };
@@ -788,8 +703,7 @@
       currentBiome = biome;
       applyTheme(biome);
 
-      const isBoss = ((holeIndex+1) % 3 === 0);
-      hole = isBoss ? genCanyonThermalBoss() : genHole();
+      hole = genHole();
 
       buildScenery();
 
@@ -798,8 +712,6 @@
 
       roundData.holes.push({par:hole.par, strokes:0}); roundData.totalPar += hole.par;
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
-
-      bossChip.style.display = isBoss ? 'inline-flex' : 'none';
 
       windLift = windOn ? (Math.random()*2 - 1) : 0;
       updateWindUI();
@@ -869,9 +781,8 @@
       disc.spin   = disc.spin0;
       disc.bank   = (releaseMode * 16) * Math.PI/180;
 
-      disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes;
-      if(navigator.vibrate) navigator.vibrate(16);
-      Sfx.playThrow();
+      disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16);
+      Sfx.playThrow(); // randomized throw SFX
     }
 
     // ===== Physics update
@@ -897,49 +808,21 @@
           const tPow = clamp(v / 1600, 0, 1);
           const spinNorm = clamp(disc.spin / (disc.spin0 || 1), 0, 1);
 
-          // AoA baseline
           const aoaRaw = normalizeAngle(disc.orient - vAngle);
-
-          // Thermal effects (multiplier + turbulence)
-          let thermalMul = 1.0;
-          let wiggleBank = 0.0;
-          let wiggleAoA  = 0.0;
-          if(hole?.thermals?.length){
-            for(const th of hole.thermals){
-              const dx = disc.x - th.x, dy = disc.y - th.y;
-              // elliptical Gaussian falloff (0..1)
-              const g = Math.exp(-0.5*((dx*dx)/(th.rx*th.rx) + (dy*dy)/(th.ry*th.ry)));
-              if(g > 0.001){
-                const boostCore = th.boostMin + (th.boostMax - th.boostMin) * th.core; // +0.45..+0.70
-                const local = 1 + boostCore * g;
-                if(local > thermalMul) thermalMul = local; // take strongest if multiple
-                const phase = th.seed + (performance.now()/1000)*th.wiggleFreq;
-                const ampScale = g;
-                wiggleBank += th.wiggleAmp * ampScale * Math.sin(phase);           // ~±0.05 rad
-                wiggleAoA  += th.wiggleAoA  * ampScale * Math.sin(phase*1.15+0.6); // ~±0.03 rad
-              }
-            }
-          }
-
-          // Effective AoA with wiggle; clamp to reasonable range
-          const aoa = clamp(aoaRaw + 0.06 + wiggleAoA, -0.6, 0.6);
-
-          const dragMag = AIR_DRAG * v * (1 + 0.7*Math.abs(aoa));
+          const aoa = clamp(aoaRaw + 0.06, -0.6, 0.6);
+          const dragMag = 0.00050 * v * (1 + 0.7*Math.abs(aoa));
           const dragX = -dragMag * vx;
           const dragY = -dragMag * vy;
 
-          // Global wind + local thermal lift multiplier
           const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * 0.50) : 1);
-          const lift = LIFT_K * currentDisc.glide * v*v * aoa * windMul * thermalMul;
+          const lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
 
-          // Curvature (turn/fade/bank)
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
           const hyz = releaseMode;
           let turnAmt = currentDisc.turn * turnPhase * (0.7 + 0.6*spinNorm) * (1 + 0.35*hyz);
           let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
-          // include turbulence wobble in bank effect (non-persistent)
-          const bankBias = 0.12 * Math.sin(disc.bank + wiggleBank);
+          const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
           const curveAx = 54 * curve * (hand==='RHBH'?1:-1);
 
@@ -957,15 +840,14 @@
           const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
 
-          // Ground collision
           const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
+            const surface = surfaceAt(disc.x);
             disc.y = gy - disc.r - 0.01;
 
             if(Math.abs(disc.vy) > 120){
-              const surf = surfaceAt(disc.x);
-              if(surf==='sand') spawnParticles('sand',  disc.x, disc.y+disc.r, 12);
-              else              spawnParticles('dust',  disc.x, disc.y+disc.r,  8);
+              if(surface==='sand') spawnParticles('sand',  disc.x, disc.y+disc.r, 12);
+              else                 spawnParticles('dust',  disc.x, disc.y+disc.r,  8);
             }
 
             const speed = Math.hypot(disc.vx, disc.vy);
@@ -973,13 +855,12 @@
             const shallow = entryAngle < (12 * Math.PI/180);
             const fast    = speed > 900;
 
-            const surf = surfaceAt(disc.x);
-            if(surf!=='sand' && surf!=='green' && shallow && fast){
+            if(surface!=='sand' && surface!=='green' && shallow && fast){
               disc.vy = -Math.max(180, Math.abs(disc.vy)*0.55);
               disc.vx *= 0.88;
               disc.onGround = false;
             } else {
-              const rest = SURF[surf]?.rest ?? 0.14;
+              const rest = SURF[surface]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
               disc.vx *= 0.84;
               if(Math.abs(disc.vy) < 120) disc.vy = 0;
@@ -988,7 +869,7 @@
           }
 
           if(checkBasketCatch()){
-            Sfx.playChain();
+            Sfx.playChain(); // randomized chain SFX
             const cupX = hole.cupX;
             const gY = groundYAt(cupX);
             spawnParticles('spark', cupX, gY - 35, 18);
@@ -997,18 +878,17 @@
             setTimeout(()=>{ endHole(); }, 520);
           }
         } else {
-          // Rolling
           const gy = groundYAt(disc.x); 
           if(disc.y + disc.r < gy-0.5){ 
             disc.onGround=false; 
           } else {
             disc.y = gy - disc.r; 
-            const surf = surfaceAt(disc.x); 
-            const fric = SURF[surf]?.fric ?? 740; 
+            const surface = surfaceAt(disc.x); 
+            const fric = SURF[surface]?.fric ?? 740; 
             const speed = Math.abs(disc.vx); 
             let dec = fric * 2.1;
-            if(surf === 'sand')  dec = fric * 2.6;
-            if(surf === 'green') dec = fric * 2.3;
+            if(surface === 'sand')  dec = fric * 2.6;
+            if(surface === 'green') dec = fric * 2.3;
 
             const s = Math.sign(disc.vx) || 0; 
             let newSpeed = speed - dec*dt; 
@@ -1035,7 +915,7 @@
       view.y = clamp(groundYAt(disc.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
-    // ===== Scenery (trees, rocks, fences) =====
+    // ===== Scenery (trees, rocks, fences; NO bridges or in-world text) =====
     function buildScenery(){
       scenery.trees = [];
       scenery.rocks = [];
@@ -1070,7 +950,7 @@
         scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
 
-      // Fences (kept for world texture)
+      // Fences — deterministic posts so no shaking
       function addFence(x0, x1){
         if(x1 < x0){ const t=x0; x0=x1; x1=t; }
         x0 = clamp(x0, 40, hole.w-40);
@@ -1090,6 +970,7 @@
           posts: []
         };
 
+        // Precompute post positions + stable per-post jitter
         let idx = 0;
         for(let x = x0; x <= x1; x += F.step){
           const tilt  = (rand01(F.seed, idx*2+1) - 0.5) * 0.12;
@@ -1169,7 +1050,7 @@
       ctx.restore();
     }
 
-    // ===== Stable fences
+    // ===== Stable fences (precomputed posts; no per-frame randomness) =====
     function drawFences(){
       if(!scenery.fences.length) return;
       ctx.save();
@@ -1177,6 +1058,7 @@
       ctx.fillStyle   = 'rgba(0,0,0,0.94)';
 
       for(const F of scenery.fences){
+        // Posts
         for(const P of F.posts){
           const x = P.x;
           const y = groundYAt(x);
@@ -1192,12 +1074,14 @@
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(ang - Math.PI/2);
+          // half-pixel snap to reduce aliasing shimmer
           ctx.translate(0.5, 0.5);
           ctx.fillRect(-w/2, 0, w, h);
           ctx.fillRect(-w/2 - 1, 0, w+2, 2);
           ctx.restore();
         }
 
+        // Rails follow the posts
         const railOffset = (F.rails === 3) ? [6,12,18] : [8,16];
         ctx.lineWidth = 2;
         for(const off of railOffset){
@@ -1216,7 +1100,7 @@
       ctx.restore();
     }
 
-    // ===== Sand bunkers =====
+    // ===== Sand bunkers — recessed with grain =====
     function drawBunkerHole(s){
       const cx = s.x - view.x, cy = s.y - view.y;
       const r = s.r;
@@ -1375,7 +1259,151 @@
       }
     }
 
-    // ===== Background: sky/sun/clouds/mountains
+    // ===== Background windmills =====
+    function drawWindmills(){
+      if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
+
+      const L = backdrop.mountains[backdrop.mountains.length - 1];
+      const idx = backdrop.mountains.length - 1;
+      const parX = L.parallax;
+      const parY = 0.06 * idx;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.88)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+      ctx.lineWidth = 1;
+
+      const w = canvas.width / DPR;
+
+      for(const W of backdrop.windmills){
+        const sx = W.x - view.x * parX;
+        if(sx < -200 || sx > w + 200) continue;
+
+        let baseY = mountainYAt(L, W.x) - view.y * parY;
+        baseY += 2;
+
+        const towerTopY = baseY - W.h;
+        const cx = sx, cy = towerTopY - 10;
+
+        ctx.beginPath();
+        const tw = Math.max(16, W.h * 0.14);
+        const bw = tw * 1.25;
+        ctx.moveTo(sx - bw/2, baseY);
+        ctx.lineTo(sx + bw/2, baseY);
+        ctx.lineTo(sx + tw/2, towerTopY);
+        ctx.lineTo(sx - tw/2, towerTopY);
+        ctx.closePath(); ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(sx - bw/2, baseY);
+        ctx.lineTo(sx - bw/2 - 10, baseY + 6);
+        ctx.moveTo(sx + bw/2, baseY);
+        ctx.lineTo(sx + bw/2 + 10, baseY + 6);
+        ctx.stroke();
+
+        const railW = Math.max(40, tw*2.2);
+        const railH = 10;
+        const railY = towerTopY + 4;
+        ctx.fillRect(sx - railW/2, railY, railW, 6);
+        ctx.save(); ctx.globalAlpha = 0.95;
+        ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx - railW/2, railY - railH, railW, railH);
+        const vBars = 6;
+        for(let i=1;i<vBars;i++){
+          const x = sx - railW/2 + (railW/vBars)*i;
+          ctx.beginPath(); ctx.moveTo(x, railY - railH); ctx.lineTo(x, railY); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(sx - railW/2, railY - railH/2); ctx.lineTo(sx + railW/2, railY - railH/2); ctx.stroke();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(W.tilt);
+        ctx.fillRect(-8, -6, 16, 6);
+        ctx.beginPath(); ctx.arc(0, 0, 3, 0, TAU); ctx.fill();
+
+        const windFactor = 1 + (windOn ? Math.abs(windLift)*1.2 : 0);
+        const theta = W.spin0 + clock * W.speed * windFactor;
+
+        drawBlade(theta,         W.r);
+        drawBlade(theta+TAU/4,   W.r);
+        drawBlade(theta+TAU/2,   W.r);
+        drawBlade(theta+3*TAU/4, W.r);
+
+        ctx.restore();
+      }
+
+      ctx.restore();
+
+      function drawBlade(angle, R){
+        ctx.save();
+        ctx.rotate(angle);
+
+        const bw = Math.max(6, R*0.16);
+        const bl = R;
+        const root = 4;
+
+        ctx.beginPath();
+        ctx.rect(root, -bw/2, bl-root, bw);
+        ctx.fill();
+
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        const segs = 5;
+        for(let i=1;i<segs;i++){
+          const x = root + (bl-root)*(i/segs);
+          ctx.beginPath(); ctx.moveTo(x, -bw/2); ctx.lineTo(x, bw/2); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(root, 0); ctx.lineTo(bl, 0); ctx.stroke();
+        ctx.restore();
+
+        ctx.restore();
+      }
+    }
+
+    // ===== Rendering
+    function draw(){
+      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawSkyGradient();
+      drawSun();
+      drawClouds();
+      drawMountains();
+
+      if(!hole){ drawVignette(); return; }
+
+      drawWindmills();
+      drawWaterBodies();
+
+      const cs = getComputedStyle(document.documentElement);
+      ctx.fillStyle = cs.getPropertyValue('--fg');
+      ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
+      for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
+      ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
+
+      drawGrass();
+
+      for(const s of hole.sands){ drawBunkerHole(s); }
+
+      drawScenery();
+      drawBasket();
+
+      for(const p of particles){
+        let c = '#ffffff';
+        if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+        else if(p.type==='sand') c = '#b48a5a';
+        else if(p.type==='dust') c = '#9aa2aa';
+        else if(p.type==='splash') c = '#49d0ff';
+        ctx.globalAlpha = Math.max(0, p.life/0.6);
+        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
+      }
+
+      drawDisc();
+      if(aiming){ drawAimArrow(); }
+
+      drawVignette();
+    }
+
     function drawSkyGradient(){
       const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/DPR); const cs = getComputedStyle(document.documentElement);
       skyGrad.addColorStop(0, cs.getPropertyValue('--bg3').trim());
@@ -1383,6 +1411,7 @@
       skyGrad.addColorStop(1, cs.getPropertyValue('--bg1').trim());
       ctx.fillStyle = skyGrad; ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
     }
+
     function drawSun(){
       const m = backdrop.sun; if(!m) return;
       const parX = 0.05, parY = 0.02;
@@ -1406,6 +1435,7 @@
       ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1; ctx.stroke();
       ctx.restore();
     }
+
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -1451,6 +1481,7 @@
         ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(sx, sy, shadowR*1.2, 0, TAU); ctx.fill(); ctx.restore();
       }
     }
+
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       backdrop.mountains.forEach((L, idx)=>{
@@ -1556,7 +1587,6 @@
       ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x, poleTopY); ctx.lineTo(x, poleTopY - stub); ctx.stroke();
 
-      // Flag
       const anchorX = x;
       const anchorY = poleTopY - stub;
 
@@ -1620,46 +1650,6 @@
 
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
 
-    function draw(){
-      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
-      drawSkyGradient();
-      drawSun();
-      drawClouds();
-      drawMountains();
-
-      if(!hole){ drawVignette(); return; }
-
-      drawWaterBodies();
-
-      const cs = getComputedStyle(document.documentElement);
-      ctx.fillStyle = cs.getPropertyValue('--fg');
-      ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
-      for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
-      ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
-
-      drawGrass();
-
-      for(const s of hole.sands){ drawBunkerHole(s); }
-
-      drawScenery();
-      drawBasket();
-
-      for(const p of particles){
-        let c = '#ffffff';
-        if(p.type==='spark') c = getComputedStyle(document.documentElement).getPropertyValue('--accent');
-        else if(p.type==='sand') c = '#b48a5a';
-        else if(p.type==='dust') c = '#9aa2aa';
-        else if(p.type==='splash') c = '#49d0ff';
-        ctx.globalAlpha = Math.max(0, p.life/0.6);
-        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
-      }
-
-      drawDisc();
-      if(aiming){ drawAimArrow(); }
-
-      drawVignette();
-    }
-
     // ===== Resize
     function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
     window.addEventListener('resize', resize); resize();
@@ -1669,7 +1659,7 @@
     function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt; update(dt); draw(); requestAnimationFrame(loop); }
     requestAnimationFrame(loop);
 
-    // ===== Audio unlock on first interaction
+    // ===== Audio unlock on first interaction (works even before opening Settings)
     window.addEventListener('pointerdown', () => {
       try { Sfx.init(); } catch {}
       if (chkAudio && chkAudio.checked) {
