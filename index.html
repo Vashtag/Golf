@@ -474,7 +474,7 @@
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[] };
 
-    // ===== Procedural hole with variants =====
+    // ===== Procedural hole with variants (now also adds one Wind Geyser) =====
     function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
@@ -658,44 +658,42 @@
       const dist = (cupX - teeX);
       let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
 
-      // --- WIND GEYSER (one per hole, mid-fairway, away from tee/green/water) ---
-      const geyser = (function makeGeyser(){
-        const margin = 360;
-        let minX = Math.max(teeX + margin, 80);
-        let maxX = Math.min(cupX - margin, w - 80);
-        if(maxX <= minX){
-          // short hole fallback: pick a tight band near center
-          const a = lerp(teeX, cupX, 0.45), b = lerp(teeX, cupX, 0.55);
-          minX = Math.min(a,b); maxX = Math.max(a,b);
-        }
-        let gx = clamp( lerp(minX, maxX, 0.5 + (Math.random()-0.5)*0.25 ), minX, maxX );
-
-        // nudge away from water edges
-        for(let tries=0; tries<12; tries++){
-          const hitWater = waters.some(W => gx > (W.x - 40) && gx < (W.x + W.w + 40));
-          if(!hitWater) break;
-          gx = clamp( lerp(minX, maxX, Math.random()), minX, maxX );
-        }
-
-        const gy = sampleY(points, gx);
-        const height = 180 + Math.random()*120;     // vertical reach above ground
-        const rx = 70 + Math.random()*30;           // horizontal radius
-        const drift = { amp: 22 + Math.random()*18, speed: 0.10 + Math.random()*0.12, phase: Math.random()*Math.PI*2 };
-        const seed = (Math.random()*1e9)|0;
-        return { x:gx, y:gy, rx, height, strength:0.60, drift, seed };
-      })();
-
-      // green window / water carving were handled earlier; just return
-      return {
+      // Prepare hole object
+      const result = {
         w, h, points, step, cupX,
         green:{x0:gx0,x1:gx1,y:greenY},
         waters,
         sands,
         roughs,
         tee:{x:teeX,y:teeY},
-        par,
-        geyser        // <— Wind Geyser data for this hole
+        par
       };
+
+      // ---- Wind Geyser: exactly one, mid-fairway away from tee/green ----
+      (function addGeyser(H){
+        const leftBound  = H.tee.x + 360;
+        const rightBound = H.cupX - 320;
+        let span = rightBound - leftBound;
+
+        // Fallback if hole is short
+        if (span < 220){
+          span = Math.max(200, (H.cupX - H.tee.x) - 480);
+        }
+        const gx = clamp(leftBound + Math.random()*span, 140, H.w - 140);
+
+        H.geyser = {
+          x: gx,
+          rx: 90 + Math.random()*50,                    // horizontal radius (~width)
+          height: 340 + Math.random()*220,              // vertical influence height
+          strength: 0.60,                               // up to +60% effective lift boost
+          drift: { amp: 24 + Math.random()*26,
+                   speed: 0.5 + Math.random()*0.7,
+                   phase: Math.random()*TAU },
+          seed: (Math.random()*1e9)|0
+        };
+      })(result);
+
+      return result;
     }
 
     function sampleY(points, x){
@@ -844,23 +842,27 @@
 
           const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * 0.50) : 1);
 
-          // ===== Wind Geyser vertical-only updraft (no horizontal shove)
-          let geyMul = 1;
-          if(hole?.geyser){
+          // ---- Base aero lift (unchanged) ----
+          let lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
+
+          // ---- Wind Geyser: add pure vertical updraft (always upward) ----
+          if (hole?.geyser) {
             const G = hole.geyser;
             const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp; // gentle drift
             const baseY = groundYAt(gx);                                                // follow ground
             const dx = Math.abs(disc.x - gx);
-            const xFall = Math.exp(-0.5 * (dx*dx) / (G.rx*G.rx));                        // Gaussian radial falloff
+            const xFall = Math.exp(-0.5 * (dx*dx) / (G.rx*G.rx));                        // radial falloff
             const yRatio = clamp((baseY - disc.y) / G.height, 0, 1);                     // stronger higher up
             const profile = xFall * yRatio;
-            if(profile > 0){
-              const turb = 0.06 * Math.sin(clock*18 + (disc.x+disc.y)*0.02 + (G.seed & 1023)); // tiny turbulence wiggle
-              geyMul = 1 + G.strength * profile * (1 + turb);                                   // up to +60% at core
+
+            if (profile > 0) {
+              const turb = 0.06 * Math.sin(clock*18 + (disc.x+disc.y)*0.02 + (G.seed & 1023)); // tiny wiggle
+              const boost = G.strength * profile * (1 + turb);                                  // up to +60%
+              // Pure updraft term: always upward, scales with speed and |AoA| (plus tiny baseline)
+              const updraft = 0.00450 * currentDisc.glide * v*v * (Math.abs(aoa) + 0.08) * boost;
+              lift += updraft;
             }
           }
-
-          const lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul * geyMul;
 
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
@@ -1304,54 +1306,6 @@
       }
     }
 
-    // ===== Wind Geyser rendering (subtle vertical plume) =====
-    function drawGeyser(){
-      if(!hole?.geyser) return;
-      const G = hole.geyser;
-      const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
-      const cx = gx - view.x;
-      const baseY = groundYAt(gx) - view.y;
-      const topY = baseY - G.height;
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-
-      // Soft core ellipse column
-      ctx.beginPath();
-      ctx.ellipse(cx, (topY+baseY)/2, G.rx, G.height/2, 0, 0, Math.PI*2);
-      const grad = ctx.createLinearGradient(0, topY, 0, baseY);
-      grad.addColorStop(0.00, 'rgba(73,208,255,0.06)');
-      grad.addColorStop(0.70, 'rgba(134,239,172,0.05)');
-      grad.addColorStop(1.00, 'rgba(73,208,255,0.02)');
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      // Rising filaments
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-      const fil = 5;
-      for(let i=0;i<fil;i++){
-        const t = (i/(fil-1) - 0.5) * 1.2;
-        const wig = Math.sin(clock*1.6 + i*0.8)*3;
-        const x = cx + t*G.rx*0.9 + wig;
-        ctx.beginPath();
-        ctx.moveTo(x, baseY);
-        ctx.lineTo(x, topY + 10 + Math.sin(clock*1.1 + i)*8);
-        ctx.stroke();
-      }
-
-      // Soft halo near the base
-      const halo = ctx.createRadialGradient(cx, baseY-6, 2, cx, baseY-6, G.rx*1.2);
-      halo.addColorStop(0,'rgba(255,255,255,0.10)');
-      halo.addColorStop(1,'rgba(255,255,255,0.00)');
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(cx, baseY-6, G.rx*1.2, 0, Math.PI*2);
-      ctx.fill();
-
-      ctx.restore();
-    }
-
     // ===== Background windmills =====
     function drawWindmills(){
       if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
@@ -1455,6 +1409,56 @@
       }
     }
 
+    // ===== Geyser visual =====
+    function drawGeyser(){
+      if(!hole?.geyser) return;
+      const G = hole.geyser;
+      const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
+      const gy = groundYAt(gx);
+
+      const sx = gx - view.x;
+      const sy = gy - view.y;
+
+      ctx.save();
+      ctx.translate(sx, sy);
+
+      // Base glow ellipse
+      ctx.fillStyle = 'rgba(73,208,255,0.10)'; // ~ --accent2
+      ctx.beginPath(); ctx.ellipse(0, 2, G.rx, 10, 0, 0, TAU); ctx.fill();
+
+      // Rising soft puffs
+      const H = G.height * 0.85;
+      const N = 9;
+      for(let i=0;i<N;i++){
+        const t = i/(N-1);
+        const y = -t*H + Math.sin(clock*2.2 + t*6.0 + (G.seed&255))*2;
+        const w = G.rx*(1 - 0.18*t);
+        const h = 10 + 6*(1 - t);
+        ctx.globalAlpha = 0.12 * (1 - t) + 0.04;
+        ctx.beginPath(); ctx.ellipse(0, y, w, h, 0, 0, TAU); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Subtle shimmer lines
+      ctx.strokeStyle = 'rgba(73,208,255,0.08)';
+      ctx.lineWidth = 1;
+      const lines = 6;
+      for(let k=0;k<lines;k++){
+        const phase = (k/lines)*TAU + (G.seed%100)/50;
+        ctx.beginPath(); let started=false;
+        for(let s=0; s<=20; s++){
+          const t = s/20;
+          const y = -t*H + Math.sin(clock*1.6 + t*6 + phase)*4;
+          const r = G.rx*(1 - 0.25*t) * (0.75 + 0.25*Math.sin(t*8 + phase));
+          const x = Math.sin(t*3 + phase)*r*0.06;
+          if(!started){ ctx.moveTo(x, y); started=true; } else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
     // ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -1475,7 +1479,9 @@
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
 
       drawGrass();
-      drawGeyser(); // <— render subtle updraft column over terrain
+
+      // Draw geyser plume above ground/grass but behind scenery/disc
+      drawGeyser();
 
       for(const s of hole.sands){ drawBunkerHole(s); }
 
