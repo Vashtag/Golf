@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Disc Golf</title>
+<title>Dusk Drive — Disc Golf (valley-driven water & sand)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -226,6 +226,35 @@
     let windLift = 0;             // -1 .. +1 (down .. up)
     const WIND_LIFT_SCALE = 0.50; // ±50% lift modulation at max
 
+    // ===== Persistent Powerups (round-long; applied when balloons pop)
+    const Owned = new Set();
+    const PU = {
+      dragMul:1,         // multiplies dragMag
+      curveMul:1,        // multiplies curveAx
+      spinDecayMul:1,    // multiplies SPIN_DECAY in exponent
+      windScaleMul:1,    // multiplies WIND_LIFT_SCALE
+      sandFricMul:1,     // multiplies sand friction
+      sandPowerMin:0.70, // minimum powerMul when throwing from sand
+      rimHalfBonus:0,    // extra px catch window
+      vyThreshMul:1      // basket catch vy threshold multiplier (<=1 makes easier)
+    };
+    function resetPowerups(){
+      Owned.clear();
+      PU.dragMul=1; PU.curveMul=1; PU.spinDecayMul=1; PU.windScaleMul=1;
+      PU.sandFricMul=1; PU.sandPowerMin=0.70; PU.rimHalfBonus=0; PU.vyThreshMul=1;
+    }
+    function grantRandomPowerup(){
+      const pool = ['airfoil','gyro','wind','sand','chain'].filter(id=>!Owned.has(id));
+      if(!pool.length){ addToast('All powerups acquired'); return; }
+      const id = pool[(Math.random()*pool.length)|0];
+      Owned.add(id);
+      if(id==='airfoil'){ PU.dragMul *= 0.93; addToast('Powerup: Airfoil Polish'); }
+      else if(id==='gyro'){ PU.spinDecayMul *= 0.88; PU.curveMul *= 0.97; addToast('Powerup: Gyro Stabilizer'); }
+      else if(id==='wind'){ PU.windScaleMul *= 0.80; addToast('Powerup: Wind Tamer'); }
+      else if(id==='sand'){ PU.sandFricMul *= 0.90; PU.sandPowerMin = Math.max(PU.sandPowerMin, 0.80); addToast('Powerup: Sand Wedges'); }
+      else if(id==='chain'){ PU.rimHalfBonus = Math.min(3, PU.rimHalfBonus + 2); PU.vyThreshMul *= 0.90; addToast('Powerup: Chain Magnet'); }
+    }
+
     // Release angle / throw style
     let releaseMode = 0;
     function releaseDeg(){ return releaseMode * 15; }
@@ -308,6 +337,10 @@
         particles.push({ type, x, y, vx, vy, life: type==='spark'? 0.25: (type==='sand'?0.5:0.6) });
       }
     }
+
+    // Canvas toasts (minimal)
+    const toasts=[];
+    function addToast(msg){ toasts.push({ msg, t:0, dur:2.2 }); }
 
     // === Biomes (colors + mountain profiles) ===
     const BIOMES = [
@@ -472,7 +505,7 @@
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
     // Scenery
-    let scenery = { trees:[], rocks:[], fences:[], balloons:[] };  /* + balloons */
+    let scenery = { trees:[], rocks:[], fences:[] };
 
     // ===== Procedural hole with variants (now also adds one Wind Geyser) =====
     function genHole(){
@@ -721,8 +754,94 @@
       return false;
     }
 
+    // ===== Balloons (occasional; pop → grant powerup) =====
+    function buildBalloons(){
+      hole.balloons = [];
+      if(Math.random() < 0.55){
+        const count = 1 + (Math.random()<0.5?0:1); // 1 or 2
+        for(let i=0;i<count;i++){
+          const fromLeft = Math.random()<0.5;
+          const x = fromLeft ? -120 - Math.random()*220 : hole.w + 120 + Math.random()*220;
+          const dir = fromLeft ? 1 : -1;
+          hole.balloons.push({
+            x, dir,
+            speed: 32 + Math.random()*38,
+            baseH: 160 + Math.random()*240,
+            r: 18 + Math.random()*6,
+            hue: (Math.random()*360)|0,
+            seed:(Math.random()*1e9)|0,
+            popped:false
+          });
+        }
+      }
+    }
+    function updateBalloons(dt){
+      if(!hole?.balloons) return;
+      for(let i=hole.balloons.length-1;i>=0;i--){
+        const B = hole.balloons[i];
+        B.x += B.dir * B.speed * dt;
+        const cx = B.x;
+        const cy = groundYAt(cx) - (B.baseH + Math.sin(clock*0.9 + (B.seed%1000))*12);
+        // remove if far off world
+        if((B.dir>0 && cx > hole.w + 260) || (B.dir<0 && cx < -260)){ hole.balloons.splice(i,1); continue; }
+        // collision with disc
+        const dx = disc.x - cx, dy = disc.y - cy;
+        if(Math.hypot(dx,dy) < (disc.r + B.r)){
+          spawnParticles('spark', cx, cy, 18);
+          grantRandomPowerup();
+          hole.balloons.splice(i,1);
+        }
+      }
+    }
+    function drawBalloons(){
+      if(!hole?.balloons) return;
+      ctx.save();
+      for(const B of hole.balloons){
+        const cx = B.x - view.x;
+        if(cx < -60 || cx > canvas.width/DPR + 60) continue;
+        const cyWorld = groundYAt(B.x) - (B.baseH + Math.sin(clock*0.9 + (B.seed%1000))*12);
+        const cy = cyWorld - view.y;
+
+        // string
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + B.r - 2);
+        ctx.lineTo(cx, cy + B.r + 22);
+        ctx.stroke();
+
+        // body
+        const col = `hsl(${B.hue},80%,66%)`;
+        ctx.fillStyle = col;
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath(); ctx.ellipse(cx, cy, B.r*0.9, B.r*1.1, 0, 0, TAU); ctx.fill(); ctx.stroke();
+
+        // highlight
+        ctx.globalAlpha = 0.25;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.ellipse(cx - B.r*0.35, cy - B.r*0.25, B.r*0.22, B.r*0.18, 0, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // knot
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.moveTo(cx - 2, cy + B.r*0.8);
+        ctx.lineTo(cx + 2, cy + B.r*0.8);
+        ctx.lineTo(cx,     cy + B.r*0.95);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // ===== Round flow
-    function newRound(){ holeIndex=0; roundData={ holes:[], totalPar:0, totalStrokes:0 }; screenIntro.style.display='none'; screenSummary.style.display='none'; nextHole(); }
+    function newRound(){
+      holeIndex=0;
+      roundData={ holes:[], totalPar:0, totalStrokes:0 };
+      resetPowerups(); // reset persistent round-long powerups
+      screenIntro.style.display='none';
+      screenSummary.style.display='none';
+      nextHole();
+    }
 
     function nextHole(){
       const biome = BIOMES[holeIndex % BIOMES.length];
@@ -732,6 +851,7 @@
       hole = genHole();
 
       buildScenery();
+      buildBalloons();
 
       backdrop.seed = (Math.random()*1e9)|0;
       buildBackdrop();
@@ -794,6 +914,7 @@
       if(!hole || !disc.atRest) return;
       const d = currentDisc;
       const surface = surfaceAt(disc.x); let powerMul = 1.0; if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
+      if(surface === 'sand' && PU.sandPowerMin > powerMul) powerMul = PU.sandPowerMin; // Sand Wedges boost
       const base = 1650;
       const power = (0.25 + 0.75*meter) * d.speed * powerMul;
       const speed = base * power;
@@ -818,49 +939,18 @@
       return a;
     }
 
-    function updateBalloons(dt){
-      if(!scenery.balloons?.length) return;
-
-      // Move / age balloons
-      for(let i=scenery.balloons.length-1; i>=0; i--){
-        const b = scenery.balloons[i];
-        b.x += b.vx * dt;
-        b.time += dt;
-
-        // If popped, fade out then remove
-        if(b.popped){
-          b.life -= dt;
-          if(b.life <= 0){ scenery.balloons.splice(i,1); continue; }
-        } else {
-          // Collision vs disc (circle vs circle) at bobbed position
-          const yBob = b.y + Math.sin(b.time * b.bobSpeed + b.phase) * b.bobAmp;
-          const dx = disc.x - b.x;
-          const dy = disc.y - yBob;
-          const rr = (disc.r + b.r);
-          if(dx*dx + dy*dy <= rr*rr){
-            b.popped = true;
-            b.life = 0.5; // fade duration
-            spawnParticles('spark', b.x, yBob, 14);
-            spawnParticles('dust',  b.x, yBob,  8);
-            if(navigator.vibrate) navigator.vibrate(12);
-          }
-        }
-
-        // Cull if far out of world bounds
-        if(b.x < -260 || b.x > hole.w + 260){
-          scenery.balloons.splice(i,1);
-        }
-      }
-    }
-
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
 
       if(!hole){ return; }
 
+      // toasts lifetime
+      for(let i=toasts.length-1;i>=0;i--){ const T=toasts[i]; T.t+=dt; if(T.t>T.dur) toasts.splice(i,1); }
+
+      // particles
       for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
 
-      // Balloons update (movement + collisions)
+      // balloons
       updateBalloons(dt);
 
       if(!disc.atRest){
@@ -874,13 +964,17 @@
 
           const aoaRaw = normalizeAngle(disc.orient - vAngle);
           const aoa = clamp(aoaRaw + 0.06, -0.6, 0.6);
-          const dragMag = 0.00050 * v * (1 + 0.7*Math.abs(aoa));
+          // Drag with Airfoil Polish (cap >=0.85x)
+          const dragMulEff = Math.max(0.85, PU.dragMul);
+          const dragMag = 0.00050 * v * (1 + 0.7*Math.abs(aoa)) * dragMulEff;
           const dragX = -dragMag * vx;
           const dragY = -dragMag * vy;
 
-          const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * 0.50) : 1);
+          // Global vertical wind (Wind Tamer affects scale; cap >=0.65x)
+          const windScaleEff = 0.50 * Math.max(0.65, PU.windScaleMul);
+          const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * windScaleEff) : 1);
 
-          // ---- Base aero lift (unchanged) ----
+          // ---- Base aero lift ----
           let lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
 
           // ---- Wind Geyser: add pure vertical updraft (always upward) ----
@@ -909,7 +1003,9 @@
           let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
-          const curveAx = 54 * curve * (hand==='RHBH'?1:-1);
+          // Curve acceleration with Gyro Stabilizer (cap >=0.90x)
+          const curveMulEff = Math.max(0.90, PU.curveMul);
+          const curveAx = 54 * curveMulEff * curve * (hand==='RHBH'?1:-1);
 
           const ax = dragX + curveAx;
           const ay = 1500 + dragY - lift;
@@ -917,7 +1013,8 @@
           disc.vx += ax*dt; disc.vy += ay*dt;
           disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          disc.spin *= Math.exp(-0.35*dt);
+          // Spin decay with Gyro Stabilizer
+          disc.spin *= Math.exp(-0.35 * PU.spinDecayMul * dt);
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
@@ -947,6 +1044,9 @@
             } else {
               const rest = SURF[surface]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
+              // slide friction (Sand Wedges reduce sand friction)
+              let fric = SURF[surface]?.fric ?? 740;
+              if(surface==='sand') fric *= PU.sandFricMul;
               disc.vx *= 0.84;
               if(Math.abs(disc.vy) < 120) disc.vy = 0;
               disc.onGround = true;
@@ -969,7 +1069,9 @@
           } else {
             disc.y = gy - disc.r; 
             const surface = surfaceAt(disc.x); 
-            const fric = SURF[surface]?.fric ?? 740; 
+            // slide deceleration (respect powerup sand friction)
+            let fric = SURF[surface]?.fric ?? 740; 
+            if(surface==='sand') fric *= PU.sandFricMul;
             const speed = Math.abs(disc.vx); 
             let dec = fric * 2.1;
             if(surface === 'sand')  dec = fric * 2.6;
@@ -1005,8 +1107,6 @@
       scenery.trees = [];
       scenery.rocks = [];
       scenery.fences = [];
-      scenery.balloons = []; // reset balloons per hole
-
       const rng = (i)=>rand01(backdrop.seed, 2000+i);
       const countTrees = 24 + Math.floor(rng(1)*18);
       const avoid = [
@@ -1078,31 +1178,6 @@
       if(Math.random() < 0.45){
         addFence(hole.cupX - (260+Math.random()*120), hole.cupX - 80);
       }
-
-      // ---- Balloons (optional; not every hole) ----
-      (function addBalloons(){
-        const appear = Math.random() < 0.6; // 60% chance to spawn on this hole
-        if(!appear) return;
-        const count = 1 + Math.floor(Math.random()*2); // 1–2 balloons
-        const palette = ['#ff5a6b','#ffd166','#8bd3ff','#50e3c2','#ff8a3d'];
-        for(let i=0;i<count;i++){
-          const dir = Math.random() < 0.5 ? -1 : 1;
-          const startX = dir < 0 ? hole.w + 120 + Math.random()*180 : -120 - Math.random()*180;
-          const probeX = lerp(hole.tee.x+260, hole.cupX-260, Math.random());
-          const baseY = groundYAt(probeX);
-          const y = Math.max(120, baseY - (240 + Math.random()*220));
-          const speed = (20 + Math.random()*40) * dir;
-          const r = 14 + Math.random()*6;
-          const color = palette[(Math.random()*palette.length)|0];
-          scenery.balloons.push({
-            x:startX, y, vx:speed, r, color,
-            bobAmp: 8 + Math.random()*6,
-            bobSpeed: 0.8 + Math.random()*0.6,
-            phase: Math.random()*TAU,
-            popped:false, life:0.0, time:0.0
-          });
-        }
-      })();
     }
 
     function drawScenery(){
@@ -1524,56 +1599,6 @@
       ctx.restore();
     }
 
-    // ---- Balloons (draw) ----
-    function drawBalloons(){
-      if(!scenery.balloons?.length) return;
-      for(const b of scenery.balloons){
-        const yBob = b.y + Math.sin(b.time * b.bobSpeed + b.phase) * b.bobAmp;
-        const sx = b.x - view.x;
-        const sy = yBob - view.y;
-        if(sx < -60 || sx > canvas.width/DPR + 60 || sy < -80 || sy > canvas.height/DPR + 80) continue;
-
-        const alpha = b.popped ? Math.max(0, b.life/0.5) : 1.0;
-
-        ctx.save();
-        ctx.globalAlpha = alpha;
-
-        // string
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy + b.r*0.8);
-        ctx.quadraticCurveTo(sx + 6*Math.sin((b.time+b.phase)*2.0), sy + b.r*1.8, sx + 2, sy + b.r*2.8);
-        ctx.stroke();
-
-        // body
-        ctx.fillStyle = b.color;
-        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.ellipse(sx, sy, b.r, b.r*1.25, 0, 0, TAU);
-        ctx.fill(); ctx.stroke();
-
-        // knot
-        ctx.beginPath();
-        ctx.moveTo(sx-2, sy + b.r*1.1);
-        ctx.lineTo(sx+2, sy + b.r*1.1);
-        ctx.lineTo(sx,   sy + b.r*1.4);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fill();
-
-        // highlight
-        ctx.globalAlpha = alpha * 0.45;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.ellipse(sx - b.r*0.35, sy - b.r*0.50, b.r*0.30, b.r*0.22, 0, 0, TAU);
-        ctx.fill();
-
-        ctx.restore();
-      }
-    }
-
     // ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -1582,7 +1607,7 @@
       drawClouds();
       drawMountains();
 
-      if(!hole){ drawVignette(); return; }
+      if(!hole){ drawVignette(); drawToasts(); return; }
 
       drawWindmills();
       drawWaterBodies();
@@ -1600,10 +1625,11 @@
 
       for(const s of hole.sands){ drawBunkerHole(s); }
 
-      // Balloons behind trees/disc for a nice layered look
+      drawScenery();
+
+      // Balloons above scenery but behind disc
       drawBalloons();
 
-      drawScenery();
       drawBasket();
 
       for(const p of particles){
@@ -1620,6 +1646,7 @@
       if(aiming){ drawAimArrow(); }
 
       drawVignette();
+      drawToasts();
     }
 
     function drawSkyGradient(){
@@ -1859,14 +1886,42 @@
       const x = disc.x, y = disc.y, vy = disc.vy;
       const rimY = groundYAt(hole.cupX) - 46;
       const cageTop = groundYAt(hole.cupX) - 24;
-      const rimHalf = 14;
-      if(vy > 30 && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf){
+      const rimHalf = 14 + Math.min(3, PU.rimHalfBonus); // Chain Magnet widening
+      if(vy > 30 * PU.vyThreshMul && y > rimY-6 && y < cageTop+6 && Math.abs(x - hole.cupX) < rimHalf){
         return true;
       }
       return false;
     }
 
     function drawVignette(){ const w = canvas.width/DPR, h = canvas.height/DPR; const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.35)'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h); }
+
+    function drawToasts(){
+      if(!toasts.length) return;
+      ctx.save();
+      ctx.scale(DPR, DPR);
+      const w = canvas.width / DPR;
+      const y0 = 48;
+      ctx.font = '600 14px system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial';
+      ctx.textAlign = 'center';
+      for(let i=0;i<toasts.length;i++){
+        const T = toasts[i];
+        const alpha = Math.max(0, 1 - (T.t / T.dur));
+        const text = T.msg;
+        const padX = 14, padY = 8, th = 28;
+        const tw = Math.ceil(ctx.measureText(text).width) + padX*2;
+        const x = w/2, y = y0 + i*(th+8);
+        ctx.globalAlpha = 0.65 * alpha;
+        roundedRect(ctx, x - tw/2, y - th/2, tw, th, 10);
+        ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.stroke();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#e6edf3';
+        ctx.fillText(text, x, y + 4);
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+    function roundedRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
     // ===== Resize
     function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; buildBackdrop(); }
