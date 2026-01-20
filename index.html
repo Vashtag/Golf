@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Disc Golf (valley-driven water & sand)</title>
+<title>Dusk Drive — Disc Golf</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -472,7 +472,7 @@
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
     // Scenery
-    let scenery = { trees:[], rocks:[], fences:[] };
+    let scenery = { trees:[], rocks:[], fences:[], balloons:[] };  /* + balloons */
 
     // ===== Procedural hole with variants (now also adds one Wind Geyser) =====
     function genHole(){
@@ -818,12 +818,50 @@
       return a;
     }
 
+    function updateBalloons(dt){
+      if(!scenery.balloons?.length) return;
+
+      // Move / age balloons
+      for(let i=scenery.balloons.length-1; i>=0; i--){
+        const b = scenery.balloons[i];
+        b.x += b.vx * dt;
+        b.time += dt;
+
+        // If popped, fade out then remove
+        if(b.popped){
+          b.life -= dt;
+          if(b.life <= 0){ scenery.balloons.splice(i,1); continue; }
+        } else {
+          // Collision vs disc (circle vs circle) at bobbed position
+          const yBob = b.y + Math.sin(b.time * b.bobSpeed + b.phase) * b.bobAmp;
+          const dx = disc.x - b.x;
+          const dy = disc.y - yBob;
+          const rr = (disc.r + b.r);
+          if(dx*dx + dy*dy <= rr*rr){
+            b.popped = true;
+            b.life = 0.5; // fade duration
+            spawnParticles('spark', b.x, yBob, 14);
+            spawnParticles('dust',  b.x, yBob,  8);
+            if(navigator.vibrate) navigator.vibrate(12);
+          }
+        }
+
+        // Cull if far out of world bounds
+        if(b.x < -260 || b.x > hole.w + 260){
+          scenery.balloons.splice(i,1);
+        }
+      }
+    }
+
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
 
       if(!hole){ return; }
 
       for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life -= dt; if(p.life<=0){ particles.splice(i,1); continue; } p.vy += 1200*dt; p.vx*= (1-0.4*dt); p.vy*=(1-0.06*dt); p.x += p.vx*dt; p.y += p.vy*dt; }
+
+      // Balloons update (movement + collisions)
+      updateBalloons(dt);
 
       if(!disc.atRest){
         if(!disc.onGround){
@@ -967,6 +1005,8 @@
       scenery.trees = [];
       scenery.rocks = [];
       scenery.fences = [];
+      scenery.balloons = []; // reset balloons per hole
+
       const rng = (i)=>rand01(backdrop.seed, 2000+i);
       const countTrees = 24 + Math.floor(rng(1)*18);
       const avoid = [
@@ -1038,6 +1078,31 @@
       if(Math.random() < 0.45){
         addFence(hole.cupX - (260+Math.random()*120), hole.cupX - 80);
       }
+
+      // ---- Balloons (optional; not every hole) ----
+      (function addBalloons(){
+        const appear = Math.random() < 0.6; // 60% chance to spawn on this hole
+        if(!appear) return;
+        const count = 1 + Math.floor(Math.random()*2); // 1–2 balloons
+        const palette = ['#ff5a6b','#ffd166','#8bd3ff','#50e3c2','#ff8a3d'];
+        for(let i=0;i<count;i++){
+          const dir = Math.random() < 0.5 ? -1 : 1;
+          const startX = dir < 0 ? hole.w + 120 + Math.random()*180 : -120 - Math.random()*180;
+          const probeX = lerp(hole.tee.x+260, hole.cupX-260, Math.random());
+          const baseY = groundYAt(probeX);
+          const y = Math.max(120, baseY - (240 + Math.random()*220));
+          const speed = (20 + Math.random()*40) * dir;
+          const r = 14 + Math.random()*6;
+          const color = palette[(Math.random()*palette.length)|0];
+          scenery.balloons.push({
+            x:startX, y, vx:speed, r, color,
+            bobAmp: 8 + Math.random()*6,
+            bobSpeed: 0.8 + Math.random()*0.6,
+            phase: Math.random()*TAU,
+            popped:false, life:0.0, time:0.0
+          });
+        }
+      })();
     }
 
     function drawScenery(){
@@ -1459,6 +1524,56 @@
       ctx.restore();
     }
 
+    // ---- Balloons (draw) ----
+    function drawBalloons(){
+      if(!scenery.balloons?.length) return;
+      for(const b of scenery.balloons){
+        const yBob = b.y + Math.sin(b.time * b.bobSpeed + b.phase) * b.bobAmp;
+        const sx = b.x - view.x;
+        const sy = yBob - view.y;
+        if(sx < -60 || sx > canvas.width/DPR + 60 || sy < -80 || sy > canvas.height/DPR + 80) continue;
+
+        const alpha = b.popped ? Math.max(0, b.life/0.5) : 1.0;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // string
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + b.r*0.8);
+        ctx.quadraticCurveTo(sx + 6*Math.sin((b.time+b.phase)*2.0), sy + b.r*1.8, sx + 2, sy + b.r*2.8);
+        ctx.stroke();
+
+        // body
+        ctx.fillStyle = b.color;
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, b.r, b.r*1.25, 0, 0, TAU);
+        ctx.fill(); ctx.stroke();
+
+        // knot
+        ctx.beginPath();
+        ctx.moveTo(sx-2, sy + b.r*1.1);
+        ctx.lineTo(sx+2, sy + b.r*1.1);
+        ctx.lineTo(sx,   sy + b.r*1.4);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fill();
+
+        // highlight
+        ctx.globalAlpha = alpha * 0.45;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(sx - b.r*0.35, sy - b.r*0.50, b.r*0.30, b.r*0.22, 0, 0, TAU);
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
     // ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -1484,6 +1599,9 @@
       drawGeyser();
 
       for(const s of hole.sands){ drawBunkerHole(s); }
+
+      // Balloons behind trees/disc for a nice layered look
+      drawBalloons();
 
       drawScenery();
       drawBasket();
