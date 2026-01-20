@@ -20,7 +20,6 @@
 
   /* HUD */
   .hud{position:fixed;inset:0;pointer-events:none}
-  /* Make buttons inside HUD clickable despite parent blocking events */
   .hud .btn{pointer-events:auto}
 
   .row{display:flex;gap:.5rem;align-items:center}
@@ -192,7 +191,7 @@
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
-    // OPTIM: cached styles/gradients/sprites
+    // OPTIM: cached styles/gradients
     const cached = {
       skyGradient: null,
       colors: { accent:'#ff8a3d', accent2:'#49d0ff', accent3:'#86efac', water:'#30160f', fg:'#050607' }
@@ -206,7 +205,7 @@
       cached.colors.fg      = root.getPropertyValue('--fg').trim()      || '#050607';
     }
     function rebuildSkyGradient(){
-      const w = canvas.width / DPR, h = canvas.height / DPR;
+      const h = canvas.height / DPR;
       const cs = getComputedStyle(document.documentElement);
       const g = ctx.createLinearGradient(0,0,0,h);
       g.addColorStop(0,    cs.getPropertyValue('--bg3').trim());
@@ -219,11 +218,9 @@
     let reducedMotion = false;
     let frameEMA = 1/60; // seconds
     function qualityScale(){
-      // Lower is heavier quality; we return [0.6..1.0]
       let q = reducedMotion ? 0.6 : 1.0;
-      // If rendering is slow, bias down
-      if(frameEMA > 0.028) q = Math.min(q, 0.6);   // ~ <35 fps
-      else if(frameEMA > 0.022) q = Math.min(q, 0.75); // ~ <45 fps
+      if(frameEMA > 0.028) q = Math.min(q, 0.6);
+      else if(frameEMA > 0.022) q = Math.min(q, 0.75);
       return q;
     }
 
@@ -246,14 +243,8 @@
 
     // ==== DISC PHYSICS ====
     const GRAV = 1500;
-    const AIR_DRAG = 0.00050;
-    const LIFT_K   = 0.00450;
-    const TURN_K   = 54;
-    const VREF     = 1600;
-    const CAMBER   = 0.06;
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
-    const SPIN_DECAY = 0.35;
 
     // ===== Vertical wind (lift only)
     let windOn = true;
@@ -294,9 +285,10 @@
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
     const ease = (t)=>t*t*(3-2*t);
+    function normalizeAngle(a){ while(a > Math.PI) a -= TAU; while(a < -Math.PI) a += TAU; return a; }
 
-    // ===== Ambient Audio (minimal hum + wind) with context suspend/resume
-    const AudioMini = (()=>{ let ctx=null, windNode=null, masterGain=null; let enabled=false; let inited=false;
+    // ===== Ambient Audio (hum + wind) with context suspend/resume
+    const AudioMini = (()=>{ let ctx=null, windNode=null, masterGain=null; let inited=false;
       function init(){ if(inited) return;
         ctx = new (window.AudioContext||window.webkitAudioContext)();
         masterGain = ctx.createGain(); masterGain.gain.value=0.18; masterGain.connect(ctx.destination);
@@ -311,7 +303,6 @@
         windNode = wg; inited=true; if(!windOn) wg.gain.value=0.0;
       }
       async function setEnabled(on){
-        enabled = !!on;
         if(on){
           init();
           try{ if(ctx.state==='suspended') await ctx.resume(); }catch{}
@@ -446,7 +437,7 @@
     const backdrop = {
       seed:(Math.random()*1e9)|0,
       mountains:[],
-      mountainsImg:[], // OPTIM: offscreen canvases per layer
+      mountainsImg:[], // offscreen canvases per layer
       sun:null,
       clouds:[],
       cloudDir:1,
@@ -492,7 +483,7 @@
       // Windmills
       buildWindmills();
 
-      // OPTIM: pre-render mountain layers
+      // pre-render mountain layers
       rebuildMountainsOffscreen();
     }
 
@@ -514,13 +505,10 @@
       }
     }
 
-    // OPTIM: prerender a fluffy cloud sprite per cloud (seed+scale)
+    // prerender a fluffy cloud sprite per cloud (seed+scale)
     function makeCloudSprite(C){
       const cvs = document.createElement('canvas');
       const cctx = cvs.getContext('2d');
-      // Bound sizes: estimate puff extents
-      const baseR = 28 * C.scale;
-      const puffCount = 4 + Math.floor(rand01(C.seed,11)*4);
       const width  = Math.ceil(240 * C.scale);
       const height = Math.ceil(120 * C.scale);
       cvs.width = width; cvs.height = height;
@@ -529,6 +517,8 @@
       cctx.globalCompositeOperation = 'lighter';
       cctx.globalAlpha = C.alpha;
 
+      const baseR = 28 * C.scale;
+      const puffCount = 4 + Math.floor(rand01(C.seed,11)*4);
       for(let i=0;i<puffCount;i++){
         const r  = (baseR + rand01(C.seed,20+i)*22*C.scale);
         const ox = (i - (puffCount-1)/2) * (r*0.9) + (rand01(C.seed,30+i)-0.5)*r*0.3;
@@ -540,7 +530,7 @@
         cctx.fillStyle = g; cctx.beginPath(); cctx.arc(px, py, r*1.3, 0, TAU); cctx.fill();
       }
 
-      // Subtle core
+      // Subtle core + shadow
       cctx.globalAlpha = C.alpha;
       const coreR = Math.min(width, height) * 0.28;
       const core = cctx.createRadialGradient(cx, cy, coreR*0.1, cx, cy, coreR);
@@ -548,7 +538,6 @@
       core.addColorStop(1,'rgba(255,255,255,0.00)');
       cctx.fillStyle = core; cctx.beginPath(); cctx.arc(cx, cy, coreR, 0, TAU); cctx.fill();
 
-      // Shadow under
       const sh = cctx.createRadialGradient(cx + coreR*0.1, cy + coreR*0.4, coreR*0.15, cx + coreR*0.1, cy + coreR*0.4, coreR*1.1);
       sh.addColorStop(0, 'rgba(0,0,0,0.06)'); sh.addColorStop(1, 'rgba(0,0,0,0.00)');
       cctx.fillStyle = sh; cctx.beginPath(); cctx.arc(cx + coreR*0.1, cy + coreR*0.4, coreR*1.1, 0, TAU); cctx.fill();
@@ -589,7 +578,6 @@
       return y;
     }
 
-    // OPTIM: prerender mountain layers on an offscreen canvas
     function rebuildMountainsOffscreen(){
       backdrop.mountainsImg = [];
       const w = WORLD.w, h = WORLD.h;
@@ -623,7 +611,7 @@
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[] };
 
-    // ===== Procedural hole with variants (unchanged core)
+    // ===== Procedural hole (unchanged core)
     function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
@@ -766,9 +754,6 @@
       })();
 
       const sands=[];
-      function basinBlockedByWater(b){
-        return waters.some(W => !(b.x1 < W.x || b.x0 > (W.x + W.w)));
-      }
       function placeBunkerFromBasin(b, sizeScale=0.35){
         let cx = clamp(b.cx, 80, w-80);
         for(const ww of waters){
@@ -807,10 +792,9 @@
       const dist = (cupX - teeX);
       let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
 
-      // Prepare hole object
       const result = {
         w, h, points, step, cupX,
-        green:{x0:gx0,x1:gx1,y:greenY},
+        green:{x0:gx0,x1:gx1,y:0},
         waters,
         sands,
         roughs,
@@ -866,11 +850,11 @@
       return false;
     }
 
-    // ===== Balloons (occasional; pop → grant powerup)
+    // ===== Balloons
     function buildBalloons(){
       hole.balloons = [];
       if(Math.random() < 0.55){
-        const count = 1 + (Math.random()<0.5?0:1); // 1 or 2
+        const count = 1 + (Math.random()<0.5?0:1);
         for(let i=0;i<count;i++){
           const fromLeft = Math.random()<0.5;
           const x = fromLeft ? -120 - Math.random()*220 : hole.w + 120 + Math.random()*220;
@@ -894,9 +878,7 @@
         B.x += B.dir * B.speed * dt;
         const cx = B.x;
         const cy = groundYAt(cx) - (B.baseH + Math.sin(clock*0.9 + (B.seed%1000))*12);
-        // remove if far off world
         if((B.dir>0 && cx > hole.w + 260) || (B.dir<0 && cx < -260)){ hole.balloons.splice(i,1); continue; }
-        // collision with disc
         const dx = disc.x - cx, dy = disc.y - cy;
         if(Math.hypot(dx,dy) < (disc.r + B.r)){
           spawnParticles('spark', cx, cy, 18);
@@ -914,7 +896,6 @@
         const cyWorld = groundYAt(B.x) - (B.baseH + Math.sin(clock*0.9 + (B.seed%1000))*12);
         const cy = cyWorld - view.y;
 
-        // string
         ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -922,19 +903,16 @@
         ctx.lineTo(cx, cy + B.r + 22);
         ctx.stroke();
 
-        // body
         const col = `hsl(${B.hue},80%,66%)`;
         ctx.fillStyle = col;
         ctx.strokeStyle = 'rgba(0,0,0,0.35)';
         ctx.beginPath(); ctx.ellipse(cx, cy, B.r*0.9, B.r*1.1, 0, 0, TAU); ctx.fill(); ctx.stroke();
 
-        // highlight
         ctx.globalAlpha = 0.25;
         ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.ellipse(cx - B.r*0.35, cy - B.r*0.25, B.r*0.22, B.r*0.18, 0, 0, TAU); ctx.fill();
         ctx.globalAlpha = 1;
 
-        // knot
         ctx.fillStyle = col;
         ctx.beginPath();
         ctx.moveTo(cx - 2, cy + B.r*0.8);
@@ -1004,7 +982,6 @@
     spinSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; releaseMode = parseInt(btn.dataset.spin,10); [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); localStorage.setItem('releaseMode', String(releaseMode)); });
     handSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; hand = btn.dataset.hand; [...handSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); localStorage.setItem('hand', hand); });
 
-    // restore release/hand prefs
     (function restoreControls(){
       const rm = parseInt(localStorage.getItem('releaseMode')||'0',10);
       if([-1,0,1].includes(rm)){ releaseMode = rm; [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', parseInt(b.dataset.spin,10)===rm?'true':'false')); }
@@ -1065,13 +1042,7 @@
       Sfx.playThrow();
     }
 
-    // ===== Physics update
-    function normalizeAngle(a){
-      while(a > Math.PI) a -= TAU;
-      while(a < -Math.PI) a += TAU;
-      return a;
-    }
-
+    // ===== Physics update (includes FIX: curve as heading rotation)
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
 
@@ -1134,15 +1105,27 @@
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
           const curveMulEff = Math.max(0.90, PU.curveMul);
-          const curveAx = 54 * curveMulEff * curve * (hand==='RHBH'?1:-1);
+          const side = (hand==='RHBH'?1:-1);
 
-          const ax = dragX + curveAx;
+          // 1) Integrate forces without curve "push"
+          const ax = dragX;
           const ay = 1500 + dragY - lift;
-
           disc.vx += ax*dt; disc.vy += ay*dt;
-          disc.x  += disc.vx*dt; disc.y  += disc.vy*dt;
 
-          // Spin decay
+          // 2) Apply heading rotation to simulate turn/fade  (FIX)
+          const curveRate = 54 * curveMulEff * curve * side;   // similar scale as before
+          const speedNow = Math.hypot(disc.vx, disc.vy);
+          if (speedNow > 1e-3) {
+            const dTheta = (curveRate / speedNow) * dt;
+            if (dTheta) {
+              const cosT = Math.cos(dTheta), sinT = Math.sin(dTheta);
+              const vx0 = disc.vx, vy0 = disc.vy;
+              disc.vx = vx0 * cosT - vy0 * sinT;
+              disc.vy = vx0 * sinT + vy0 * cosT;
+            }
+          }
+
+          // Spin decay and bank relax
           disc.spin *= Math.exp(-0.35 * PU.spinDecayMul * dt);
           const bankRelax = 0.2 + 0.9*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
@@ -1173,7 +1156,6 @@
             } else {
               const rest = SURF[surface]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
-              // slide friction
               let fric = SURF[surface]?.fric ?? 740;
               if(surface==='sand') fric *= PU.sandFricMul;
               disc.vx *= 0.84;
@@ -1230,7 +1212,7 @@
       view.y = clamp(groundYAt(disc.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
-    // ===== Scenery (trees, rocks, fences)
+    // ===== Scenery
     function buildScenery(){
       scenery.trees = [];
       scenery.rocks = [];
@@ -1366,7 +1348,6 @@
       function xMax(){ return canvas.width/DPR+60; }
     }
 
-    // ===== Stable fences
     function drawFences(){
       if(!scenery.fences.length) return;
       ctx.save();
@@ -1468,7 +1449,7 @@
       }
     }
 
-    // ===== Water rendering (step reduced under low quality)
+    // ===== Water rendering
     function drawWaterBodies(){
       if(!hole || !hole.waters?.length) return;
       for(const W of hole.waters){ drawWater(W); }
@@ -1499,8 +1480,7 @@
       const q = qualityScale();
       const rippleA = { freq: 0.035, amp: 1.3, speed: 1.6 };
       const rippleB = { freq: 0.070, amp: 0.9,  speed: -1.2 };
-      const baseStep = 14;
-      const step = (q < 0.9 ? 18 : baseStep);
+      const step = (q < 0.9 ? 18 : 14);
       ctx.lineWidth = 1;
 
       ctx.strokeStyle = 'rgba(255,255,255,0.09)';
@@ -1678,7 +1658,6 @@
       }
     }
 
-    // OPTIM: pre-rendered mountains draw
     function drawMountains(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       for(let idx=0; idx<backdrop.mountains.length; idx++){
@@ -1706,11 +1685,9 @@
       ctx.save();
       ctx.translate(sx, sy);
 
-      // Base glow ellipse
-      ctx.fillStyle = 'rgba(73,208,255,0.10)'; // ~ --accent2
+      ctx.fillStyle = 'rgba(73,208,255,0.10)';
       ctx.beginPath(); ctx.ellipse(0, 2, G.rx, 10, 0, 0, TAU); ctx.fill();
 
-      // Rising soft puffs
       const H = G.height * 0.85;
       const N = 9;
       for(let i=0;i<N;i++){
@@ -1723,7 +1700,6 @@
       }
       ctx.globalAlpha = 1;
 
-      // Subtle shimmer lines
       ctx.strokeStyle = 'rgba(73,208,255,0.08)';
       ctx.lineWidth = 1;
       const lines = 6;
@@ -1763,17 +1739,12 @@
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
 
       drawGrass();
-
-      // Draw geyser plume above ground/grass but behind scenery/disc
       drawGeyser();
 
       for(const s of hole.sands){ drawBunkerHole(s); }
 
       drawScenery();
-
-      // Balloons above scenery but behind disc
       drawBalloons();
-
       drawBasket();
 
       for(const p of particles){
@@ -1823,7 +1794,6 @@
       ctx.restore();
     }
 
-    // OPTIM: draw cloud sprites
     function drawClouds(){
       const w = canvas.width / DPR;
       const span = WORLD.w;
@@ -1847,7 +1817,7 @@
     function drawGrass(){
       if(!hole){ return; }
       const q = qualityScale();
-      const density = Math.max(1, Math.round(3 * q)); // lowered under reduced motion/slow frames
+      const density = Math.max(1, Math.round(3 * q));
       ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
       const start = Math.floor((view.x-40)/GRASS_STEP)*GRASS_STEP; const end = view.x + view.w + 40;
       for(let wx=start; wx<end; wx+=GRASS_STEP){
@@ -2037,10 +2007,8 @@
       const now=t/1000;
       let frameDT = Math.min(0.05, last? now-last: 0.016);
       last=now;
-      // frame time EMA for quality scaling
       frameEMA = frameEMA*0.9 + frameDT*0.1;
       acc += frameDT;
-      // Avoid spiral of death
       const maxSteps = 5;
       let steps = 0;
       while(acc >= FIXED_DT && steps++ < maxSteps){
@@ -2071,7 +2039,6 @@
 
     // Persisted toggles
     const prefKeys = { reduced:'prefReduced', audio:'prefAudio', wind:'prefWind' };
-    // restore
     (function restorePrefs(){
       const r = localStorage.getItem(prefKeys.reduced); if(r!==null) chkReduced.checked = (r==='1');
       const a = localStorage.getItem(prefKeys.audio);   if(a!==null) chkAudio.checked   = (a==='1');
@@ -2096,3 +2063,4 @@
 </script>
 </body>
 </html>
+``
