@@ -19,7 +19,6 @@
 
   /* HUD */
   .hud{position:fixed;inset:0;pointer-events:none}
-  /* Make buttons inside HUD clickable despite parent blocking events */
   .hud .btn{pointer-events:auto}
 
   .row{display:flex;gap:.5rem;align-items:center}
@@ -30,6 +29,18 @@
   .wind{gap:.4rem}
   .wind .arrow{width:14px;height:14px;transform-origin:center;display:inline-block}
   .wind .arrow::before{content:"";display:block;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid var(--accent2);transform:translateY(-2px)}
+
+  /* NEW: powerups chip */
+  .chip.pu{gap:.5rem}
+  .pu-row{display:flex;gap:.35rem;align-items:center}
+  .pu-icon{
+    width:22px;height:22px;border-radius:6px;
+    display:grid;place-items:center;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.12);
+    font-size:.72rem;font-weight:800;letter-spacing:.2px;color:#e6edf3;
+    user-select:none
+  }
 
   .bottombar{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding:.7rem}
   .panel{pointer-events:auto;background:var(--panel);backdrop-filter:blur(var(--panel-blur));border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:.55rem .7rem}
@@ -72,6 +83,13 @@
       </div>
       <div class="row">
         <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
+
+        <!-- NEW: Powerups chip -->
+        <div class="chip pu" id="puChip" style="display:none">
+          <span class="label">Perks</span>
+          <div class="pu-row" id="puRow" aria-label="Active powerups"></div>
+        </div>
+
         <button class="btn" id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
       </div>
     </div>
@@ -176,7 +194,8 @@
     const btnPlayAgain = document.getElementById('btnPlayAgain');
     const btnNewRound = document.getElementById('btnNewRound');
     const btnSettings = document.getElementById('btnSettings');
-    const btnCloseSettings = document.getElementById('btnCloseSettings');
+    theBtnCloseSettings = document.getElementById('btnCloseSettings'); // keep var name stable below
+    const btnCloseSettings = theBtnCloseSettings;
     const chkReduced = document.getElementById('chkReduced');
     const chkAudio = document.getElementById('chkAudio');
     const chkWind = document.getElementById('chkWind');
@@ -185,6 +204,10 @@
     const sumPar = document.getElementById('sumPar');
     const sumScore = document.getElementById('sumScore');
     const holeBreakdown = document.getElementById('holeBreakdown');
+
+    // NEW: Powerups HUD refs
+    const puChip = document.getElementById('puChip');
+    const puRow  = document.getElementById('puRow');
 
     // ===== Game Config & State
     const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
@@ -236,13 +259,42 @@
       sandFricMul:1,     // multiplies sand friction
       sandPowerMin:0.70, // minimum powerMul when throwing from sand
       rimHalfBonus:0,    // extra px catch window
-      vyThreshMul:1      // basket catch vy threshold multiplier (<=1 makes easier)
+      vyThreshMul:1      // basket catch vy threshold multiplier
     };
     function resetPowerups(){
       Owned.clear();
       PU.dragMul=1; PU.curveMul=1; PU.spinDecayMul=1; PU.windScaleMul=1;
       PU.sandFricMul=1; PU.sandPowerMin=0.70; PU.rimHalfBonus=0; PU.vyThreshMul=1;
+      updatePowerupHUD(); // NEW: clear HUD
     }
+
+    // NEW: simple powerup meta for HUD
+    const POWERUP_META = {
+      airfoil:{ short:'AF', name:'Airfoil Polish', hint:'Drag −7% (always on)' },
+      gyro:{    short:'GY', name:'Gyro Stabilizer', hint:'Spin decay −12%, curve accel −3% (always on)' },
+      wind:{    short:'WT', name:'Wind Tamer', hint:'Global vertical wind sensitivity −20% (always on)' },
+      sand:{    short:'SW', name:'Sand Wedges', hint:'Sand friction −10%, sand power min 0.80 (always on)' },
+      chain:{   short:'CM', name:'Chain Magnet', hint:'Basket catch +2 px window (always on)' }
+    };
+
+    function updatePowerupHUD(){
+      if(!puRow || !puChip) return;
+      puRow.innerHTML = '';
+      if(Owned.size === 0){
+        puChip.style.display = 'none';
+        return;
+      }
+      for(const id of Owned){
+        const meta = POWERUP_META[id] || {short:'?', name:id, hint:''};
+        const div = document.createElement('div');
+        div.className = 'pu-icon';
+        div.textContent = meta.short;
+        div.title = `${meta.name} — ${meta.hint}`;
+        puRow.appendChild(div);
+      }
+      puChip.style.display = 'flex';
+    }
+
     function grantRandomPowerup(){
       const pool = ['airfoil','gyro','wind','sand','chain'].filter(id=>!Owned.has(id));
       if(!pool.length){ addToast('All powerups acquired'); return; }
@@ -253,6 +305,7 @@
       else if(id==='wind'){ PU.windScaleMul *= 0.80; addToast('Powerup: Wind Tamer'); }
       else if(id==='sand'){ PU.sandFricMul *= 0.90; PU.sandPowerMin = Math.max(PU.sandPowerMin, 0.80); addToast('Powerup: Sand Wedges'); }
       else if(id==='chain'){ PU.rimHalfBonus = Math.min(3, PU.rimHalfBonus + 2); PU.vyThreshMul *= 0.90; addToast('Powerup: Chain Magnet'); }
+      updatePowerupHUD(); // NEW: reflect in HUD immediately
     }
 
     // Release angle / throw style
@@ -288,44 +341,23 @@
       return { setEnabled, setWind };
     })();
 
-    // ===== SFX: randomized throw & chain samples from /audio =====
+    // ===== SFX
     const Sfx = (()=>{
       let enabled = false;
-      let unlocked = false; // user-gesture gate (iOS/Chrome mobile)
+      let unlocked = false;
       const throws = [];
       const chains = [];
-
-      function make(path, vol=1.0){
-        const a = new Audio(path); a.preload = 'auto'; a.volume = vol; return a;
-      }
-      function preload(){
-        if(throws.length || chains.length) return;
-        for(let i=1;i<=7;i++) throws.push(make(`./audio/throw${i}.mp3`, 0.9));
-        for(let i=1;i<=4;i++) chains.push(make(`./audio/chain${i}.mp3`, 1.0));
-      }
+      function make(path, vol=1.0){ const a = new Audio(path); a.preload = 'auto'; a.volume = vol; return a; }
+      function preload(){ if(throws.length || chains.length) return; for(let i=1;i<=7;i++) throws.push(make(`./audio/throw${i}.mp3`, 0.9)); for(let i=1;i<=4;i++) chains.push(make(`./audio/chain${i}.mp3`, 1.0)); }
       function init(){ preload(); unlocked = true; }
-      function setEnabled(on){
-        enabled = !!on;
-        if(!enabled){
-          [...throws, ...chains].forEach(a=>{ try{ a.pause(); a.currentTime = 0; }catch{} });
-        }
-      }
+      function setEnabled(on){ enabled = !!on; if(!enabled){ [...throws, ...chains].forEach(a=>{ try{ a.pause(); a.currentTime = 0; }catch{} }); } }
       function playFrom(arr, vol=1.0, rateMin=0.98, rateMax=1.02){
         if(!enabled || !unlocked || !arr.length) return;
         const i = (Math.random()*arr.length)|0;
         const srcUrl = arr[i].src || arr[i].currentSrc;
-        const a = new Audio(srcUrl);
-        a.preload = 'auto';
-        a.volume = vol;
-        a.playbackRate = rateMin + Math.random()*(rateMax-rateMin);
-        a.play().catch(()=>{});
+        const a = new Audio(srcUrl); a.preload = 'auto'; a.volume = vol; a.playbackRate = rateMin + Math.random()*(rateMax-rateMin); a.play().catch(()=>{});
       }
-      return {
-        init,
-        setEnabled,
-        playThrow(){ playFrom(throws, 0.9, 0.97, 1.06); },
-        playChain(){ playFrom(chains, 1.0, 0.96, 1.04); }
-      };
+      return { init, setEnabled, playThrow(){ playFrom(throws, 0.9, 0.97, 1.06); }, playChain(){ playFrom(chains, 1.0, 0.96, 1.04); } };
     })();
 
     // Particles
@@ -338,11 +370,11 @@
       }
     }
 
-    // Canvas toasts (minimal)
+    // Toasts
     const toasts=[];
     function addToast(msg){ toasts.push({ msg, t:0, dur:2.2 }); }
 
-    // === Biomes (colors + mountain profiles) ===
+    // === Biomes
     const BIOMES = [
       { name:'dunes',
         sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
@@ -395,16 +427,9 @@
       root.setProperty('--water', biome.sky.water);
     }
 
-    // Backdrop (sun + clouds + mountains)
+    // Backdrop state
     let currentBiome = BIOMES[0];
-    const backdrop = {
-      seed:(Math.random()*1e9)|0,
-      mountains:[],
-      sun:null,
-      clouds:[],
-      cloudDir:1,
-      windmills:[]
-    };
+    const backdrop = { seed:(Math.random()*1e9)|0, mountains:[], sun:null, clouds:[], cloudDir:1, windmills:[] };
 
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
     function mesaWave(x){ const k=2.2; return Math.tanh(Math.sin(x)*k)/Math.tanh(k); }
@@ -507,7 +532,7 @@
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[] };
 
-    // ===== Procedural hole with variants (now also adds one Wind Geyser) =====
+    // ===== Procedural hole (with Wind Geyser) =====
     function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
@@ -539,7 +564,7 @@
         const amp = (Math.random()<0.5? -1:1) * (50 + Math.random()*90);
         for(let i=0;i<points.length;i++){
           const dx = points[i].x - cx;
-          const k = Math.exp(-(dx*dx)/(2*sigma*sigma));
+          const k = Math.exp(-(dx*dx)/(2,sigma*sigma));
           points[i].y += amp * k;
         }
       }
@@ -702,26 +727,19 @@
         par
       };
 
-      // ---- Wind Geyser: exactly one, mid-fairway away from tee/green ----
+      // Wind Geyser
       (function addGeyser(H){
         const leftBound  = H.tee.x + 360;
         const rightBound = H.cupX - 320;
         let span = rightBound - leftBound;
-
-        // Fallback if hole is short
-        if (span < 220){
-          span = Math.max(200, (H.cupX - H.tee.x) - 480);
-        }
+        if (span < 220){ span = Math.max(200, (H.cupX - H.tee.x) - 480); }
         const gx = clamp(leftBound + Math.random()*span, 140, H.w - 140);
-
         H.geyser = {
           x: gx,
-          rx: 90 + Math.random()*50,                    // horizontal radius (~width)
-          height: 340 + Math.random()*220,              // vertical influence height
-          strength: 0.60,                               // up to +60% effective lift boost
-          drift: { amp: 24 + Math.random()*26,
-                   speed: 0.5 + Math.random()*0.7,
-                   phase: Math.random()*TAU },
+          rx: 90 + Math.random()*50,
+          height: 340 + Math.random()*220,
+          strength: 0.60,
+          drift: { amp: 24 + Math.random()*26, speed: 0.5 + Math.random()*0.7, phase: Math.random()*TAU },
           seed: (Math.random()*1e9)|0
         };
       })(result);
@@ -754,7 +772,7 @@
       return false;
     }
 
-    // ===== Balloons (occasional; pop → grant powerup) =====
+    // ===== Balloons (pop → grant powerup) =====
     function buildBalloons(){
       hole.balloons = [];
       if(Math.random() < 0.55){
@@ -782,9 +800,7 @@
         B.x += B.dir * B.speed * dt;
         const cx = B.x;
         const cy = groundYAt(cx) - (B.baseH + Math.sin(clock*0.9 + (B.seed%1000))*12);
-        // remove if far off world
         if((B.dir>0 && cx > hole.w + 260) || (B.dir<0 && cx < -260)){ hole.balloons.splice(i,1); continue; }
-        // collision with disc
         const dx = disc.x - cx, dy = disc.y - cy;
         if(Math.hypot(dx,dy) < (disc.r + B.r)){
           spawnParticles('spark', cx, cy, 18);
@@ -802,7 +818,6 @@
         const cyWorld = groundYAt(B.x) - (B.baseH + Math.sin(clock*0.9 + (B.seed%1000))*12);
         const cy = cyWorld - view.y;
 
-        // string
         ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -810,19 +825,16 @@
         ctx.lineTo(cx, cy + B.r + 22);
         ctx.stroke();
 
-        // body
         const col = `hsl(${B.hue},80%,66%)`;
         ctx.fillStyle = col;
         ctx.strokeStyle = 'rgba(0,0,0,0.35)';
         ctx.beginPath(); ctx.ellipse(cx, cy, B.r*0.9, B.r*1.1, 0, 0, TAU); ctx.fill(); ctx.stroke();
 
-        // highlight
         ctx.globalAlpha = 0.25;
         ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.ellipse(cx - B.r*0.35, cy - B.r*0.25, B.r*0.22, B.r*0.18, 0, 0, TAU); ctx.fill();
         ctx.globalAlpha = 1;
 
-        // knot
         ctx.fillStyle = col;
         ctx.beginPath();
         ctx.moveTo(cx - 2, cy + B.r*0.8);
@@ -837,7 +849,7 @@
     function newRound(){
       holeIndex=0;
       roundData={ holes:[], totalPar:0, totalStrokes:0 };
-      resetPowerups(); // reset persistent round-long powerups
+      resetPowerups(); // resets + clears HUD
       screenIntro.style.display='none';
       screenSummary.style.display='none';
       nextHole();
@@ -863,6 +875,7 @@
       updateWindUI();
 
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
+      updatePowerupHUD(); // ensure HUD persists across holes
       centerCameraOnDisc();
     }
 
@@ -929,7 +942,7 @@
       disc.bank   = (releaseMode * 16) * Math.PI/180;
 
       disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16);
-      Sfx.playThrow(); // randomized throw SFX
+      Sfx.playThrow();
     }
 
     // ===== Physics update
@@ -970,27 +983,25 @@
           const dragX = -dragMag * vx;
           const dragY = -dragMag * vy;
 
-          // Global vertical wind (Wind Tamer affects scale; cap >=0.65x)
+          // Global vertical wind (Wind Tamer; cap >=0.65x)
           const windScaleEff = 0.50 * Math.max(0.65, PU.windScaleMul);
           const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * windScaleEff) : 1);
 
-          // ---- Base aero lift ----
+          // Base aero lift
           let lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
 
-          // ---- Wind Geyser: add pure vertical updraft (always upward) ----
+          // Wind Geyser vertical updraft
           if (hole?.geyser) {
             const G = hole.geyser;
-            const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp; // gentle drift
-            const baseY = groundYAt(gx);                                                // follow ground
+            const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
+            const baseY = groundYAt(gx);
             const dx = Math.abs(disc.x - gx);
-            const xFall = Math.exp(-0.5 * (dx*dx) / (G.rx*G.rx));                        // radial falloff
-            const yRatio = clamp((baseY - disc.y) / G.height, 0, 1);                     // stronger higher up
+            const xFall = Math.exp(-0.5 * (dx*dx) / (G.rx*G.rx));
+            const yRatio = clamp((baseY - disc.y) / G.height, 0, 1);
             const profile = xFall * yRatio;
-
             if (profile > 0) {
-              const turb = 0.06 * Math.sin(clock*18 + (disc.x+disc.y)*0.02 + (G.seed & 1023)); // tiny wiggle
-              const boost = G.strength * profile * (1 + turb);                                  // up to +60%
-              // Pure updraft term: always upward, scales with speed and |AoA| (plus tiny baseline)
+              const turb = 0.06 * Math.sin(clock*18 + (disc.x+disc.y)*0.02 + (G.seed & 1023));
+              const boost = G.strength * profile * (1 + turb);
               const updraft = 0.00450 * currentDisc.glide * v*v * (Math.abs(aoa) + 0.08) * boost;
               lift += updraft;
             }
@@ -1003,7 +1014,6 @@
           let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
           const bankBias = 0.12 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
-          // Curve acceleration with Gyro Stabilizer (cap >=0.90x)
           const curveMulEff = Math.max(0.90, PU.curveMul);
           const curveAx = 54 * curveMulEff * curve * (hand==='RHBH'?1:-1);
 
@@ -1044,7 +1054,6 @@
             } else {
               const rest = SURF[surface]?.rest ?? 0.14;
               disc.vy = -disc.vy * rest;
-              // slide friction (Sand Wedges reduce sand friction)
               let fric = SURF[surface]?.fric ?? 740;
               if(surface==='sand') fric *= PU.sandFricMul;
               disc.vx *= 0.84;
@@ -1054,7 +1063,7 @@
           }
 
           if(checkBasketCatch()){
-            Sfx.playChain(); // randomized chain SFX
+            Sfx.playChain();
             const cupX = hole.cupX;
             const gY = groundYAt(cupX);
             spawnParticles('spark', cupX, gY - 35, 18);
@@ -1069,7 +1078,6 @@
           } else {
             disc.y = gy - disc.r; 
             const surface = surfaceAt(disc.x); 
-            // slide deceleration (respect powerup sand friction)
             let fric = SURF[surface]?.fric ?? 740; 
             if(surface==='sand') fric *= PU.sandFricMul;
             const speed = Math.abs(disc.vx); 
@@ -1102,22 +1110,15 @@
       view.y = clamp(groundYAt(disc.x) - view.h*0.65, 0, WORLD.h - view.h);
     }
 
-    // ===== Scenery (trees, rocks, fences; NO bridges or in-world text) =====
+    // ===== Scenery (trees, rocks, fences)
     function buildScenery(){
-      scenery.trees = [];
-      scenery.rocks = [];
-      scenery.fences = [];
+      scenery.trees = []; scenery.rocks = []; scenery.fences = [];
       const rng = (i)=>rand01(backdrop.seed, 2000+i);
       const countTrees = 24 + Math.floor(rng(1)*18);
-      const avoid = [
-        [hole.green.x0-80, hole.green.x1+80],
-      ];
+      const avoid = [ [hole.green.x0-80, hole.green.x1+80] ];
       for(const w of hole.waters){ avoid.push([w.x-60, w.x+w.w+60]); }
-      function allowedX(x){
-        for(const r of avoid){ if(x>=r[0] && x<=r[1]) return false; }
-        return x>40 && x < hole.w-40;
-      }
-      // Trees
+      function allowedX(x){ for(const r of avoid){ if(x>=r[0] && x<=r[1]) return false; } return x>40 && x < hole.w-40; }
+
       for(let i=0;i<countTrees;i++){
         let x = 80 + rng(10+i)*(WORLD.w-160);
         let tries=0; while(!allowedX(x) && tries++<10){ x = 80 + rng(100+i*7)*(WORLD.w-160); }
@@ -1127,7 +1128,7 @@
         const levels = 4 + Math.floor(rng(500+i)*2);
         scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU });
       }
-      // Rocks
+
       const rockN = 6 + Math.floor(Math.random()*6);
       for(let i=0;i<rockN;i++){
         const x = 80 + Math.random()*(WORLD.w-160);
@@ -1137,7 +1138,6 @@
         scenery.rocks.push({ x, y, r, seed, skew: (Math.random()*0.6-0.3) });
       }
 
-      // Fences — deterministic posts so no shaking
       function addFence(x0, x1){
         if(x1 < x0){ const t=x0; x0=x1; x1=t; }
         x0 = clamp(x0, 40, hole.w-40);
@@ -1148,16 +1148,7 @@
         }
         if(x1 - x0 < 80) return;
 
-        const F = {
-          x0, x1,
-          step: 28 + Math.random()*10,
-          height: 16 + Math.random()*8,
-          rails: (Math.random()<0.35?3:2),
-          seed: (Math.random()*1e9)|0,
-          posts: []
-        };
-
-        // Precompute post positions + stable per-post jitter
+        const F = { x0, x1, step: 28 + Math.random()*10, height: 16 + Math.random()*8, rails: (Math.random()<0.35?3:2), seed: (Math.random()*1e9)|0, posts: [] };
         let idx = 0;
         for(let x = x0; x <= x1; x += F.step){
           const tilt  = (rand01(F.seed, idx*2+1) - 0.5) * 0.12;
@@ -1165,7 +1156,6 @@
           F.posts.push({ x, tilt, hMul });
           idx++;
         }
-
         scenery.fences.push(F);
       }
 
@@ -1206,7 +1196,6 @@
           ctx.beginPath(); ctx.ellipse(0, 0, rad, rad*0.65, 0, 0, TAU); ctx.fill();
           ctx.restore();
         }
-
         ctx.restore();
       }
       ctx.restore();
@@ -1237,7 +1226,6 @@
       ctx.restore();
     }
 
-    // ===== Stable fences (precomputed posts; no per-frame randomness) =====
     function drawFences(){
       if(!scenery.fences.length) return;
       ctx.save();
@@ -1245,7 +1233,6 @@
       ctx.fillStyle   = 'rgba(0,0,0,0.94)';
 
       for(const F of scenery.fences){
-        // Posts
         for(const P of F.posts){
           const x = P.x;
           const y = groundYAt(x);
@@ -1261,14 +1248,12 @@
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(ang - Math.PI/2);
-          // half-pixel snap to reduce aliasing shimmer
           ctx.translate(0.5, 0.5);
           ctx.fillRect(-w/2, 0, w, h);
           ctx.fillRect(-w/2 - 1, 0, w+2, 2);
           ctx.restore();
         }
 
-        // Rails follow the posts
         const railOffset = (F.rails === 3) ? [6,12,18] : [8,16];
         ctx.lineWidth = 2;
         for(const off of railOffset){
@@ -1287,7 +1272,7 @@
       ctx.restore();
     }
 
-    // ===== Sand bunkers — recessed with grain =====
+    // ===== Sand bunkers
     function drawBunkerHole(s){
       const cx = s.x - view.x, cy = s.y - view.y;
       const r = s.r;
@@ -1340,7 +1325,7 @@
       }
     }
 
-    // ===== Water rendering =====
+    // ===== Water rendering
     function drawWaterBodies(){
       if(!hole || !hole.waters?.length) return;
       for(const W of hole.waters){ drawWater(W); }
@@ -1446,10 +1431,9 @@
       }
     }
 
-    // ===== Background windmills =====
+    // ===== Background windmills
     function drawWindmills(){
       if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
-
       const L = backdrop.mountains[backdrop.mountains.length - 1];
       const idx = backdrop.mountains.length - 1;
       const parX = L.parallax;
@@ -1499,9 +1483,9 @@
         const vBars = 6;
         for(let i=1;i<vBars;i++){
           const x = sx - railW/2 + (railW/vBars)*i;
-          ctx.beginPath(); ctx.moveTo(x, railY - railH); ctx.lineTo(x, railY); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x, railY - railH/2); ctx.lineTo(x, railY - railH); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x, railY - railH/2); ctx.lineTo(x, railY); ctx.stroke();
         }
-        ctx.beginPath(); ctx.moveTo(sx - railW/2, railY - railH/2); ctx.lineTo(sx + railW/2, railY - railH/2); ctx.stroke();
         ctx.restore();
 
         ctx.save();
@@ -1520,7 +1504,6 @@
 
         ctx.restore();
       }
-
       ctx.restore();
 
       function drawBlade(angle, R){
@@ -1562,11 +1545,9 @@
       ctx.save();
       ctx.translate(sx, sy);
 
-      // Base glow ellipse
-      ctx.fillStyle = 'rgba(73,208,255,0.10)'; // ~ --accent2
+      ctx.fillStyle = 'rgba(73,208,255,0.10)';
       ctx.beginPath(); ctx.ellipse(0, 2, G.rx, 10, 0, 0, TAU); ctx.fill();
 
-      // Rising soft puffs
       const H = G.height * 0.85;
       const N = 9;
       for(let i=0;i<N;i++){
@@ -1579,7 +1560,6 @@
       }
       ctx.globalAlpha = 1;
 
-      // Subtle shimmer lines
       ctx.strokeStyle = 'rgba(73,208,255,0.08)';
       ctx.lineWidth = 1;
       const lines = 6;
@@ -1619,15 +1599,11 @@
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
 
       drawGrass();
-
-      // Draw geyser plume above ground/grass but behind scenery/disc
       drawGeyser();
 
       for(const s of hole.sands){ drawBunkerHole(s); }
 
       drawScenery();
-
-      // Balloons above scenery but behind disc
       drawBalloons();
 
       drawBasket();
@@ -1725,21 +1701,6 @@
         sh.addColorStop(0, 'rgba(0,0,0,0.06)'); sh.addColorStop(1, 'rgba(0,0,0,0.00)');
         ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(sx, sy, shadowR*1.2, 0, TAU); ctx.fill(); ctx.restore();
       }
-    }
-
-    function drawMountains(){
-      const w = canvas.width/DPR, h = canvas.height/DPR;
-      backdrop.mountains.forEach((L, idx)=>{
-        ctx.fillStyle = `rgba(0,0,0,${0.18 + L.shade})`;
-        const step = Math.max(8, 16 - idx*2);
-        ctx.beginPath(); ctx.moveTo(0,h);
-        for(let x=0;x<=w;x+=step){
-          const wx = view.x*L.parallax + x;
-          const y = mountainYAt(L, wx) - view.y*0.06*idx;
-          ctx.lineTo(x, y);
-        }
-        ctx.lineTo(w,h); ctx.closePath(); ctx.fill();
-      });
     }
 
     const GRASS_STEP = 26, GRASS_DENSITY = 3;
@@ -1932,7 +1893,7 @@
     function loop(t){ const now=t/1000; const dt = Math.min(0.033, last? now-last: 0.016); last=now; clock += dt; update(dt); draw(); requestAnimationFrame(loop); }
     requestAnimationFrame(loop);
 
-    // ===== Audio unlock on first interaction (works even before opening Settings)
+    // ===== Audio unlock
     window.addEventListener('pointerdown', () => {
       try { Sfx.init(); } catch {}
       if (chkAudio && chkAudio.checked) {
@@ -1951,12 +1912,11 @@
     chkAudio.addEventListener('change', ()=>{ const on = chkAudio.checked; Sfx.setEnabled(on); AudioMini.setEnabled(on); });
     chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; updateWindUI(); AudioMini.setWind(windOn); });
 
-    // initialize toggles' effects
+    // init toggles + HUD
     Sfx.setEnabled(chkAudio.checked);
     AudioMini.setEnabled(chkAudio.checked);
     AudioMini.setWind(windOn);
-
-    buildDiscs(); updateWindUI();
+    buildDiscs(); updateWindUI(); updatePowerupHUD();
   }
 })();
 </script>
