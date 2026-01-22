@@ -1284,23 +1284,27 @@
           const curveMulEff = Math.max(0.90, PU.curveMul);
           const side = (hand==='RHBH'?1:-1);
 
-          // 1) Integrate forces without curve "push"
-          const ax = dragX;
-          const ay = 1500 + dragY - lift;
-          disc.vx += ax*dt; disc.vy += ay*dt;
+// 1) Integrate forces without curve "push"
+const ax = dragX;
+const ay = 1500 + dragY - lift;
+disc.vx += ax*dt; disc.vy += ay*dt;
 
-          // 2) Apply heading rotation to simulate turn/fade  (FIX)
-          const curveRate = 54 * curveMulEff * curve * side;   // similar scale as before
-          const speedNow = Math.hypot(disc.vx, disc.vy);
-          if (speedNow > 1e-3) {
-            const dTheta = (curveRate / speedNow) * dt;
-            if (dTheta) {
-              const cosT = Math.cos(dTheta), sinT = Math.sin(dTheta);
-              const vx0 = disc.vx, vy0 = disc.vy;
-              disc.vx = vx0 * cosT - vy0 * sinT;
-              disc.vy = vx0 * sinT + vy0 * cosT;
-            }
-          }
+// 2) Apply heading rotation to simulate turn/fade  (FIX)
+const curveRate = 54 * curveMulEff * curve * side;   // similar scale as before
+const speedNow = Math.hypot(disc.vx, disc.vy);
+if (speedNow > 1e-3) {
+  const dTheta = (curveRate / speedNow) * dt;
+  if (dTheta) {
+    const cosT = Math.cos(dTheta), sinT = Math.sin(dTheta);
+    const vx0 = disc.vx, vy0 = disc.vy;
+    disc.vx = vx0 * cosT - vy0 * sinT;
+    disc.vy = vx0 * sinT + vy0 * cosT;
+  }
+}
+
+// ✅ BUGFIX: integrate position while airborne
+disc.x += disc.vx * dt;
+disc.y += disc.vy * dt;
 
           // Spin decay and bank relax
           disc.spin *= Math.exp(-0.35 * PU.spinDecayMul * dt);
