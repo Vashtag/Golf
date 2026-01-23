@@ -958,6 +958,7 @@
     function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
+      const teeX = 120; // fixed tee position
 
       const tilt = (Math.random()*2-1) * 0.16;
       const tiltAmp = 160;
@@ -1003,7 +1004,13 @@
         }
       }
 
-      const cupX = lerp(w*0.68, w*0.90, Math.random());
+      // Choose hole length so pars vary meaningfully across holes.
+      const rLen = Math.random();
+      let targetDist;
+      if (rLen < 0.40) targetDist = lerp(800, 1150, Math.random());        // short (often par 3)
+      else if (rLen < 0.85) targetDist = lerp(1200, 1900, Math.random());  // medium (often par 4)
+      else targetDist = lerp(2000, 2900, Math.random());                    // long (often par 5)
+      const cupX = clamp(teeX + targetDist, 900, w - 220);
 
       const gWidth = 200 + Math.random()*160;
       const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2;
@@ -1105,7 +1112,6 @@
         roughs.push({ x:rx, y:ry, r: 42 + Math.random()*30 });
       }
 
-      const teeX = 120;
       const teeIdx = Math.floor(teeX/step);
       const teeY = points[teeIdx].y - 2;
       points[teeIdx].y = teeY;
@@ -1118,8 +1124,10 @@
         }
       }
 
-      const dist = (cupX - teeX);
-      let par = 3; if(dist>1900) par=5; else if(dist>1200) par=4;
+      const dist = cupX - teeX;
+      let par = 3;
+      if (dist >= 2000) par = 5;
+      else if (dist >= 1200) par = 4;
 
       const result = {
         w, h, points, step, cupX,
