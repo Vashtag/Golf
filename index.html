@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -89,11 +88,13 @@
           <button class="btn" data-hand="LHBH" aria-pressed="false" title="Left-hand backhand">LHBH</button>
         </div>
 
-        <!-- NEW: Daytime segment -->
+        <!-- Daytime segment -->
         <div class="seg" id="daySeg" role="group" aria-label="Daytime">
           <button class="btn" data-day="auto" aria-pressed="true" title="Automatic per hole">Auto</button>
           <button class="btn" data-day="clear" aria-pressed="false">Clear</button>
           <button class="btn" data-day="golden" aria-pressed="false">Golden</button>
+          <button class="btn" data-day="dusk" aria-pressed="false">Dusk</button>
+          <button class="btn" data-day="night" aria-pressed="false">Night</button>
           <button class="btn" data-day="fog" aria-pressed="false">Fog</button>
           <button class="btn" data-day="mist" aria-pressed="false">Mist</button>
           <button class="btn" data-day="overcast" aria-pressed="false">Overcast</button>
@@ -179,7 +180,7 @@
     const clubSeg = document.getElementById('clubSeg');
     const spinSeg = document.getElementById('spinSeg');
     const handSeg = document.getElementById('handSeg');
-    const daySeg = document.getElementById('daySeg'); // NEW
+    const daySeg = document.getElementById('daySeg');
 
     const screenIntro = document.getElementById('screenIntro');
     const screenSummary = document.getElementById('screenSummary');
@@ -226,7 +227,7 @@
       cached.skyGradient = g;
     }
 
-    // ===== Daytime / Atmosphere (NEW) =====
+    // ===== Daytime / Atmosphere =====
     const atmo = {
       cloudAlpha: 1.0,
       sun: { visible: true, intensity: 1.0, radiusMul: 1.0, halo: 1.0 },
@@ -238,8 +239,12 @@
       mtnAlphaNear: 1.0,
       mtnAlphaFar: 1.0,
       fogDrift: { speed: 0.015, amp: 24 },
-      tint: { color: null, amount: 0 }
+      tint: { color: null, amount: 0 },
+      night: 0.0 // 0..1 (drives stars/fireflies, etc.)
     };
+
+    // base sky cache so tinting doesn't accumulate between holes
+    let baseSky = { bg1:'#a54720', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' };
 
     const DAYTIMES = {
       clear: {
@@ -249,7 +254,8 @@
         vignette: 0.35, waterShine:1.0,
         haze: 0.0, groundFog: 0.0, mistOverWater: 0.0,
         mtnAlphaNear: 1.0, mtnAlphaFar: 1.0,
-        tint: null
+        tint: null,
+        night: 0.0
       },
       golden: {
         label:'Golden Hour',
@@ -258,7 +264,30 @@
         vignette: 0.28, waterShine:1.10,
         haze: 0.06, groundFog: 0.06, mistOverWater: 0.0,
         mtnAlphaNear: 0.95, mtnAlphaFar: 0.85,
-        tint: { color:'#ffb457', amount:0.18 }
+        tint: { color:'#ffb457', amount:0.18 },
+        night: 0.0
+      },
+      dusk: {
+        label:'Dusk',
+        cloudAlpha: 0.70,
+        sun: { visible:false, intensity:0.55, radiusMul:1.0, halo:0.75 },
+        vignette: 0.45, waterShine:0.55,
+        haze: 0.22, groundFog: 0.20, mistOverWater: 0.15,
+        mtnAlphaNear: 0.80, mtnAlphaFar: 0.45,
+        tint: { color:'#7c6cff', amount:0.18 },
+        night: 0.55
+      },
+      night: {
+        label:'Night',
+        cloudAlpha: 0.55,
+        sun: { visible:false, intensity:0.0, radiusMul:1.0, halo:0.0 },
+        vignette: 0.60, waterShine:0.30,
+        haze: 0.18, groundFog: 0.10, mistOverWater: 0.10,
+        mtnAlphaNear: 0.60, mtnAlphaFar: 0.18,
+        // use explicit sky override for strong, consistent night rendering across biomes
+        skyOverride: { bg1:'#050812', bg2:'#101b33', bg3:'#1b2d55', water:'#050916' },
+        tint: null,
+        night: 1.0
       },
       fog: {
         label:'Fog',
@@ -268,7 +297,8 @@
         haze: 0.55, groundFog: 0.55, mistOverWater: 0.55,
         mtnAlphaNear: 0.75, mtnAlphaFar: 0.35,
         tint: { color:'#cfd7db', amount:0.10 },
-        fogDrift: { speed: 0.010, amp: 32 }
+        fogDrift: { speed: 0.010, amp: 32 },
+        night: 0.0
       },
       mist: {
         label:'Mist',
@@ -278,7 +308,8 @@
         haze: 0.22, groundFog: 0.20, mistOverWater: 0.65,
         mtnAlphaNear: 0.90, mtnAlphaFar: 0.55,
         tint: { color:'#ebf2ff', amount:0.06 },
-        fogDrift: { speed: 0.012, amp: 28 }
+        fogDrift: { speed: 0.012, amp: 28 },
+        night: 0.0
       },
       overcast: {
         label:'Overcast',
@@ -287,7 +318,8 @@
         vignette: 0.22, waterShine:0.35,
         haze: 0.35, groundFog: 0.10, mistOverWater: 0.15,
         mtnAlphaNear: 0.85, mtnAlphaFar: 0.55,
-        tint: { color:'#a9b0b8', amount:0.12 }
+        tint: { color:'#a9b0b8', amount:0.12 },
+        night: 0.0
       }
     };
 
@@ -309,23 +341,39 @@
       return rgbToHex({ r:a.r+(b.r-a.r)*t, g:a.g+(b.g-a.g)*t, b:a.b+(b.b-a.b)*t });
     }
 
-    // Tint sky vars per variant over current biome palette
+    // Apply variant over the biome baseline (avoids tint stacking)
     function tintSkyForVariant(variant){
-      const rootStyle = getComputedStyle(document.documentElement);
-      const bg1 = rootStyle.getPropertyValue('--bg1').trim();
-      const bg2 = rootStyle.getPropertyValue('--bg2').trim();
-      const bg3 = rootStyle.getPropertyValue('--bg3').trim();
+      const root = document.documentElement.style;
+
+      // Always restore biome baseline first
+      root.setProperty('--bg1', baseSky.bg1);
+      root.setProperty('--bg2', baseSky.bg2);
+      root.setProperty('--bg3', baseSky.bg3);
+      root.setProperty('--water', baseSky.water);
+
+      if(variant.skyOverride){
+        root.setProperty('--bg1', variant.skyOverride.bg1);
+        root.setProperty('--bg2', variant.skyOverride.bg2);
+        root.setProperty('--bg3', variant.skyOverride.bg3);
+        root.setProperty('--water', variant.skyOverride.water || baseSky.water);
+        rebuildSkyGradient();
+        refreshColorsFromCSS();
+        return;
+      }
 
       if(!variant.tint || !variant.tint.color || !variant.tint.amount){
         rebuildSkyGradient();
+        refreshColorsFromCSS();
         return;
       }
+
+      const bg1 = baseSky.bg1, bg2 = baseSky.bg2, bg3 = baseSky.bg3;
       const c = variant.tint.color, t = variant.tint.amount;
-      const root = document.documentElement.style;
       root.setProperty('--bg1', blend(bg1, c, t*0.9));
       root.setProperty('--bg2', blend(bg2, c, t));
       root.setProperty('--bg3', blend(bg3, c, t*0.7));
       rebuildSkyGradient();
+      refreshColorsFromCSS();
     }
 
     function applyDaytime(variant){
@@ -345,24 +393,29 @@
       atmo.sun.radiusMul = variant.sun?.radiusMul ?? 1.0;
       atmo.sun.halo      = variant.sun?.halo ?? 1.0;
 
+      atmo.night = clamp(variant.night ?? 0.0, 0, 1);
+
       tintSkyForVariant(variant);
-      refreshColorsFromCSS();
     }
 
     function pickAutoVariantForHole(){
       const hasWater = hole?.waters?.length ? true : false;
       const r = Math.random();
       if(hasWater){
-        if(r < 0.40) return DAYTIMES.mist;
-        if(r < 0.60) return DAYTIMES.fog;
-        if(r < 0.78) return DAYTIMES.overcast;
-        if(r < 0.92) return DAYTIMES.golden;
+        if(r < 0.22) return DAYTIMES.mist;
+        if(r < 0.36) return DAYTIMES.fog;
+        if(r < 0.52) return DAYTIMES.overcast;
+        if(r < 0.66) return DAYTIMES.golden;
+        if(r < 0.78) return DAYTIMES.dusk;
+        if(r < 0.86) return DAYTIMES.night;
         return DAYTIMES.clear;
       }else{
-        if(r < 0.18) return DAYTIMES.golden;
-        if(r < 0.34) return DAYTIMES.overcast;
-        if(r < 0.44) return DAYTIMES.fog;
-        if(r < 0.64) return DAYTIMES.mist;
+        if(r < 0.12) return DAYTIMES.golden;
+        if(r < 0.22) return DAYTIMES.overcast;
+        if(r < 0.30) return DAYTIMES.fog;
+        if(r < 0.42) return DAYTIMES.mist;
+        if(r < 0.54) return DAYTIMES.dusk;
+        if(r < 0.62) return DAYTIMES.night;
         return DAYTIMES.clear;
       }
     }
@@ -373,7 +426,8 @@
     function setDaytime(id, persist=true){
       currentDaytimeId = id;
       if(persist) localStorage.setItem('daytime', id);
-      applyDaytime(resolveVariantForHole());
+      // Only apply immediately if hole exists (otherwise it will apply on nextHole())
+      if(hole) applyDaytime(resolveVariantForHole());
     }
     function buildDaytimeUI(){
       if(!daySeg) return;
@@ -384,7 +438,7 @@
         setDaytime(id, true);
       });
       const saved = localStorage.getItem('daytime') || 'auto';
-      currentDaytimeId = ['auto','clear','golden','fog','mist','overcast'].includes(saved) ? saved : 'auto';
+      currentDaytimeId = ['auto','clear','golden','dusk','night','fog','mist','overcast'].includes(saved) ? saved : 'auto';
       [...daySeg.querySelectorAll('button')].forEach(b => b.setAttribute('aria-pressed', b.dataset.day===currentDaytimeId?'true':'false'));
     }
 
@@ -423,7 +477,6 @@
     // ===== Vertical wind (lift only)
     let windOn = true;
     let windLift = 0;             // -1 .. +1 (down .. up)
-    const WIND_LIFT_SCALE = 0.50; // ±50% lift modulation at max
 
     // ===== Persistent Powerups (round-long)
     const Owned = new Set();
@@ -449,7 +502,6 @@
 
     // Release angle / throw style
     let releaseMode = 0;
-    function releaseDeg(){ return releaseMode * 15; }
     let hand = 'RHBH';
 
     // ---------- Helpers ----------
@@ -458,8 +510,7 @@
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
-    const ease = (t)=>t*t*(3-2*t);
-    function normalizeAngle(a){ while(a > Math.PI) a -= TAU; while(a < -Math.PI) a += TAU; return a; }
+    function normalizeAngle(a){ while(a > Math.PI*2) a -= Math.PI*2; while(a < -Math.PI*2) a += Math.PI*2; return a; }
 
     // ===== Ambient Audio (hum + wind) with context suspend/resume
     const AudioMini = (()=>{ let ctx=null, windNode=null, masterGain=null; let inited=false;
@@ -597,6 +648,9 @@
     ];
 
     function applyTheme(biome){
+      // Establish biome baseline for later tint/overrides
+      baseSky = { bg1: biome.sky.bg1, bg2: biome.sky.bg2, bg3: biome.sky.bg3, water: biome.sky.water };
+
       const root = document.documentElement.style;
       root.setProperty('--bg1', biome.sky.bg1);
       root.setProperty('--bg2', biome.sky.bg2);
@@ -615,7 +669,9 @@
       sun:null,
       clouds:[],
       cloudDir:1,
-      windmills:[]
+      windmills:[],
+      stars:[],
+      moon:null
     };
 
     function triangleWave(x){ return (2/Math.PI)*Math.asin(Math.sin(x)); }
@@ -657,8 +713,36 @@
       // Windmills
       buildWindmills();
 
+      // Stars & moon (for night/dusk; drawn with alpha driven by atmo.night)
+      buildStarsAndMoon();
+
       // pre-render mountain layers
       rebuildMountainsOffscreen();
+    }
+
+    function buildStarsAndMoon(){
+      backdrop.stars.length = 0;
+      backdrop.moon = null;
+
+      const sseed = hash32(backdrop.seed ^ 0x51A7BEEF);
+      const count = 90 + Math.floor(rand01(sseed,1)*140);
+      for(let i=0;i<count;i++){
+        const u = rand01(sseed, 10+i*3+1);
+        const v = rand01(sseed, 10+i*3+2);
+        const r = 0.6 + rand01(sseed, 10+i*3+3)*1.8;
+        const tw = 0.6 + rand01(sseed, 900+i)*1.8;
+        const ph = rand01(sseed, 1200+i)*TAU;
+        // Keep stars in upper ~60% to avoid "stars in ground fog"
+        const vv = 0.05 + v*0.55;
+        backdrop.stars.push({ u, v: vv, r, tw, ph });
+      }
+
+      // Moon (position similar to sun but distinct)
+      const mu = 0.22 + rand01(sseed,2201)*0.60;
+      const mv = 0.10 + rand01(sseed,2202)*0.22;
+      const mr = 18 + rand01(sseed,2203)*10;
+      const wax = rand01(sseed,2204);
+      backdrop.moon = { u:mu, v:mv, r:mr, wax };
     }
 
     function buildCloudField(){
@@ -679,7 +763,6 @@
       }
     }
 
-    // prerender a fluffy cloud sprite per cloud (seed+scale)
     function makeCloudSprite(C){
       const cvs = document.createElement('canvas');
       const cctx = cvs.getContext('2d');
@@ -704,7 +787,6 @@
         cctx.fillStyle = g; cctx.beginPath(); cctx.arc(px, py, r*1.3, 0, TAU); cctx.fill();
       }
 
-      // Subtle core + shadow
       cctx.globalAlpha = C.alpha;
       const coreR = Math.min(width, height) * 0.28;
       const core = cctx.createRadialGradient(cx, cy, coreR*0.1, cx, cy, coreR);
@@ -785,7 +867,94 @@
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[] };
 
-    // ===== Procedural hole (unchanged core)
+    // Fireflies (night/dusk chance)
+    let fireflies = [];
+    function buildFireflies(){
+      fireflies = [];
+      const q = qualityScale();
+      const night = clamp(atmo.night, 0, 1);
+      // Chance-based: dusk/night = likely; other variants = rare
+      const baseChance = 0.10 + 0.70*night; // 0.10..0.80
+      if(Math.random() > baseChance) return;
+
+      const count = Math.floor((18 + Math.random()*26) * (0.6 + 0.6*q) * (0.55 + 0.85*night));
+      const x0 = clamp(view.x + 40, 0, WORLD.w);
+      const x1 = clamp(view.x + view.w - 40, 0, WORLD.w);
+
+      for(let i=0;i<count;i++){
+        const x = lerp(x0, x1, Math.random());
+        const gy = groundYAt(x);
+        const y = gy - (40 + Math.random()*160);
+        const phase = Math.random()*TAU;
+        const speed = 0.8 + Math.random()*1.4;
+        const amp = 10 + Math.random()*28;
+        const glow = 0.5 + Math.random()*0.7;
+        const r = 1.2 + Math.random()*1.8;
+        const hue = 46 + Math.random()*24; // warm yellow-green
+        fireflies.push({ x, y, baseY:y, phase, speed, amp, glow, r, hue, vx:(Math.random()*18-9) });
+      }
+    }
+    function updateFireflies(dt){
+      if(!fireflies.length) return;
+      const night = clamp(atmo.night, 0, 1);
+      if(night <= 0.05){
+        // fade out quickly when switching to daytime
+        if(Math.random() < 0.15) fireflies.length = Math.max(0, fireflies.length - 1);
+        return;
+      }
+
+      const left = view.x - 120, right = view.x + view.w + 120;
+      for(let i=fireflies.length-1;i>=0;i--){
+        const F = fireflies[i];
+        F.phase += F.speed * dt;
+        F.x += F.vx * dt;
+        const gy = groundYAt(clamp(F.x, 0, hole.w));
+        // keep hovering above ground and gently bobbing
+        const bob = Math.sin(F.phase) * F.amp;
+        F.y = (gy - 70) + (F.baseY - (gy - 70))*0.02 + bob;
+
+        if(F.x < left) { F.x = right; F.baseY = gy - (60 + Math.random()*160); }
+        if(F.x > right) { F.x = left; F.baseY = gy - (60 + Math.random()*160); }
+      }
+    }
+    function drawFireflies(){
+      if(!fireflies.length) return;
+      const night = clamp(atmo.night, 0, 1);
+      if(night <= 0.05) return;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const alphaMul = (reducedMotion ? 0.85 : 1.0) * night;
+
+      for(const F of fireflies){
+        const sx = F.x - view.x;
+        const sy = F.y - view.y;
+        if(sx < -30 || sx > canvas.width/DPR + 30 || sy < -30 || sy > canvas.height/DPR + 30) continue;
+
+        const tw = 0.5 + 0.5*Math.sin(F.phase*2.4 + F.x*0.01);
+        const a = Math.max(0, (0.20 + 0.55*tw) * F.glow * alphaMul);
+
+        const col = `hsla(${F.hue}, 90%, 70%, ${a})`;
+        const r = F.r;
+
+        // halo
+        const g = ctx.createRadialGradient(sx, sy, r*0.5, sx, sy, r*6.0);
+        g.addColorStop(0, col);
+        g.addColorStop(1, `hsla(${F.hue}, 90%, 70%, 0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(sx, sy, r*6.0, 0, TAU); ctx.fill();
+
+        // core
+        ctx.globalAlpha = 0.85*a;
+        ctx.fillStyle = '#fff8c8';
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+    }
+
+    // ===== Procedural hole
     function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
@@ -928,20 +1097,6 @@
       })();
 
       const sands=[];
-      function placeBunkerFromBasin(b, sizeScale=0.35){
-        let cx = clamp(b.cx, 80, w-80);
-        for(const ww of waters){
-          if(cx >= ww.x && cx <= ww.x+ww.w){
-            cx = (cx < ww.x + ww.w*0.5)? (ww.x - 20) : (ww.x + ww.w + 20);
-          }
-        }
-        if(cx > gx0-18 && cx < gx1+18) return false;
-        const cy = sampleY(points, cx) - 8;
-        const r = clamp(b.width*sizeScale, 36, 90);
-        sands.push({ x:cx, y:cy, r, seed:(Math.random()*1e9)|0 });
-        return true;
-      }
-
       const roughs=[];
       const roughN = Math.floor(Math.random()*4);
       for(let i=0;i<roughN;i++){
@@ -1112,10 +1267,11 @@
       currentBiome = biome;
       applyTheme(biome);
 
-      // NEW: apply daytime (tint/atmo) for this hole
-      applyDaytime(resolveVariantForHole());
-
+      // IMPORTANT FIX: generate hole before selecting "auto" variants (auto uses hole.waters)
       hole = genHole();
+
+      // Apply daytime for this hole now that hole exists
+      applyDaytime(resolveVariantForHole());
 
       buildScenery();
       buildBalloons();
@@ -1131,6 +1287,9 @@
 
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
+
+      // Fireflies depend on view + nighttime
+      buildFireflies();
     }
 
     function endHole(){
@@ -1175,7 +1334,6 @@
     }
 
     // ===== Input (Pointer Events + capture)
-    function worldToScreen(x,y){ return { x: (x - view.x)*DPR, y: (y - view.y)*DPR }; }
     function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
     function onPointerDown(e){
       if(!hole || !disc.atRest) return;
@@ -1219,7 +1377,7 @@
       Sfx.playThrow();
     }
 
-    // ===== Physics update (includes FIX: curve as heading rotation)
+    // ===== Physics update
     function update(dt){
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
 
@@ -1233,6 +1391,9 @@
 
       // balloons
       updateBalloons(dt);
+
+      // fireflies
+      updateFireflies(dt);
 
       if(!disc.atRest){
         if(!disc.onGround){
@@ -1284,27 +1445,23 @@
           const curveMulEff = Math.max(0.90, PU.curveMul);
           const side = (hand==='RHBH'?1:-1);
 
-// 1) Integrate forces without curve "push"
-const ax = dragX;
-const ay = 1500 + dragY - lift;
-disc.vx += ax*dt; disc.vy += ay*dt;
+          // 1) Integrate forces without curve "push"
+          const ax = dragX;
+          const ay = GRAV + dragY - lift;
+          disc.vx += ax*dt; disc.vy += ay*dt;
 
-// 2) Apply heading rotation to simulate turn/fade  (FIX)
-const curveRate = 54 * curveMulEff * curve * side;   // similar scale as before
-const speedNow = Math.hypot(disc.vx, disc.vy);
-if (speedNow > 1e-3) {
-  const dTheta = (curveRate / speedNow) * dt;
-  if (dTheta) {
-    const cosT = Math.cos(dTheta), sinT = Math.sin(dTheta);
-    const vx0 = disc.vx, vy0 = disc.vy;
-    disc.vx = vx0 * cosT - vy0 * sinT;
-    disc.vy = vx0 * sinT + vy0 * cosT;
-  }
-}
-
-// ✅ BUGFIX: integrate position while airborne
-disc.x += disc.vx * dt;
-disc.y += disc.vy * dt;
+          // 2) Apply heading rotation to simulate turn/fade
+          const curveRate = 54 * curveMulEff * curve * side;
+          const speedNow = Math.hypot(disc.vx, disc.vy);
+          if (speedNow > 1e-3) {
+            const dTheta = (curveRate / speedNow) * dt;
+            if (dTheta) {
+              const cosT = Math.cos(dTheta), sinT = Math.sin(dTheta);
+              const vx0 = disc.vx, vy0 = disc.vy;
+              disc.vx = vx0 * cosT - vy0 * sinT;
+              disc.vy = vx0 * sinT + vy0 * cosT;
+            }
+          }
 
           // Spin decay and bank relax
           disc.spin *= Math.exp(-0.35 * PU.spinDecayMul * dt);
@@ -1314,6 +1471,10 @@ disc.y += disc.vy * dt;
           const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
           const targetOrient = vAngle + noseBias;
           disc.orient += (targetOrient - disc.orient) * (1 - Math.exp(-dt*3.4));
+
+          // FIX: integrate position while airborne (was missing)
+          disc.x += disc.vx * dt;
+          disc.y += disc.vy * dt;
 
           const gy = groundYAt(disc.x);
           if(disc.y + disc.r >= gy){
@@ -1470,6 +1631,564 @@ disc.y += disc.vy * dt;
       }
     }
 
+    // ===== Rendering
+    function draw(){
+      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
+
+      drawSkyGradient();
+
+      // Night layer (stars/moon) on top of sky
+      drawStars();
+      drawMoon();
+
+      drawSun();
+      drawClouds();
+      drawMountains();
+
+      drawDistanceHaze();
+
+      if(!hole){ drawVignette(); drawToasts(); return; }
+
+      drawWindmills();
+      drawWaterBodies();
+
+      // Ground fill
+      ctx.fillStyle = cached.colors.fg;
+      ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
+      for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
+      ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
+
+      drawGrass();
+      drawGroundFog();
+      drawGeyser();
+
+      for(const s of hole.sands){ drawBunkerHole(s); }
+
+      drawScenery();
+      drawFireflies();
+      drawBalloons();
+      drawBasket();
+
+      for(const p of particles){
+        let c = '#ffffff';
+        if(p.type==='spark') c = cached.colors.accent;
+        else if(p.type==='sand') c = '#b48a5a';
+        else if(p.type==='dust') c = '#9aa2aa';
+        else if(p.type==='splash') c = cached.colors.accent2;
+        ctx.globalAlpha = Math.max(0, p.life/0.6);
+        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
+      }
+
+      drawDisc();
+      if(aiming){ drawAimArrow(); }
+
+      drawVignette();
+      drawToasts();
+    }
+
+    function drawSkyGradient(){
+      if(!cached.skyGradient) rebuildSkyGradient();
+      ctx.fillStyle = cached.skyGradient;
+      ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
+    }
+
+    function drawStars(){
+      const night = clamp(atmo.night, 0, 1);
+      if(night <= 0.05 || !backdrop.stars.length) return;
+
+      const w = canvas.width / DPR, h = canvas.height / DPR;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.9 * night;
+
+      // Subtle deepening overlay
+      ctx.fillStyle = `rgba(0,0,0,${0.18 * night})`;
+      ctx.fillRect(0,0,w,h);
+
+      for(const S of backdrop.stars){
+        const x = w * S.u;
+        const y = h * S.v;
+        const tw = 0.65 + 0.35*Math.sin(clock*(0.6+S.tw*0.25) + S.ph);
+        const a = (0.10 + 0.35*tw) * night;
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#e8f1ff';
+        ctx.beginPath(); ctx.arc(x, y, S.r*tw, 0, TAU); ctx.fill();
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+    }
+
+    function drawMoon(){
+      const night = clamp(atmo.night, 0, 1);
+      if(night <= 0.10 || !backdrop.moon) return;
+
+      const m = backdrop.moon;
+      const w = canvas.width / DPR, h = canvas.height / DPR;
+      const parX = 0.05, parY = 0.02;
+      const drift = Math.sin(clock*0.03 + m.u*TAU) * 8;
+
+      const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
+      const x = (xw - view.x*parX) + drift;
+      const y = (yw - view.y*parY);
+      const r = m.r * (0.95 + 0.10*Math.sin(clock*0.02));
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+
+      // halo
+      const halo = ctx.createRadialGradient(x, y, r*0.9, x, y, r*4.2);
+      halo.addColorStop(0, `rgba(210,230,255,${0.10*night})`);
+      halo.addColorStop(1, 'rgba(210,230,255,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(x, y, r*4.2, 0, TAU); ctx.fill();
+
+      // moon body
+      ctx.globalAlpha = 0.85 * night;
+      ctx.fillStyle = '#e7eefc';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+
+      // subtle shading to hint at phase (wax 0..1)
+      const phase = (m.wax*2 - 1); // -1..1
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = 0.22 * night;
+      ctx.fillStyle = '#0b1020';
+      ctx.beginPath();
+      ctx.ellipse(x + phase*r*0.28, y, r*0.95, r*1.02, 0, 0, TAU);
+      ctx.fill();
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function drawSun(){
+      const m = backdrop.sun; if(!m) return;
+      if(!atmo.sun.visible){ return; }
+
+      const parX = 0.05, parY = 0.02;
+      const drift = Math.sin(clock*0.05 + m.phase) * 12;
+      const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
+      const x = (xw - view.x*parX) + drift;
+      const y = (yw - view.y*parY);
+      const r = m.baseR * (atmo.sun.radiusMul || 1.0);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const halo = ctx.createRadialGradient(x, y, r*0.8, x, y, r*4.0);
+      const haloAlpha = 0.22 * (atmo.sun.halo || 1.0);
+      halo.addColorStop(0, `rgba(255,210,130,${haloAlpha})`);
+      halo.addColorStop(1, 'rgba(255,210,130,0.00)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(x, y, r*4.0, 0, TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+
+      ctx.globalAlpha = (atmo.sun.intensity || 1.0);
+      ctx.fillStyle = '#fff2cf';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawClouds(){
+      const w = canvas.width / DPR;
+      const span = WORLD.w;
+      const q = qualityScale();
+      const alphaMul = (q < 0.9 ? 0.85 : 1.0) * (atmo.cloudAlpha || 1.0);
+      backdrop.clouds.forEach(C=>{
+        const baseX = WORLD.w * C.u - clock * C.speed;
+        const y = WORLD.h * C.v - view.y * C.parY;
+        for(let k=-1; k<=1; k++){
+          const x = baseX + k*span - view.x * C.parX;
+          if(x < -260 || x > w + 260) continue;
+          ctx.save();
+          ctx.globalAlpha = alphaMul;
+          ctx.drawImage(C.sprite, x - C.spriteW/2, y - C.spriteH/2);
+          ctx.restore();
+        }
+      });
+    }
+
+    function drawMountains(){
+      const layers = backdrop.mountains.length;
+      for(let idx=0; idx<layers; idx++){
+        const L = backdrop.mountains[idx];
+        const img = backdrop.mountainsImg[idx];
+        if(!img) continue;
+        const parX = L.parallax;
+        const parY = 0.06 * idx;
+        const sx = -view.x * parX;
+        const sy = -view.y * parY;
+
+        const t = (layers<=1) ? 0 : (idx / (layers-1));
+        const alpha = (atmo.mtnAlphaNear || 1.0) + ((atmo.mtnAlphaFar || 1.0) - (atmo.mtnAlphaNear || 1.0)) * t;
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+        ctx.drawImage(img, sx, sy);
+        ctx.restore();
+      }
+    }
+
+    function drawDistanceHaze(){
+      if(atmo.haze <= 0) return;
+      const w = canvas.width / DPR, h = canvas.height / DPR;
+
+      ctx.save();
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0.00, `rgba(255,255,255,${0.35*atmo.haze})`);
+      g.addColorStop(0.45, `rgba(255,255,255,${0.28*atmo.haze})`);
+      g.addColorStop(0.80, `rgba(255,255,255,${0.08*atmo.haze})`);
+      g.addColorStop(1.00, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
+
+    function drawGroundFog(){
+      if(atmo.groundFog <= 0) return;
+
+      const w = canvas.width / DPR;
+      const cxw = view.x + view.w*0.5;
+      const gyLocal = groundYAt(clamp(cxw, 0, WORLD.w));
+      const y = gyLocal - view.y;
+
+      const height = Math.min(220, Math.max(140, (canvas.height/DPR)*0.35));
+      const drift = Math.sin(clock * (atmo.fogDrift.speed || 0.012)) * (atmo.fogDrift.amp || 24);
+
+      ctx.save();
+      const blur = reducedMotion ? 0 : 2.2;
+      ctx.filter = `blur(${blur}px)`;
+      ctx.globalAlpha = 0.75 * atmo.groundFog;
+      ctx.beginPath();
+      const steps = 20;
+      ctx.moveTo(-20, y);
+      for(let i=0; i<=steps; i++){
+        const t = i/steps;
+        const xx = t*w;
+        const wave = Math.sin(t*6 + clock*0.8) * 6 + Math.sin(t*3.2 + clock*0.6 + 1.3)*4;
+        ctx.lineTo(xx, y - 18 + wave + drift*0.05);
+      }
+      ctx.lineTo(w+20, y + height);
+      ctx.lineTo(-20, y + height);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255,255,255,0.30)';
+      ctx.fill();
+      ctx.filter = 'none';
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // ===== Water rendering
+    function drawWaterBodies(){
+      if(!hole || !hole.waters?.length) return;
+      for(const W of hole.waters){ drawWater(W); }
+    }
+    function drawWater(W){
+      const baseCol = cached.colors.water;
+
+      const left = W.x - view.x;
+      const top  = W.y - view.y;
+      const width = W.w;
+      const height = hole.h - W.y + 80;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(left, top, width, height);
+      ctx.clip();
+
+      ctx.fillStyle = baseCol;
+      ctx.fillRect(left, top, width, height);
+
+      const g = ctx.createLinearGradient(0, top, 0, top + height);
+      g.addColorStop(0.00, 'rgba(0,0,0,0.10)');
+      g.addColorStop(0.65, 'rgba(0,0,0,0.18)');
+      g.addColorStop(1.00, 'rgba(0,0,0,0.28)');
+      ctx.fillStyle = g;
+      ctx.fillRect(left, top, width, height);
+
+      const q = qualityScale();
+      const rippleA = { freq: 0.035, amp: 1.3, speed: 1.6 };
+      const rippleB = { freq: 0.070, amp: 0.9,  speed: -1.2 };
+      const step = (q < 0.9 ? 18 : 14);
+      ctx.lineWidth = 1;
+
+      ctx.strokeStyle = `rgba(255,255,255,${0.09 * (atmo.waterShine||1.0)})`;
+      ctx.beginPath();
+      for(let x=0; x<=width; x+=step){
+        const yOff =
+          Math.sin((x * rippleA.freq) + clock * rippleA.speed * 2.0) * rippleA.amp +
+          Math.sin((x * rippleB.freq) + clock * rippleB.speed * 2.0) * rippleB.amp;
+        const y = top + Math.max(0, yOff);
+        if(x===0) ctx.moveTo(left + x, y); else ctx.lineTo(left + x, y);
+      }
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(0,0,0,${0.10 * (atmo.waterShine ? (1.4 - atmo.waterShine*0.7) : 1.0)})`;
+      ctx.beginPath();
+      for(let x=0; x<=width; x+=step){
+        const yOff =
+          Math.sin((x * rippleA.freq) + clock * rippleA.speed * 2.0 + 1.2) * (rippleA.amp*0.9) +
+          Math.sin((x * rippleB.freq) + clock * rippleB.speed * 2.0 + 0.7) * (rippleB.amp*0.9);
+        const y = top + 2 + Math.max(0, yOff);
+        if(x===0) ctx.moveTo(left + x, y); else ctx.lineTo(left + x, y);
+      }
+      ctx.stroke();
+
+      const rr = (i)=> (hash32((W.seed ^ (i*2654435761))>>>0) >>> 0) / 4294967295;
+      const streaks = (q < 0.9 ? 3 : 4) + Math.floor(rr(1) * (q < 0.9 ? 3 : 4));
+      for(let i=0;i<streaks;i++){
+        const yRand = rr(10+i);
+        const y = top + 6 + yRand * Math.min(38, height - 10);
+        const drift = ((clock * 18) + rr(100+i)*2000) % (width + 160);
+        const x0 = left + drift - 160;
+        const x1 = Math.min(left + width, x0 + (60 + rr(200+i)*120));
+
+        ctx.globalAlpha = (0.07 + rr(300+i)*0.05) * (atmo.waterShine || 1.0);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x0, y, x1 - x0, 1);
+        ctx.globalAlpha = 1;
+      }
+
+      drawFoamBand(left, top, width, W.seed);
+
+      // Mist above water
+      if(atmo.mistOverWater > 0){
+        const fog = Math.min(1, atmo.mistOverWater);
+        const cap = Math.min(46, height*0.28);
+        const baseY = top - 2;
+        const N = 6;
+
+        ctx.save();
+        ctx.filter = reducedMotion ? 'none' : 'blur(1.8px)';
+        for(let i=0;i<N;i++){
+          const t = i/(N-1);
+          const yy = baseY + t * cap;
+          const a  = (0.26 - 0.04*t) * fog * (reducedMotion ? 0.8 : 1.0);
+          ctx.globalAlpha = Math.max(0, a);
+          ctx.fillStyle = '#ffffff';
+          const scallop = 6 + 3*Math.sin(clock*0.7 + t*4.0 + (W.seed%100)/20);
+          ctx.beginPath();
+          ctx.moveTo(left, yy);
+          for(let x=0; x<=width; x+=18){
+            const y2 = yy + Math.sin((x*0.03) + clock*0.8 + t*2.2)*scallop;
+            ctx.lineTo(left + x, y2);
+          }
+          ctx.lineTo(left + width, yy + 24);
+          ctx.lineTo(left, yy + 24);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.filter = 'none';
+        ctx.restore();
+      }
+
+      ctx.restore();
+    }
+    function drawFoamBand(left, top, width, seed){
+      const f1 = 0.045, a1 = 1.4;
+      const f2 = 0.090, a2 = 0.8;
+      const phase = (hash32(seed ^ 0xBEEF) % 628) / 100;
+      const step = 10;
+
+      const haloGrad = ctx.createLinearGradient(0, top, 0, top + 6);
+      haloGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
+      haloGrad.addColorStop(1, 'rgba(255,255,255,0.00)');
+      ctx.fillStyle = haloGrad;
+      ctx.fillRect(left, top, width, 6);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for(let x=0; x<=width; x+=step){
+        const yOff =
+          Math.sin(x*f1 + clock*2.0 + phase) * a1 +
+          Math.sin(x*f2 - clock*1.6 + phase*1.7) * a2;
+        const y = top + 1 + Math.max(0, yOff);
+        if(x===0) ctx.moveTo(left + x, y); else ctx.lineTo(left + x, y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      for(let x=4; x<width; x+=22){
+        const y = top + 2 + Math.sin(x*0.07 + phase)*0.8;
+        ctx.fillRect(left + x, y, 1, 1);
+      }
+    }
+
+    // ===== Background windmills & mountains
+    function drawWindmills(){
+      if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
+
+      const L = backdrop.mountains[backdrop.mountains.length - 1];
+      const idx = backdrop.mountains.length - 1;
+      const parX = L.parallax;
+      const parY = 0.06 * idx;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.88)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+      ctx.lineWidth = 1;
+
+      const w = canvas.width / DPR;
+
+      for(const W of backdrop.windmills){
+        const sx = W.x - view.x * parX;
+        if(sx < -200 || sx > w + 200) continue;
+
+        let baseY = mountainYAt(L, W.x) - view.y * parY;
+        baseY += 2;
+
+        const towerTopY = baseY - W.h;
+        const cx = sx, cy = towerTopY - 10;
+
+        ctx.beginPath();
+        const tw = Math.max(16, W.h * 0.14);
+        const bw = tw * 1.25;
+        ctx.moveTo(sx - bw/2, baseY);
+        ctx.lineTo(sx + bw/2, baseY);
+        ctx.lineTo(sx + tw/2, towerTopY);
+        ctx.lineTo(sx - tw/2, towerTopY);
+        ctx.closePath(); ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(sx - bw/2, baseY);
+        ctx.lineTo(sx - bw/2 - 10, baseY + 6);
+        ctx.moveTo(sx + bw/2, baseY);
+        ctx.lineTo(sx + bw/2 + 10, baseY + 6);
+        ctx.stroke();
+
+        const railW = Math.max(40, tw*2.2);
+        const railH = 10;
+        const railY = towerTopY + 4;
+        ctx.fillRect(sx - railW/2, railY, railW, 6);
+        ctx.save(); ctx.globalAlpha = 0.95;
+        ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx - railW/2, railY - railH, railW, railH);
+        const vBars = 6;
+        for(let i=1;i<vBars;i++){
+          const x = sx - railW/2 + (railW/vBars)*i;
+          ctx.beginPath(); ctx.moveTo(x, railY - railH); ctx.lineTo(x, railY); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(sx - railW/2, railY - railH/2); ctx.lineTo(sx + railW/2, railY - railH/2); ctx.stroke();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(W.tilt);
+        ctx.fillRect(-8, -6, 16, 6);
+        ctx.beginPath(); ctx.arc(0, 0, 3, 0, TAU); ctx.fill();
+
+        const windFactor = 1 + (windOn ? Math.abs(windLift)*1.2 : 0);
+        const theta = W.spin0 + clock * W.speed * windFactor;
+
+        drawBlade(theta,         W.r);
+        drawBlade(theta+TAU/4,   W.r);
+        drawBlade(theta+TAU/2,   W.r);
+        drawBlade(theta+3*TAU/4, W.r);
+
+        ctx.restore();
+      }
+
+      ctx.restore();
+
+      function drawBlade(angle, R){
+        ctx.save();
+        ctx.rotate(angle);
+
+        const bw = Math.max(6, R*0.16);
+        const bl = R;
+        const root = 4;
+
+        ctx.beginPath();
+        ctx.rect(root, -bw/2, bl-root, bw);
+        ctx.fill();
+
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        const segs = 5;
+        for(let i=1;i<segs;i++){
+          const x = root + (bl-root)*(i/segs);
+          ctx.beginPath(); ctx.moveTo(x, -bw/2); ctx.lineTo(x, bw/2); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(root, 0); ctx.lineTo(bl, 0); ctx.stroke();
+        ctx.restore();
+
+        ctx.restore();
+      }
+    }
+
+    const GRASS_STEP = 26;
+    function drawGrass(){
+      if(!hole){ return; }
+      const q = qualityScale();
+      const density = Math.max(1, Math.round(3 * q));
+      ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
+      const start = Math.floor((view.x-40)/GRASS_STEP)*GRASS_STEP; const end = view.x + view.w + 40;
+      for(let wx=start; wx<end; wx+=GRASS_STEP){
+        const gx = clamp(wx,0,hole.w); const gy = groundYAt(gx) - view.y; if(gy< -20 || gy > canvas.height/DPR+20) continue;
+        for(let k=0;k<density;k++){
+          const idx = ((gx|0)*7 + k)|0; const hh = 7 + rand01(backdrop.seed ^ 0xabc123, idx)*10; const lean = (rand01(backdrop.seed ^ 0x55aa55, idx+13)-0.5)*8;
+          const baseX = gx - view.x + (k-1)*(2 + rand01(backdrop.seed ^ 0x999,idx+21)*2);
+          ctx.beginPath(); ctx.moveTo(baseX, gy);
+          const ctrlX = baseX + lean*0.45; const ctrlY = gy - hh*0.55; const tipX = baseX + lean; const tipY = gy - hh;
+          ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawDisc(){
+      const trailColor = cached.colors.accent;
+      if(!disc.atRest && Math.hypot(disc.vx,disc.vy)>320){
+        ctx.strokeStyle = trailColor; ctx.globalAlpha=0.24; ctx.lineWidth=3;
+        ctx.beginPath(); ctx.moveTo(disc.x - view.x, disc.y - view.y);
+        ctx.lineTo(disc.x - disc.vx*0.05 - view.x, disc.y - disc.vy*0.05 - view.y);
+        ctx.stroke(); ctx.globalAlpha=1;
+      }
+
+      let fillCol = '#f8fafc';
+      if(currentDisc.id==='DRV') fillCol = '#49d0ff';
+      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';
+      else if(currentDisc.id==='MID') fillCol = '#f8fafc';
+
+      ctx.save();
+      ctx.translate(disc.x - view.x, disc.y - view.y);
+      ctx.rotate(disc.orient);
+      ctx.fillStyle = fillCol;
+      ctx.strokeStyle = 'rgba(0,0,0,.45)';
+      const R = disc.r;
+      ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
+      ctx.restore();
+    }
+
+    function drawAimArrow(){
+      const len = 80 + meter*160;
+      const x1 = disc.x - view.x;
+      const y1 = disc.y - view.y;
+      const x2 = x1 + Math.cos(aimAngle)*len;
+      const y2 = y1 + Math.sin(aimAngle)*len;
+
+      ctx.save();
+      ctx.strokeStyle = cached.colors.accent3; ctx.lineWidth=3; ctx.globalAlpha=0.9;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+
+      const a=aimAngle; const ah = 10; const aw = 7;
+      ctx.beginPath(); ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - Math.cos(a)*ah + Math.sin(a)*aw, y2 - Math.sin(a)*ah - Math.cos(a)*aw);
+      ctx.lineTo(x2 - Math.cos(a)*ah - Math.sin(a)*aw, y2 - Math.sin(a)*ah + Math.cos(a)*aw);
+      ctx.closePath(); ctx.fillStyle=cached.colors.accent; ctx.fill();
+
+      ctx.globalAlpha=1;
+      ctx.restore();
+    }
+
     function drawScenery(){
       drawFences();
 
@@ -1506,7 +2225,7 @@ disc.y += disc.vy * dt;
       ctx.fillStyle = 'rgba(0,0,0,0.94)';
       for(const t of scenery.trees){
         const x = t.x - view.x, y = t.y - view.y;
-        if(x<-60 || x>xMax()) continue;
+        if(x<-60 || x>canvas.width/DPR+60) continue;
         const sway = Math.sin(clock*0.3 + t.sway) * 2;
 
         const trunkW = clamp(t.h*0.045, 3, 7);
@@ -1525,8 +2244,6 @@ disc.y += disc.vy * dt;
         }
       }
       ctx.restore();
-
-      function xMax(){ return canvas.width/DPR+60; }
     }
 
     function drawFences(){
@@ -1630,323 +2347,6 @@ disc.y += disc.vy * dt;
       }
     }
 
-    // ===== Water rendering
-    function drawWaterBodies(){
-      if(!hole || !hole.waters?.length) return;
-      for(const W of hole.waters){ drawWater(W); }
-    }
-    function drawWater(W){
-      const baseCol = cached.colors.water;
-
-      const left = W.x - view.x;
-      const top  = W.y - view.y;
-      const width = W.w;
-      const height = hole.h - W.y + 80;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(left, top, width, height);
-      ctx.clip();
-
-      ctx.fillStyle = baseCol;
-      ctx.fillRect(left, top, width, height);
-
-      const g = ctx.createLinearGradient(0, top, 0, top + height);
-      g.addColorStop(0.00, 'rgba(0,0,0,0.10)');
-      g.addColorStop(0.65, 'rgba(0,0,0,0.18)');
-      g.addColorStop(1.00, 'rgba(0,0,0,0.28)');
-      ctx.fillStyle = g;
-      ctx.fillRect(left, top, width, height);
-
-      const q = qualityScale();
-      const rippleA = { freq: 0.035, amp: 1.3, speed: 1.6 };
-      const rippleB = { freq: 0.070, amp: 0.9,  speed: -1.2 };
-      const step = (q < 0.9 ? 18 : 14);
-      ctx.lineWidth = 1;
-
-      // Scaled by atmo.waterShine
-      ctx.strokeStyle = `rgba(255,255,255,${0.09 * (atmo.waterShine||1.0)})`;
-      ctx.beginPath();
-      for(let x=0; x<=width; x+=step){
-        const yOff =
-          Math.sin((x * rippleA.freq) + clock * rippleA.speed * 2.0) * rippleA.amp +
-          Math.sin((x * rippleB.freq) + clock * rippleB.speed * 2.0) * rippleB.amp;
-        const y = top + Math.max(0, yOff);
-        if(x===0) ctx.moveTo(left + x, y); else ctx.lineTo(left + x, y);
-      }
-      ctx.stroke();
-
-      ctx.strokeStyle = `rgba(0,0,0,${0.10 * (atmo.waterShine ? (1.4 - atmo.waterShine*0.7) : 1.0)})`;
-      ctx.beginPath();
-      for(let x=0; x<=width; x+=step){
-        const yOff =
-          Math.sin((x * rippleA.freq) + clock * rippleA.speed * 2.0 + 1.2) * (rippleA.amp*0.9) +
-          Math.sin((x * rippleB.freq) + clock * rippleB.speed * 2.0 + 0.7) * (rippleB.amp*0.9);
-        const y = top + 2 + Math.max(0, yOff);
-        if(x===0) ctx.moveTo(left + x, y); else ctx.lineTo(left + x, y);
-      }
-      ctx.stroke();
-
-      const rr = (i)=> (hash32((W.seed ^ (i*2654435761))>>>0) >>> 0) / 4294967295;
-      const streaks = (q < 0.9 ? 3 : 4) + Math.floor(rr(1) * (q < 0.9 ? 3 : 4));
-      for(let i=0;i<streaks;i++){
-        const yRand = rr(10+i);
-        const y = top + 6 + yRand * Math.min(38, height - 10);
-        const drift = ((clock * 18) + rr(100+i)*2000) % (width + 160);
-        const x0 = left + drift - 160;
-        const x1 = Math.min(left + width, x0 + (60 + rr(200+i)*120));
-
-        ctx.globalAlpha = (0.07 + rr(300+i)*0.05) * (atmo.waterShine || 1.0);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(x0, y, x1 - x0, 1);
-        ctx.globalAlpha = 1;
-      }
-
-      drawFoamBand(left, top, width, W.seed);
-
-      // --- Mist above water (NEW) ---
-      if(atmo.mistOverWater > 0){
-        const fog = Math.min(1, atmo.mistOverWater);
-        const cap = Math.min(46, height*0.28);
-        const baseY = top - 2;
-        const N = 6;
-
-        ctx.save();
-        ctx.filter = reducedMotion ? 'none' : 'blur(1.8px)';
-        for(let i=0;i<N;i++){
-          const t = i/(N-1);
-          const yy = baseY + t * cap;
-          const a  = (0.26 - 0.04*t) * fog * (reducedMotion ? 0.8 : 1.0);
-          ctx.globalAlpha = Math.max(0, a);
-          ctx.fillStyle = '#ffffff';
-          const scallop = 6 + 3*Math.sin(clock*0.7 + t*4.0 + (W.seed%100)/20);
-          ctx.beginPath();
-          ctx.moveTo(left, yy);
-          for(let x=0; x<=width; x+=18){
-            const y2 = yy + Math.sin((x*0.03) + clock*0.8 + t*2.2)*scallop;
-            ctx.lineTo(left + x, y2);
-          }
-          ctx.lineTo(left + width, yy + 24);
-          ctx.lineTo(left, yy + 24);
-          ctx.closePath();
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-        ctx.filter = 'none';
-        ctx.restore();
-      }
-
-      ctx.restore();
-    }
-    function drawFoamBand(left, top, width, seed){
-      const f1 = 0.045, a1 = 1.4;
-      const f2 = 0.090, a2 = 0.8;
-      const phase = (hash32(seed ^ 0xBEEF) % 628) / 100;
-      const step = 10;
-
-      const haloGrad = ctx.createLinearGradient(0, top, 0, top + 6);
-      haloGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
-      haloGrad.addColorStop(1, 'rgba(255,255,255,0.00)');
-      ctx.fillStyle = haloGrad;
-      ctx.fillRect(left, top, width, 6);
-
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for(let x=0; x<=width; x+=step){
-        const yOff =
-          Math.sin(x*f1 + clock*2.0 + phase) * a1 +
-          Math.sin(x*f2 - clock*1.6 + phase*1.7) * a2;
-        const y = top + 1 + Math.max(0, yOff);
-        if(x===0) ctx.moveTo(left + x, y); else ctx.lineTo(left + x, y);
-      }
-      ctx.stroke();
-
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      for(let x=4; x<width; x+=22){
-        const y = top + 2 + Math.sin(x*0.07 + phase)*0.8;
-        ctx.fillRect(left + x, y, 1, 1);
-      }
-    }
-
-    // ===== Background windmills & pre-rendered mountains
-    function drawWindmills(){
-      if(!backdrop.windmills?.length || !backdrop.mountains?.length) return;
-
-      const L = backdrop.mountains[backdrop.mountains.length - 1];
-      const idx = backdrop.mountains.length - 1;
-      const parX = L.parallax;
-      const parY = 0.06 * idx;
-
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.88)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.88)';
-      ctx.lineWidth = 1;
-
-      const w = canvas.width / DPR;
-
-      for(const W of backdrop.windmills){
-        const sx = W.x - view.x * parX;
-        if(sx < -200 || sx > w + 200) continue;
-
-        let baseY = mountainYAt(L, W.x) - view.y * parY;
-        baseY += 2;
-
-        const towerTopY = baseY - W.h;
-        const cx = sx, cy = towerTopY - 10;
-
-        ctx.beginPath();
-        const tw = Math.max(16, W.h * 0.14);
-        const bw = tw * 1.25;
-        ctx.moveTo(sx - bw/2, baseY);
-        ctx.lineTo(sx + bw/2, baseY);
-        ctx.lineTo(sx + tw/2, towerTopY);
-        ctx.lineTo(sx - tw/2, towerTopY);
-        ctx.closePath(); ctx.fill();
-
-        ctx.beginPath();
-        ctx.moveTo(sx - bw/2, baseY);
-        ctx.lineTo(sx - bw/2 - 10, baseY + 6);
-        ctx.moveTo(sx + bw/2, baseY);
-        ctx.lineTo(sx + bw/2 + 10, baseY + 6);
-        ctx.stroke();
-
-        const railW = Math.max(40, tw*2.2);
-        const railH = 10;
-        const railY = towerTopY + 4;
-        ctx.fillRect(sx - railW/2, railY, railW, 6);
-        ctx.save(); ctx.globalAlpha = 0.95;
-        ctx.strokeStyle = 'rgba(0,0,0,0.88)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(sx - railW/2, railY - railH, railW, railH);
-        const vBars = 6;
-        for(let i=1;i<vBars;i++){
-          const x = sx - railW/2 + (railW/vBars)*i;
-          ctx.beginPath(); ctx.moveTo(x, railY - railH); ctx.lineTo(x, railY); ctx.stroke();
-        }
-        ctx.beginPath(); ctx.moveTo(sx - railW/2, railY - railH/2); ctx.lineTo(sx + railW/2, railY - railH/2); ctx.stroke();
-        ctx.restore();
-
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(W.tilt);
-        ctx.fillRect(-8, -6, 16, 6);
-        ctx.beginPath(); ctx.arc(0, 0, 3, 0, TAU); ctx.fill();
-
-        const windFactor = 1 + (windOn ? Math.abs(windLift)*1.2 : 0);
-        const theta = W.spin0 + clock * W.speed * windFactor;
-
-        drawBlade(theta,         W.r);
-        drawBlade(theta+TAU/4,   W.r);
-        drawBlade(theta+TAU/2,   W.r);
-        drawBlade(theta+3*TAU/4, W.r);
-
-        ctx.restore();
-      }
-
-      ctx.restore();
-
-      function drawBlade(angle, R){
-        ctx.save();
-        ctx.rotate(angle);
-
-        const bw = Math.max(6, R*0.16);
-        const bl = R;
-        const root = 4;
-
-        ctx.beginPath();
-        ctx.rect(root, -bw/2, bl-root, bw);
-        ctx.fill();
-
-        ctx.save();
-        ctx.globalAlpha = 0.45;
-        const segs = 5;
-        for(let i=1;i<segs;i++){
-          const x = root + (bl-root)*(i/segs);
-          ctx.beginPath(); ctx.moveTo(x, -bw/2); ctx.lineTo(x, bw/2); ctx.stroke();
-        }
-        ctx.beginPath(); ctx.moveTo(root, 0); ctx.lineTo(bl, 0); ctx.stroke();
-        ctx.restore();
-
-        ctx.restore();
-      }
-    }
-
-    function drawMountains(){
-      const w = canvas.width/DPR, h = canvas.height/DPR;
-      const layers = backdrop.mountains.length;
-      for(let idx=0; idx<layers; idx++){
-        const L = backdrop.mountains[idx];
-        const img = backdrop.mountainsImg[idx];
-        if(!img) continue;
-        const parX = L.parallax;
-        const parY = 0.06 * idx;
-        const sx = -view.x * parX;
-        const sy = -view.y * parY;
-
-        // NEW: fade far layers based on daytime
-        const t = (layers<=1) ? 0 : (idx / (layers-1));
-        const alpha = (atmo.mtnAlphaNear || 1.0) + ((atmo.mtnAlphaFar || 1.0) - (atmo.mtnAlphaNear || 1.0)) * t;
-
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-        ctx.drawImage(img, sx, sy);
-        ctx.restore();
-      }
-    }
-
-    // ===== Atmosphere: distance haze & ground fog (NEW)
-    function drawDistanceHaze(){
-      if(atmo.haze <= 0) return;
-      const w = canvas.width / DPR, h = canvas.height / DPR;
-
-      ctx.save();
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0.00, `rgba(255,255,255,${0.35*atmo.haze})`);
-      g.addColorStop(0.45, `rgba(255,255,255,${0.28*atmo.haze})`);
-      g.addColorStop(0.80, `rgba(255,255,255,${0.08*atmo.haze})`);
-      g.addColorStop(1.00, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-      ctx.restore();
-    }
-
-    function drawGroundFog(){
-      if(atmo.groundFog <= 0) return;
-
-      const w = canvas.width / DPR, h = canvas.height / DPR;
-      const cxw = view.x + view.w*0.5;
-      const gyLocal = groundYAt(clamp(cxw, 0, WORLD.w));
-      const yWorld = gyLocal;
-      const y = yWorld - view.y;
-
-      const height = Math.min(220, Math.max(140, h*0.35));
-      const drift = Math.sin(clock * (atmo.fogDrift.speed || 0.012)) * (atmo.fogDrift.amp || 24);
-
-      ctx.save();
-      const blur = reducedMotion ? 0 : 2.2;
-      ctx.filter = `blur(${blur}px)`;
-      ctx.globalAlpha = 0.75 * atmo.groundFog;
-      ctx.beginPath();
-      const steps = 20;
-      ctx.moveTo(-20, y);
-      for(let i=0; i<=steps; i++){
-        const t = i/steps;
-        const xx = t*w;
-        const wave = Math.sin(t*6 + clock*0.8) * 6 + Math.sin(t*3.2 + clock*0.6 + 1.3)*4;
-        ctx.lineTo(xx, y - 18 + wave + drift*0.05);
-      }
-      ctx.lineTo(w+20, y + height);
-      ctx.lineTo(-20, y + height);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(255,255,255,0.30)';
-      ctx.fill();
-      ctx.filter = 'none';
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    }
-
-    // ===== Geyser visual
     function drawGeyser(){
       if(!hole?.geyser) return;
       const G = hole.geyser;
@@ -1968,9 +2368,9 @@ disc.y += disc.vy * dt;
         const t = i/(N-1);
         const y = -t*H + Math.sin(clock*2.2 + t*6.0 + (G.seed&255))*2;
         const w = G.rx*(1 - 0.18*t);
-        const h = 10 + 6*(1 - t);
+        const hh = 10 + 6*(1 - t);
         ctx.globalAlpha = 0.12 * (1 - t) + 0.04;
-        ctx.beginPath(); ctx.ellipse(0, y, w, h, 0, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0, y, w, hh, 0, 0, TAU); ctx.fill();
       }
       ctx.globalAlpha = 1;
 
@@ -1990,175 +2390,6 @@ disc.y += disc.vy * dt;
         ctx.stroke();
       }
 
-      ctx.restore();
-    }
-
-    // ===== Rendering
-    function draw(){
-      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
-      drawSkyGradient();
-      drawSun();
-      drawClouds();
-      drawMountains();
-
-      // NEW: Distance haze on top of mountains/sky
-      drawDistanceHaze();
-
-      if(!hole){ drawVignette(); drawToasts(); return; }
-
-      drawWindmills();
-      drawWaterBodies();
-
-      // Ground fill
-      ctx.fillStyle = cached.colors.fg;
-      ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
-      for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
-      ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
-
-      drawGrass();
-
-      // NEW: Ground fog over low terrain & water
-      drawGroundFog();
-
-      drawGeyser();
-
-      for(const s of hole.sands){ drawBunkerHole(s); }
-
-      drawScenery();
-      drawBalloons();
-      drawBasket();
-
-      for(const p of particles){
-        let c = '#ffffff';
-        if(p.type==='spark') c = cached.colors.accent;
-        else if(p.type==='sand') c = '#b48a5a';
-        else if(p.type==='dust') c = '#9aa2aa';
-        else if(p.type==='splash') c = cached.colors.accent2;
-        ctx.globalAlpha = Math.max(0, p.life/0.6);
-        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
-      }
-
-      drawDisc();
-      if(aiming){ drawAimArrow(); }
-
-      drawVignette();
-      drawToasts();
-    }
-
-    function drawSkyGradient(){
-      if(!cached.skyGradient) rebuildSkyGradient();
-      ctx.fillStyle = cached.skyGradient;
-      ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
-    }
-
-    function drawSun(){
-      const m = backdrop.sun; if(!m) return;
-
-      // NEW: hide sun if variant requests it
-      if(!atmo.sun.visible){ return; }
-
-      const parX = 0.05, parY = 0.02;
-      const drift = Math.sin(clock*0.05 + m.phase) * 12;
-      const xw = WORLD.w * m.u, yw = WORLD.h * m.v;
-      const x = (xw - view.x*parX) + drift;
-      const y = (yw - view.y*parY);
-      const r = m.baseR * (atmo.sun.radiusMul || 1.0);
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const halo = ctx.createRadialGradient(x, y, r*0.8, x, y, r*4.0);
-      const haloAlpha = 0.22 * (atmo.sun.halo || 1.0);
-      halo.addColorStop(0, `rgba(255,210,130,${haloAlpha})`);
-      halo.addColorStop(1, 'rgba(255,210,130,0.00)');
-      ctx.fillStyle = halo;
-      ctx.beginPath(); ctx.arc(x, y, r*4.0, 0, TAU); ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-
-      ctx.globalAlpha = (atmo.sun.intensity || 1.0);
-      ctx.fillStyle = '#fff2cf';
-      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
-      ctx.globalAlpha = 1.0;
-      ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1; ctx.stroke();
-      ctx.restore();
-    }
-
-    function drawClouds(){
-      const w = canvas.width / DPR;
-      const span = WORLD.w;
-      const q = qualityScale();
-      const alphaMul = (q < 0.9 ? 0.85 : 1.0) * (atmo.cloudAlpha || 1.0); // NEW
-      backdrop.clouds.forEach(C=>{
-        const baseX = WORLD.w * C.u - clock * C.speed;
-        const y = WORLD.h * C.v - view.y * C.parY;
-        for(let k=-1; k<=1; k++){
-          const x = baseX + k*span - view.x * C.parX;
-          if(x < -260 || x > w + 260) continue;
-          ctx.save();
-          ctx.globalAlpha = alphaMul;
-          ctx.drawImage(C.sprite, x - C.spriteW/2, y - C.spriteH/2);
-          ctx.restore();
-        }
-      });
-    }
-
-    const GRASS_STEP = 26;
-    function drawGrass(){
-      if(!hole){ return; }
-      const q = qualityScale();
-      const density = Math.max(1, Math.round(3 * q));
-      ctx.save(); ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.lineWidth=1;
-      const start = Math.floor((view.x-40)/GRASS_STEP)*GRASS_STEP; const end = view.x + view.w + 40;
-      for(let wx=start; wx<end; wx+=GRASS_STEP){
-        const gx = clamp(wx,0,hole.w); const gy = groundYAt(gx) - view.y; if(gy< -20 || gy > canvas.height/DPR+20) continue;
-        for(let k=0;k<density;k++){
-          const idx = ((gx|0)*7 + k)|0; const hh = 7 + rand01(backdrop.seed ^ 0xabc123, idx)*10; const lean = (rand01(backdrop.seed ^ 0x55aa55, idx+13)-0.5)*8;
-          const baseX = gx - view.x + (k-1)*(2 + rand01(backdrop.seed ^ 0x999,idx+21)*2);
-          ctx.beginPath(); ctx.moveTo(baseX, gy);
-          const ctrlX = baseX + lean*0.45; const ctrlY = gy - hh*0.55; const tipX = baseX + lean; const tipY = gy - hh;
-          ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY); ctx.stroke();
-        }
-      }
-      ctx.restore();
-    }
-
-    function drawDisc(){
-      const trailColor = cached.colors.accent;
-      if(!disc.atRest && Math.hypot(disc.vx,disc.vy)>320){
-        ctx.strokeStyle = trailColor; ctx.globalAlpha=0.24; ctx.lineWidth=3;
-        ctx.beginPath(); ctx.moveTo(disc.x - view.x, disc.y - view.y);
-        ctx.lineTo(disc.x - disc.vx*0.05 - view.x, disc.y - disc.vy*0.05 - view.y);
-        ctx.stroke(); ctx.globalAlpha=1;
-      }
-
-      let fillCol = '#f8fafc';
-      if(currentDisc.id==='DRV') fillCol = '#49d0ff';
-      else if(currentDisc.id==='PUT') fillCol = '#ff8a3d';
-      else if(currentDisc.id==='MID') fillCol = '#f8fafc';
-
-      ctx.save();
-      ctx.translate(disc.x - view.x, disc.y - view.y);
-      ctx.rotate(disc.orient);
-      ctx.fillStyle = fillCol;
-      ctx.strokeStyle = 'rgba(0,0,0,.45)';
-      const R = disc.r;
-      ctx.beginPath(); ctx.ellipse(0,0, R, R*0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
-      ctx.globalAlpha=0.45; ctx.beginPath(); ctx.ellipse(0,0, R*0.85, R*0.35, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha=1;
-      ctx.restore();
-    }
-
-    function drawAimArrow(){
-      const b = worldToScreen(disc.x, disc.y);
-      const len = 80 + meter*160;
-      const x2 = b.x + Math.cos(aimAngle)*len;
-      const y2 = b.y + Math.sin(aimAngle)*len;
-      ctx.save(); ctx.scale(DPR,DPR);
-      ctx.strokeStyle = cached.colors.accent3; ctx.lineWidth=3; ctx.globalAlpha=0.9;
-      ctx.beginPath(); ctx.moveTo(b.x/DPR, b.y/DPR); ctx.lineTo(x2/DPR, y2/DPR); ctx.stroke();
-      const a=aimAngle; const ah = 10; const aw = 7;
-      ctx.beginPath(); ctx.moveTo(x2/DPR, y2/DPR);
-      ctx.lineTo((x2 - Math.cos(a)*ah + Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah - Math.cos(a)*aw)/DPR);
-      ctx.lineTo((x2 - Math.cos(a)*ah - Math.sin(a)*aw)/DPR, (y2 - Math.sin(a)*ah + Math.cos(a)*aw)/DPR);
-      ctx.closePath(); ctx.fillStyle=cached.colors.accent; ctx.fill();
       ctx.restore();
     }
 
@@ -2255,7 +2486,6 @@ disc.y += disc.vy * dt;
       return false;
     }
 
-    // NEW: Vignette scaled by daytime
     function drawVignette(){
       const w = canvas.width/DPR, h = canvas.height/DPR;
       const v = Math.max(0, Math.min(1, atmo.vignette ?? 0.35));
@@ -2268,7 +2498,6 @@ disc.y += disc.vy * dt;
     function drawToasts(){
       if(!toasts.length) return;
       ctx.save();
-      ctx.scale(DPR, DPR);
       const w = canvas.width / DPR;
       const y0 = 48;
       ctx.font = '600 14px system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial';
@@ -2293,7 +2522,16 @@ disc.y += disc.vy * dt;
     function roundedRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
     // ===== Resize
-    function resize(){ DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1)); canvas.width = Math.floor(window.innerWidth * DPR); canvas.height = Math.floor(window.innerHeight * DPR); view.w = canvas.width/DPR; view.h = canvas.height/DPR; refreshColorsFromCSS(); rebuildSkyGradient(); rebuildMountainsOffscreen(); }
+    function resize(){
+      DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+      canvas.width = Math.floor(window.innerWidth * DPR);
+      canvas.height = Math.floor(window.innerHeight * DPR);
+      view.w = canvas.width/DPR;
+      view.h = canvas.height/DPR;
+      refreshColorsFromCSS();
+      rebuildSkyGradient();
+      rebuildMountainsOffscreen();
+    }
     window.addEventListener('resize', resize); resize();
 
     // ===== Main loop (fixed timestep)
@@ -2354,8 +2592,10 @@ disc.y += disc.vy * dt;
     AudioMini.setWind(windOn);
 
     buildDiscs();
-    buildDaytimeUI(); // NEW
+    buildDaytimeUI();
     updateWindUI();
+
+    // NOTE: Start screen stays until user clicks Start Round
   }
 })();
 </script>
