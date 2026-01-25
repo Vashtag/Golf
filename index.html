@@ -89,16 +89,8 @@
         </div>
 
         <!-- Daytime segment -->
-        <div class="seg" id="daySeg" role="group" aria-label="Daytime">
-          <button class="btn" data-day="auto" aria-pressed="true" title="Automatic per hole">Auto</button>
-          <button class="btn" data-day="clear" aria-pressed="false">Clear</button>
-          <button class="btn" data-day="golden" aria-pressed="false">Golden</button>
-          <button class="btn" data-day="dusk" aria-pressed="false">Dusk</button>
-          <button class="btn" data-day="night" aria-pressed="false">Night</button>
-          <button class="btn" data-day="fog" aria-pressed="false">Fog</button>
-          <button class="btn" data-day="mist" aria-pressed="false">Mist</button>
-          <button class="btn" data-day="overcast" aria-pressed="false">Overcast</button>
-        </div>
+        
+
 
         <button class="btn" id="btnNewRound" title="Restart round">↻ Round</button>
       </div>
@@ -257,16 +249,6 @@
         tint: null,
         night: 0.0
       },
-      golden: {
-        label:'Golden Hour',
-        cloudAlpha: 0.9,
-        sun: { visible:true, intensity:1.1, radiusMul:1.05, halo:1.15 },
-        vignette: 0.28, waterShine:1.10,
-        haze: 0.06, groundFog: 0.06, mistOverWater: 0.0,
-        mtnAlphaNear: 0.95, mtnAlphaFar: 0.85,
-        tint: { color:'#ffb457', amount:0.18 },
-        night: 0.0
-      },
       dusk: {
         label:'Dusk',
         cloudAlpha: 0.70,
@@ -288,42 +270,9 @@
         skyOverride: { bg1:'#050812', bg2:'#101b33', bg3:'#1b2d55', water:'#050916' },
         tint: null,
         night: 1.0
-      },
-      fog: {
-        label:'Fog',
-        cloudAlpha: 0.65,
-        sun: { visible:false, intensity:0.6, radiusMul:1.0, halo:0.6 },
-        vignette: 0.22, waterShine:0.40,
-        haze: 0.55, groundFog: 0.55, mistOverWater: 0.55,
-        mtnAlphaNear: 0.75, mtnAlphaFar: 0.35,
-        tint: { color:'#cfd7db', amount:0.10 },
-        fogDrift: { speed: 0.010, amp: 32 },
-        night: 0.0
-      },
-      mist: {
-        label:'Mist',
-        cloudAlpha: 0.80,
-        sun: { visible:true, intensity:0.8, radiusMul:1.0, halo:0.9 },
-        vignette: 0.25, waterShine:0.75,
-        haze: 0.22, groundFog: 0.20, mistOverWater: 0.65,
-        mtnAlphaNear: 0.90, mtnAlphaFar: 0.55,
-        tint: { color:'#ebf2ff', amount:0.06 },
-        fogDrift: { speed: 0.012, amp: 28 },
-        night: 0.0
-      },
-      overcast: {
-        label:'Overcast',
-        cloudAlpha: 1.0,
-        sun: { visible:false, intensity:0.7, radiusMul:1.0, halo:0.6 },
-        vignette: 0.22, waterShine:0.35,
-        haze: 0.35, groundFog: 0.10, mistOverWater: 0.15,
-        mtnAlphaNear: 0.85, mtnAlphaFar: 0.55,
-        tint: { color:'#a9b0b8', amount:0.12 },
-        night: 0.0
       }
     };
-
-    let currentDaytimeId = 'auto';
+    // Day/night is randomized per hole (no player-facing controls).
     let currentDaytimeVariant = DAYTIMES.clear;
 
     // Color helpers
@@ -398,49 +347,34 @@
       tintSkyForVariant(variant);
     }
 
-    function pickAutoVariantForHole(){
-      const hasWater = hole?.waters?.length ? true : false;
-      const r = Math.random();
-      if(hasWater){
-        if(r < 0.22) return DAYTIMES.mist;
-        if(r < 0.36) return DAYTIMES.fog;
-        if(r < 0.52) return DAYTIMES.overcast;
-        if(r < 0.66) return DAYTIMES.golden;
-        if(r < 0.78) return DAYTIMES.dusk;
-        if(r < 0.86) return DAYTIMES.night;
-        return DAYTIMES.clear;
-      }else{
-        if(r < 0.12) return DAYTIMES.golden;
-        if(r < 0.22) return DAYTIMES.overcast;
-        if(r < 0.30) return DAYTIMES.fog;
-        if(r < 0.42) return DAYTIMES.mist;
-        if(r < 0.54) return DAYTIMES.dusk;
-        if(r < 0.62) return DAYTIMES.night;
-        return DAYTIMES.clear;
-      }
-    }
-    function resolveVariantForHole(){
-      if(currentDaytimeId !== 'auto') return DAYTIMES[currentDaytimeId] || DAYTIMES.clear;
-      return pickAutoVariantForHole();
-    }
-    function setDaytime(id, persist=true){
-      currentDaytimeId = id;
-      if(persist) localStorage.setItem('daytime', id);
-      // Only apply immediately if hole exists (otherwise it will apply on nextHole())
-      if(hole) applyDaytime(resolveVariantForHole());
-    }
-    function buildDaytimeUI(){
-      if(!daySeg) return;
-      daySeg.addEventListener('click', (e)=>{
-        const btn = e.target.closest('button'); if(!btn) return;
-        const id = btn.dataset.day;
-        [...daySeg.querySelectorAll('button')].forEach(b => b.setAttribute('aria-pressed', b===btn?'true':'false'));
-        setDaytime(id, true);
-      });
-      const saved = localStorage.getItem('daytime') || 'auto';
-      currentDaytimeId = ['auto','clear','golden','dusk','night','fog','mist','overcast'].includes(saved) ? saved : 'auto';
-      [...daySeg.querySelectorAll('button')].forEach(b => b.setAttribute('aria-pressed', b.dataset.day===currentDaytimeId?'true':'false'));
-    }
+    // Day/night selection is randomized per hole (no player-facing controls).
+// Distribution:
+//   Clear 60%, Night 20%, Dusk 20%.
+const DAY_VARIANT_WEIGHTS = { clear: 0.60, night: 0.20, dusk: 0.20 };
+
+function weightedPickKey(weights){
+  let total = 0;
+  for (const k in weights) total += weights[k];
+  let r = Math.random() * Math.max(1e-9, total);
+  for (const k in weights){
+    r -= weights[k];
+    if (r <= 0) return k;
+  }
+  return Object.keys(weights)[0] || 'clear';
+}
+
+function pickAutoVariantForHole(){
+  if (!hole) return 'clear';
+  // Cache so the hole doesn't flicker if resolve is called multiple times.
+  if (!hole._dayVariantId) hole._dayVariantId = weightedPickKey(DAY_VARIANT_WEIGHTS);
+  return hole._dayVariantId;
+}
+
+function resolveVariantForHole(){
+  const id = pickAutoVariantForHole();
+  return DAYTIMES[id] || DAYTIMES.clear;
+}
+
 
     // Quality scaling (Reduced Motion + simple frame EMA)
     let reducedMotion = false;
@@ -2600,7 +2534,7 @@
     AudioMini.setWind(windOn);
 
     buildDiscs();
-    buildDaytimeUI();
+
     updateWindUI();
 
     // NOTE: Start screen stays until user clicks Start Round
