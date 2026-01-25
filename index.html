@@ -192,7 +192,7 @@
     const holeBreakdown = document.getElementById('holeBreakdown');
 
     // ===== Game Config & State
-    const HOLES_PER_ROUND = 3; elHolesTotal.textContent = HOLES_PER_ROUND;
+    const HOLES_PER_ROUND = 18; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
 
@@ -941,12 +941,12 @@ function resolveVariantForHole(){
       // Choose hole length so pars vary meaningfully across holes.
       const rLen = Math.random();
       let targetDist;
-      if (rLen < 0.40) targetDist = lerp(800, 1150, Math.random());        // short (often par 3)
-      else if (rLen < 0.85) targetDist = lerp(1200, 1900, Math.random());  // medium (often par 4)
-      else targetDist = lerp(2000, 2900, Math.random());                    // long (often par 5)
-      const cupX = clamp(teeX + targetDist, 900, w - 220);
-
-      const gWidth = 200 + Math.random()*160;
+if (rLen < 0.40) targetDist = lerp(800, 1150, Math.random());         // short (often par 3)
+else if (rLen < 0.80) targetDist = lerp(1200, 1900, Math.random());   // medium (often par 4)
+else if (rLen < 0.95) targetDist = lerp(2000, 2600, Math.random());   // long (often par 5)
+else targetDist = lerp(2600, 3000, Math.random());                    // very long (often par 6)
+const cupX = clamp(teeX + targetDist, teeX + 820, w - 220);
+const gWidth = 200 + Math.random()*160;
       const gx0=cupX-gWidth/2, gx1=cupX+gWidth/2;
       const greenSlope = (Math.random()*0.6-0.3);
       let greenY = 0;
@@ -1059,9 +1059,10 @@ function resolveVariantForHole(){
       }
 
       const dist = cupX - teeX;
-      let par = 3;
-      if (dist >= 2000) par = 5;
-      else if (dist >= 1200) par = 4;
+let par = 3;
+if (dist >= 2700) par = 6;
+else if (dist >= 2000) par = 5;
+else if (dist >= 1200) par = 4;
 
       const result = {
         w, h, points, step, cupX,
