@@ -581,21 +581,64 @@ function resolveVariantForHole(){
       }
     ];
 
-    function applyTheme(biome){
-      // Establish biome baseline for later tint/overrides
-      baseSky = { bg1: biome.sky.bg1, bg2: biome.sky.bg2, bg3: biome.sky.bg3, water: biome.sky.water };
 
-      const root = document.documentElement.style;
-      root.setProperty('--bg1', biome.sky.bg1);
-      root.setProperty('--bg2', biome.sky.bg2);
-      root.setProperty('--bg3', biome.sky.bg3);
-      root.setProperty('--water', biome.sky.water);
-      refreshColorsFromCSS();
-      rebuildSkyGradient();
-    }
+    // ===== Biome selection weights & variants (visual diversity)
+const BIOME_WEIGHTS = {
+  dunes: 0.28,
+  crags: 0.22,
+  hills: 0.28,
+  mesas: 0.22
+};
+
+const BIOME_VARIANTS = {
+  dunes: [
+    { id:'oasis',  label:'Oasis Dunes',    weight:0.55, treeStyle:'palm',    extras:{ mixCacti:true } },
+    { id:'cactus', label:'Cactus Flats',  weight:0.45, treeStyle:'cactus' }
+  ],
+  crags: [
+    { id:'deadwood', label:'Deadwood',     weight:0.70, treeStyle:'dead' },
+    { id:'pines',    label:'Sparse Pines', weight:0.30, treeStyle:'pine' }
+  ],
+  hills: [
+    { id:'pine', label:'Highland Pines',   weight:0.55, treeStyle:'pine' },
+    { id:'snow', label:'Snowfield',        weight:0.45, treeStyle:'snowpine', extras:{ snowbanks:true },
+      skyOverride:{ bg1:'#1e2a40', bg2:'#5b7aa6', bg3:'#dbe8ff', water:'#0b1a2a' } }
+  ],
+  mesas: [
+    { id:'juniper', label:'Juniper Mesa',  weight:0.40, treeStyle:'juniper' },
+    { id:'cactus',  label:'Cactus Mesa',   weight:0.60, treeStyle:'cactus' }
+  ]
+};
+
+function pickWeighted(list, weightFn){
+  let total = 0;
+  for(const item of list){ total += Math.max(0, (weightFn(item) ?? 1)); }
+  if(total <= 0) return list[(Math.random()*list.length)|0];
+  let r = Math.random() * total;
+  for(const item of list){
+    r -= Math.max(0, (weightFn(item) ?? 1));
+    if(r <= 0) return item;
+  }
+  return list[list.length-1];
+}
+
+    function applyTheme(biome, biomeVariant){
+  // Establish biome baseline for later tint/overrides (clear/dusk/night)
+  const sky = Object.assign({}, biome.sky, (biomeVariant && biomeVariant.skyOverride) ? biomeVariant.skyOverride : null);
+  baseSky = { bg1: sky.bg1, bg2: sky.bg2, bg3: sky.bg3, water: sky.water };
+
+  const r = document.documentElement;
+  r.style.setProperty('--bg1', sky.bg1);
+  r.style.setProperty('--bg2', sky.bg2);
+  r.style.setProperty('--bg3', sky.bg3);
+  r.style.setProperty('--water', sky.water);
+
+  // Time-of-day variant will re-tint the sky variables after this call.
+}
 
     // Backdrop (sun + clouds + mountains) with pre-rendered layers/sprites
     let currentBiome = BIOMES[0];
+    let currentBiomeVariant = null;
     const backdrop = {
       seed:(Math.random()*1e9)|0,
       mountains:[],
@@ -799,7 +842,7 @@ function resolveVariantForHole(){
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
     // Scenery
-    let scenery = { trees:[], rocks:[], fences:[] };
+    let scenery = { trees:[], rocks:[], fences:[], snowbanks:[] };
 
     // Fireflies (night/dusk chance)
     let fireflies = [];
@@ -1206,11 +1249,14 @@ else if (dist >= 1200) par = 4;
     }
 
     function nextHole(){
-      const biome = BIOMES[holeIndex % BIOMES.length];
-      currentBiome = biome;
-      applyTheme(biome);
+      const biome = pickWeighted(BIOMES, b => BIOME_WEIGHTS[b.name] ?? 1);
+currentBiome = biome;
 
-      // IMPORTANT FIX: generate hole before selecting "auto" variants (auto uses hole.waters)
+const variants = BIOME_VARIANTS[biome.name];
+currentBiomeVariant = variants ? pickWeighted(variants, v => v.weight ?? 1) : null;
+
+applyTheme(biome, currentBiomeVariant);
+// IMPORTANT FIX: generate hole before selecting "auto" variants (auto uses hole.waters)
       hole = genHole();
 
       // Apply daytime for this hole now that hole exists
@@ -1502,7 +1548,24 @@ else if (dist >= 1200) par = 4;
       scenery.trees = [];
       scenery.rocks = [];
       scenery.fences = [];
-      const rng = (i)=>rand01(backdrop.seed, 2000+i);
+scenery.snowbanks = [];
+const rng = (i)=>rand01(backdrop.seed, 2000+i);
+
+const treeStyleBase = (currentBiomeVariant && currentBiomeVariant.treeStyle) ? currentBiomeVariant.treeStyle : 'pine';
+const extras = (currentBiomeVariant && currentBiomeVariant.extras) ? currentBiomeVariant.extras : null;
+
+// Snowbanks: purely visual mounds near the ground (snow variant)
+if(extras && extras.snowbanks){
+  const banks = 3 + Math.floor(rng(810)*5);
+  for(let i=0;i<banks;i++){
+    const x = 120 + rng(820+i)*(WORLD.w - 240);
+    const y = groundYAt(x) + 3;
+    const w = 120 + rng(830+i)*240;
+    const h = 14 + rng(840+i)*24;
+    const a = 0.22 + rng(850+i)*0.25;
+    scenery.snowbanks.push({ x, y, w, h, a });
+  }
+}
       const countTrees = 24 + Math.floor(rng(1)*18);
       const avoid = [
         [hole.green.x0-80, hole.green.x1+80],
@@ -1517,10 +1580,21 @@ else if (dist >= 1200) par = 4;
         let x = 80 + rng(10+i)*(WORLD.w-160);
         let tries=0; while(!allowedX(x) && tries++<10){ x = 80 + rng(100+i*7)*(WORLD.w-160); }
         const y = groundYAt(x);
-        const h = 56 + rng(200+i)*96;
-        const baseW = 14 + rng(300+i)*18;
-        const levels = 4 + Math.floor(rng(500+i)*2);
-        scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU });
+        let type = treeStyleBase;
+if(extras && extras.mixCacti && rng(950+i) < 0.35) type = 'cactus';
+
+let h = 56 + rng(200+i)*96;
+let baseW = 14 + rng(300+i)*18;
+let levels = 4 + Math.floor(rng(500+i)*2);
+
+// Slight silhouette adjustments per tree style (purely visual)
+if(type==='cactus'){ h *= 1.15; baseW *= 0.55; levels = 3; }
+else if(type==='palm'){ h *= 1.15; baseW *= 0.55; levels = 3; }
+else if(type==='juniper'){ h *= 0.90; baseW *= 1.15; levels = Math.max(3, levels); }
+else if(type==='dead'){ h *= 1.05; baseW *= 0.70; levels = 3; }
+else if(type==='snowpine'){ /* keep default */ }
+
+scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:(type==='snowpine') });
       }
       // Rocks
       const rockN = 6 + Math.floor(Math.random()*6);
@@ -2163,15 +2237,114 @@ else if (dist >= 1200) par = 4;
       }
       ctx.restore();
 
+            // Snowbanks (snow biome variant)
+      if(scenery.snowbanks && scenery.snowbanks.length){
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.20)';
+        for(const b of scenery.snowbanks){
+          const x = b.x - view.x, y = b.y - view.y;
+          if(x < -(b.w+60) || x > canvas.width/DPR + (b.w+60)) continue;
+          ctx.globalAlpha = b.a;
+          const topY = y - b.h;
+          ctx.beginPath();
+          ctx.moveTo(x - b.w*0.5, y);
+          ctx.bezierCurveTo(x - b.w*0.25, topY, x + b.w*0.25, topY, x + b.w*0.5, y);
+          ctx.quadraticCurveTo(x, y + b.h*0.22, x - b.w*0.5, y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       // Trees
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.94)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.94)';
       for(const t of scenery.trees){
         const x = t.x - view.x, y = t.y - view.y;
-        if(x<-60 || x>canvas.width/DPR+60) continue;
+        if(x<-80 || x>canvas.width/DPR+80) continue;
         const sway = Math.sin(clock*0.3 + t.sway) * 2;
 
-        const trunkW = clamp(t.h*0.045, 3, 7);
+        const type = t.type || 'pine';
+        const trunkW = clamp(t.h*0.045, 3, 8);
+
+        if(type==='cactus'){
+          const w = clamp(t.w*0.45, 6, 14);
+          ctx.fillRect(x - w/2, y - t.h, w, t.h);
+          const armH = t.h*0.35;
+          const armW = w*0.85;
+          const armY = y - t.h*0.55;
+
+          // left arm
+          ctx.fillRect(x - w/2 - armW, armY, armW, w*0.9);
+          ctx.fillRect(x - w/2 - armW, armY - armH, w*0.9, armH);
+
+          // right arm
+          ctx.fillRect(x + w/2, armY + w*0.15, armW, w*0.9);
+          ctx.fillRect(x + w/2 + armW - w*0.9, armY + w*0.15 - armH*0.85, w*0.9, armH*0.85);
+
+          ctx.beginPath(); ctx.ellipse(x, y, w*0.65, w*0.35, 0, 0, TAU); ctx.fill();
+          continue;
+        }
+
+        if(type==='palm'){
+          const w = clamp(t.w*0.35, 4, 10);
+          const tilt = (Math.sin(t.sway*7.3) * 0.12);
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(tilt);
+          ctx.fillRect(-w/2, -t.h, w, t.h);
+
+          const topY = -t.h;
+          for(let k=0;k<6;k++){
+            const ang = -Math.PI/2 + (k-2.5)*0.35 + Math.sin(clock*0.25 + t.sway + k)*0.08;
+            const len = t.h*0.25;
+            ctx.beginPath();
+            ctx.moveTo(0, topY);
+            ctx.lineTo(Math.cos(ang)*len, topY + Math.sin(ang)*len);
+            ctx.lineTo(Math.cos(ang+0.18)*len*0.6, topY + Math.sin(ang+0.18)*len*0.6);
+            ctx.closePath();
+            ctx.fill();
+          }
+          ctx.restore();
+          continue;
+        }
+
+        if(type==='juniper'){
+          ctx.fillRect(x - trunkW/2, y - t.h*0.55, trunkW, t.h*0.55);
+          const r = t.w*0.55;
+          const cy = y - t.h*0.62;
+          for(let k=0;k<5;k++){
+            const ox = (k-2)*r*0.18 + sway*0.25;
+            const oy = Math.sin((t.sway+k)*2.1)*r*0.10;
+            ctx.beginPath();
+            ctx.ellipse(x+ox, cy+oy, r*(0.85 - k*0.10), r*(0.65 - k*0.07), 0, 0, TAU);
+            ctx.fill();
+          }
+          continue;
+        }
+
+        if(type==='dead'){
+          ctx.fillRect(x - trunkW/2, y - t.h, trunkW, t.h);
+          ctx.beginPath(); ctx.moveTo(x - trunkW*0.8, y); ctx.lineTo(x + trunkW*0.8, y); ctx.lineTo(x, y - trunkW*0.4); ctx.closePath(); ctx.fill();
+
+          ctx.save();
+          ctx.lineWidth = 2;
+          for(let k=0;k<4;k++){
+            const by = y - t.h*(0.35 + k*0.12);
+            const dir = (k%2===0 ? -1 : 1);
+            ctx.beginPath();
+            ctx.moveTo(x + dir*trunkW*0.2, by);
+            ctx.lineTo(x + dir*(trunkW*1.6 + k*3), by - (8 + k*3));
+            ctx.stroke();
+          }
+          ctx.restore();
+          continue;
+        }
+
+        // Default: pine / snowpine
         ctx.fillRect(x - trunkW/2, y - t.h, trunkW, t.h);
         ctx.beginPath(); ctx.moveTo(x - trunkW*0.8, y); ctx.lineTo(x + trunkW*0.8, y); ctx.lineTo(x, y - trunkW*0.4); ctx.closePath(); ctx.fill();
 
@@ -2179,11 +2352,28 @@ else if (dist >= 1200) par = 4;
         for(let k=0;k<t.levels;k++){
           const level = t.h*(0.16 + k*0.18);
           const width = (t.w + k*(t.w*0.28));
+          const topX = x + sway*0.45;
+          const topY = y - level - (k*tierGap);
+          const baseY = y - level + tierGap;
+
           ctx.beginPath();
-          ctx.moveTo(x + sway*0.45, y - level - (k*tierGap));
-          ctx.lineTo(x - width/2 + sway, y - level + tierGap);
-          ctx.lineTo(x + width/2 + sway, y - level + tierGap);
+          ctx.moveTo(topX, topY);
+          ctx.lineTo(x - width/2 + sway, baseY);
+          ctx.lineTo(x + width/2 + sway, baseY);
           ctx.closePath(); ctx.fill();
+
+          if(type==='snowpine' || t.snow){
+            ctx.save();
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.beginPath();
+            ctx.moveTo(topX, topY);
+            ctx.lineTo(topX - width*0.22, topY + (baseY-topY)*0.35);
+            ctx.lineTo(topX + width*0.22, topY + (baseY-topY)*0.35);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+            ctx.fillStyle = 'rgba(0,0,0,0.94)';
+          }
         }
       }
       ctx.restore();
