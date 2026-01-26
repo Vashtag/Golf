@@ -401,6 +401,7 @@ function resolveVariantForHole(){
 
     // Surfaces
     const SURF = {
+  ice:{ fric:0.004, rest:0.02 },
       fairway: { fric: 740,  rest: 0.14 },
       rough:   { fric: 1000, rest: 0.10, powerMul: 0.88 },
       sand:    { fric: 1400, rest: 0.05, powerMul: 0.70 },
@@ -948,7 +949,67 @@ let predCache = { angle:NaN, power:NaN, wind:NaN, windLift:NaN, releaseMode:NaN 
       ctx.restore();
     }
 
-    // ===== Procedural hole
+    
+    // --- Ravens (sometimes, dusk + night) ---
+    const ravens = [];
+    function updateRavens(dt){
+      if(reducedMotion){ ravens.length = 0; return; }
+      const nightiness = (atmo && typeof atmo.night === 'number') ? atmo.night : 0;
+      if(nightiness >= 0.55){
+        const rate = nightiness > 0.8 ? 0.070 : 0.045; // spawns per second
+        if(Math.random() < rate * dt){
+          const sw = canvas.width / DPR;
+          const dir = (Math.random() < 0.5) ? 1 : -1;
+          const x = (dir === 1) ? -70 : (sw + 70);
+          const y = 40 + Math.random() * 140;
+          const speed = (80 + Math.random()*120) * dir;
+          const vy = (-12 + Math.random()*24);
+          ravens.push({
+            x, y, vx: speed, vy,
+            span: 12 + Math.random()*10,
+            flapAmp: 2.5 + Math.random()*4.5,
+            flapSpeed: 7 + Math.random()*7,
+            phase: Math.random()*Math.PI*2
+          });
+          if(ravens.length > 10) ravens.shift();
+        }
+      }
+      const sw = canvas.width / DPR;
+      const sh = canvas.height / DPR;
+      for(let i=ravens.length-1;i>=0;i--){
+        const r = ravens[i];
+        r.x += r.vx * dt;
+        r.y += r.vy * dt;
+        r.phase += dt * r.flapSpeed;
+        if(r.x < -120 || r.x > sw + 120 || r.y < -120 || r.y > sh + 120){
+          ravens.splice(i,1);
+        }
+      }
+    }
+    function drawRavens(){
+      const nightiness = (atmo && typeof atmo.night === 'number') ? atmo.night : 0;
+      if(nightiness < 0.55 || ravens.length === 0) return;
+      ctx.save();
+      ctx.globalAlpha = 0.18 + 0.22 * Math.min(1, nightiness);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = (nightiness > 0.8) ? 'rgba(0,0,0,0.85)' : 'rgba(10,10,10,0.70)';
+      for(const r of ravens){
+        const flap = Math.sin(r.phase) * r.flapAmp;
+        const s = r.span;
+        ctx.beginPath();
+        ctx.moveTo(r.x - s, r.y + flap);
+        ctx.quadraticCurveTo(r.x, r.y - flap*0.25, r.x + s, r.y + flap);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(r.x - 3, r.y + 1);
+        ctx.lineTo(r.x + 3, r.y + 1);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+// ===== Procedural hole
     function genHole(){
       const w = WORLD.w, h = WORLD.h;
       const step=40;
@@ -1167,7 +1228,7 @@ else if (dist >= 1200) par = 4;
 
     function groundYAt(x){ x = clamp(x, 0, hole.w); const i = Math.min(Math.floor(x/hole.step), hole.points.length-2); const p0 = hole.points[i], p1 = hole.points[i+1]; const t = (x - p0.x)/(p1.x - p0.x); return lerp(p0.y, p1.y, t); }
 
-    function surfaceAt(x){
+    function surfaceAt(x){ if(hole && hole.icePatches){for(const p of hole.icePatches){if(Math.abs(x-p.x)<p.r) return 'ice';}}
       if(x>=hole.green.x0 && x<=hole.green.x1) return 'green';
       const y = groundYAt(x);
       for(const s of hole.sands){ if(Math.hypot(x - s.x, y - s.y) <= s.r) return 'sand'; }
@@ -1386,7 +1447,7 @@ applyTheme(biome, currentBiomeVariant);
     }
 
     // ===== Physics update
-    function update(dt){
+    function update(dt){ updateRavens(dt);
       if(meterOn){ meter += meterDir * 1.6 * dt; if(meter>1){meter=1; meterDir=-1}else if(meter<0){meter=0; meterDir=1} elPowerfill.style.width = (meter*100).toFixed(1)+'%'; }
 
       if(!hole){ return; }
@@ -1755,6 +1816,8 @@ function drawPredictedArc(){
       scenery.rocks = [];
       scenery.fences = [];
 scenery.snowbanks = [];
+      scenery.icePatches = [];
+      scenery.landmark = null;
 const rng = (i)=>rand01(backdrop.seed, 2000+i);
 
 const treeStyleBase = (currentBiomeVariant && currentBiomeVariant.treeStyle) ? currentBiomeVariant.treeStyle : 'pine';
@@ -1852,9 +1915,41 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       if(Math.random() < 0.45){
         addFence(hole.cupX - (260+Math.random()*120), hole.cupX - 80);
       }
+
+      // Ice patches only in snow biome (disc can still fly through snowbanks; ice affects ground slide)
+      if(currentBiomeVariant && currentBiomeVariant.id === 'snow'){
+        const count = 1 + Math.floor(Math.random()*3);
+        for(let i=0;i<count;i++){
+          const x = lerp(hole.tee.x+180, hole.cupX-180, Math.random());
+          const r = 18 + Math.random()*38;
+          scenery.icePatches.push({ x, r });
+        }
+      }
+
+      // Rare, one-per-hole landmark (purely decorative)
+      if(Math.random() < 0.18){
+        const biomeId = currentBiomeVariant ? currentBiomeVariant.id : 'forest';
+        let choices;
+        if(biomeId === 'snow') choices = ['ice_cave', 'bridge'];
+        else if(biomeId === 'desert') choices = ['abandoned_bus', 'bridge'];
+        else if(biomeId === 'prairie') choices = ['barn', 'windmill_cluster'];
+        else choices = ['barn', 'bridge', 'abandoned_bus', 'windmill_cluster'];
+        const type = choices[Math.floor(Math.random()*choices.length)];
+        const x = lerp(hole.tee.x+220, hole.cupX-220, Math.random());
+        scenery.landmark = { type, x, y: groundYAt(x), s: 1.0 };
+      }
+
+      // Expose per-hole arrays for helpers
+      hole.icePatches = scenery.icePatches;
+      hole.landmark  = scenery.landmark;
+      if(typeof currentHole !== 'undefined'){
+        currentHole.icePatches = hole.icePatches;
+        currentHole.landmark = hole.landmark;
+      }
+
     }
 
-    // ===== Rendering
+// ===== Rendering
     function draw(){
       ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
 
@@ -1863,6 +1958,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       // Night layer (stars/moon) on top of sky
       drawStars();
       drawMoon();
+      drawRavens();
 
       drawSun();
       drawClouds();
@@ -1881,6 +1977,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
       ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
 
+      drawIcePatches();
       drawGrass();
       drawGroundFog();
       drawGeyser();
@@ -1888,6 +1985,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       for(const s of hole.sands){ drawBunkerHole(s); }
 
       drawScenery();
+      drawLandmark();
       drawFireflies();
       drawBalloons();
       drawBasket();
@@ -2348,7 +2446,16 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
     }
 
     const GRASS_STEP = 26;
-    function drawGrass(){
+    function drawIcePatches(){
+  if(!hole||!hole.icePatches) return;
+  ctx.save();ctx.fillStyle='rgba(180,220,255,0.18)';
+  for(const p of hole.icePatches){
+    const x=p.x-view.x; const y=groundYAt(p.x)-view.y;
+    ctx.beginPath();ctx.ellipse(x,y-2,p.r,p.r*0.25,0,0,TAU);ctx.fill();
+  }
+  ctx.restore();
+}
+function drawGrass(){
       if(!hole){ return; }
       const q = qualityScale();
       const density = Math.max(1, Math.round(3 * q));
@@ -2412,6 +2519,109 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       ctx.globalAlpha=1;
       ctx.restore();
     }
+
+    function drawLandmark(){
+      if(!hole || !hole.landmark) return;
+      const lm = hole.landmark;
+      const sx = (lm.x - view.x) * view.scale;
+      const sy = (lm.y - view.y) * view.scale;
+      const S = (lm.s || 1) * view.scale;
+
+      const nightiness = (atmo && typeof atmo.night === 'number') ? atmo.night : 0;
+      const a = 0.30 + 0.35 * Math.min(1, nightiness);
+      const ink = `rgba(0,0,0,${a})`;
+
+      ctx.save();
+      ctx.fillStyle = ink;
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = Math.max(2, 2 * S);
+
+      if(lm.type === 'barn'){
+        const w = 90 * S, h = 48 * S;
+        ctx.beginPath();
+        ctx.rect(sx - w*0.5, sy - h, w, h);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(sx - w*0.55, sy - h);
+        ctx.lineTo(sx, sy - h - 30*S);
+        ctx.lineTo(sx + w*0.55, sy - h);
+        ctx.closePath();
+        ctx.fill();
+        // door hint
+        ctx.beginPath();
+        ctx.rect(sx - 14*S, sy - 28*S, 28*S, 28*S);
+        ctx.stroke();
+      }else if(lm.type === 'bridge'){
+        const w = 120 * S;
+        ctx.beginPath();
+        ctx.moveTo(sx - w*0.5, sy - 6*S);
+        ctx.quadraticCurveTo(sx, sy - 42*S, sx + w*0.5, sy - 6*S);
+        ctx.lineTo(sx + w*0.5, sy + 6*S);
+        ctx.quadraticCurveTo(sx, sy - 30*S, sx - w*0.5, sy + 6*S);
+        ctx.closePath();
+        ctx.fill();
+        // rail
+        ctx.beginPath();
+        ctx.moveTo(sx - w*0.5, sy - 16*S);
+        ctx.lineTo(sx + w*0.5, sy - 16*S);
+        ctx.stroke();
+      }else if(lm.type === 'abandoned_bus'){
+        const w = 110 * S, h = 36 * S;
+        const x0 = sx - w*0.5, y0 = sy - h;
+        const r = 10 * S;
+        ctx.beginPath();
+        ctx.moveTo(x0 + r, y0);
+        ctx.lineTo(x0 + w - r, y0);
+        ctx.quadraticCurveTo(x0 + w, y0, x0 + w, y0 + r);
+        ctx.lineTo(x0 + w, y0 + h - r);
+        ctx.quadraticCurveTo(x0 + w, y0 + h, x0 + w - r, y0 + h);
+        ctx.lineTo(x0 + r, y0 + h);
+        ctx.quadraticCurveTo(x0, y0 + h, x0, y0 + h - r);
+        ctx.lineTo(x0, y0 + r);
+        ctx.quadraticCurveTo(x0, y0, x0 + r, y0);
+        ctx.closePath();
+        ctx.fill();
+        // windows
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        for(let i=0;i<4;i++){
+          ctx.beginPath();
+          ctx.rect(x0 + 18*S + i*22*S, y0 + 8*S, 16*S, 10*S);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }else if(lm.type === 'windmill_cluster'){
+        const baseY = sy;
+        for(let k=0;k<3;k++){
+          const ox = sx + (k-1)*46*S;
+          const h = (52 + k*6) * S;
+          ctx.beginPath();
+          ctx.moveTo(ox, baseY);
+          ctx.lineTo(ox, baseY - h);
+          ctx.stroke();
+          const cx = ox, cy = baseY - h;
+          const blade = 18*S;
+          for(let b=0;b<4;b++){
+            const ang = (Math.PI/2)*b + (k*0.4);
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + Math.cos(ang)*blade, cy + Math.sin(ang)*blade);
+            ctx.stroke();
+          }
+        }
+      }else if(lm.type === 'ice_cave'){
+        const w = 110 * S, h = 55 * S;
+        ctx.save();
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy - 18*S, w*0.45, h*0.35, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.restore();
+    }
+
 
     function drawScenery(){
       drawFences();
@@ -2897,14 +3107,42 @@ function updateDistanceUI(){
       last=now;
       frameEMA = frameEMA*0.9 + frameDT*0.1;
       acc += frameDT;
+
       const maxSteps = 5;
       let steps = 0;
-      while(acc >= FIXED_DT && steps++ < maxSteps){
-        clock += FIXED_DT;
-        update(FIXED_DT);
-        acc -= FIXED_DT;
+
+      // Guard against rare runtime errors that would otherwise halt the animation loop.
+      // If something goes wrong, we reset the disc state and keep the hole/score intact.
+      try {
+        while(acc >= FIXED_DT && steps++ < maxSteps){
+          clock += FIXED_DT;
+          update(FIXED_DT);
+          acc -= FIXED_DT;
+        }
+        draw();
+      } catch (e) {
+        console.error(e);
+        // Throttle recovery to avoid spam if an error repeats.
+        const ms = (t||0);
+        if(!loop._lastRecover || (ms - loop._lastRecover) > 2000){
+          loop._lastRecover = ms;
+          try { toast('Recovered from an error — resetting disc.'); } catch {}
+          try {
+            // Minimal, safe reset
+            if(hole && disc){
+              disc.x = hole.tee.x;
+              disc.y = hole.tee.y - disc.r - 2;
+              disc.vx = 0; disc.vy = 0;
+              disc.spin = 0; disc.orient = 0; disc.bank = 0;
+              disc.onGround = false;
+            }
+          } catch {}
+          // Ensure we don't leave debris that could trigger repeated errors
+          try { particles.length = 0; } catch {}
+          try { ravens.length = 0; } catch {}
+        }
       }
-      draw();
+
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
