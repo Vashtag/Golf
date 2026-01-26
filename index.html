@@ -71,6 +71,8 @@
       </div>
       <div class="row">
         <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
+        <div class="chip"><span class="label">To pin</span> <span id="distVal">—</span>m</div>
+        <div class="chip" id="projChip" style="display:none"><span class="label">Projected landing</span> <span id="projVal">—</span></div>
         <button class="btn" id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
       </div>
     </div>
@@ -167,6 +169,9 @@
     const elStrokes = document.getElementById('strokes');
     const elWindVal = document.getElementById('windVal');
     const elWindArrow = document.getElementById('windArrow');
+    const elDistVal = document.getElementById('distVal');
+    const elProjChip = document.getElementById('projChip');
+    const elProjVal = document.getElementById('projVal');
     const elPowermeter = document.getElementById('powermeter');
     const elPowerfill = document.getElementById('powerfill');
     const clubSeg = document.getElementById('clubSeg');
@@ -405,6 +410,8 @@ function resolveVariantForHole(){
 
     // ==== DISC PHYSICS ====
     const GRAV = 1500;
+  // Display-only conversion (world units are pixels)
+  const PX_PER_M = 10;
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
 
@@ -841,6 +848,16 @@ function pickWeighted(list, weightFn){
     // Aim/meter state
     let aiming=false, aimAngle=0, meter=0, meterDir=1, meterOn=false;
 
+// --- Aim prediction preview (during hold-to-throw) ---
+const PRED_PATH_SEC = 1.7;   // draw arc for ~2s
+const PRED_LAND_SEC = 4.0;   // simulate longer for landing estimate
+const PRED_DT = 1/30; // coarser sim for preview (perf)
+let predPath = null;         // [{x,y}, ...] world coords
+let predLanding = null;      // {x,y}
+let predDeltaText = '';
+let predLastCalcMs = 0;
+let predCache = { angle:NaN, power:NaN, wind:NaN, windLift:NaN, releaseMode:NaN };
+
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[], snowbanks:[] };
 
@@ -1273,6 +1290,8 @@ applyTheme(biome, currentBiomeVariant);
 
       windLift = windOn ? (Math.random()*2 - 1) : 0;
       updateWindUI();
+      updateDistanceUI();
+      updateAimPrediction();
 
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
@@ -1336,7 +1355,7 @@ applyTheme(biome, currentBiomeVariant);
     function onPointerUp(e){
       if(!aiming) return;
       try{ canvas.releasePointerCapture?.(e.pointerId); }catch{}
-      aiming=false; meterOn=false; elPowermeter.dataset.on='0'; throwDisc();
+      aiming=false; meterOn=false; elPowermeter.dataset.on='0'; throwDisc(); predPath=null; predLanding=null; if(elProjChip) elProjChip.style.display='none';
     }
 
     canvas.addEventListener('pointerdown', onPointerDown);
@@ -1537,6 +1556,193 @@ applyTheme(biome, currentBiomeVariant);
       centerCameraOnDisc();
     }
 
+function simulateAimTrajectory(angle, power){
+  // Mirror throwDisc() + updateDisc() physics (without collisions / basket catch / particles)
+  const speedMult = (PU.speed ? 1.18 : 1.0) * (PU.golden ? 1.06 : 1.0);
+  const spinMult  = (PU.spin ? 1.22 : 1.0);
+  const throwSpeed = 1650 * (0.5 + 0.7 * power) * speedMult;
+
+  const s = {
+    x: disc.x,
+    y: disc.y,
+    vx: Math.cos(angle) * throwSpeed,
+    vy: Math.sin(angle) * throwSpeed,
+    spin: SPIN_BASE * (0.7 + 0.6 * power) * currentDisc.spinMult * spinMult,
+    pitch: clamp(angle * 0.6, -0.6, 0.6),
+    bounce: 0
+  };
+
+  const path = [];
+  const dt = PRED_DT;
+  const pathSteps = Math.floor(PRED_PATH_SEC / dt);
+  const totalSteps = Math.floor(PRED_LAND_SEC / dt);
+
+  for(let i=0;i<totalSteps;i++){
+    if(i <= pathSteps && (i % 2 === 0)) path.push({x:s.x, y:s.y});
+
+    const speed = Math.hypot(s.vx, s.vy);
+    const spinNorm = clamp(s.spin / SPIN_BASE, 0, 1);
+
+    // Gravity
+    s.vy += GRAV * dt;
+
+    // Drag (spin helps stability)
+    const drag = AERO_DRAG * PU.dragMul * (1 + 0.6 * (1 - spinNorm));
+    s.vx *= (1 - drag * dt);
+    s.vy *= (1 - drag * dt);
+
+    // Wind
+    s.vx += (wind * WIND_SIDE * PU.windScaleMul) * dt;
+    s.vy += (windLift * 320 * PU.windScaleMul) * dt;
+
+    // Lift (perpendicular to velocity)
+    if(speed > 1){
+      const lift = AERO_LIFT * currentDisc.lift * spinNorm * (speed * 0.0009);
+      const inv = 1 / Math.max(1, speed);
+      const lx = -s.vy * inv, ly = s.vx * inv;
+      s.vx += lx * lift * dt;
+      s.vy += ly * lift * dt;
+
+      // Turn + fade + hyzer/anhyzer release
+      const fast = clamp((speed - 240) / 600, 0, 1);
+      const turnAmt = currentDisc.turn * fast;
+      const fadeAmt = currentDisc.fade * (1 - fast) * (1 - 0.5 * spinNorm);
+      let curve = (turnAmt + fadeAmt) * currentDisc.curve * PU.curveMul;
+
+      const hyz = releaseMode * 0.6;
+      curve += hyz * 0.55 * currentDisc.curve * PU.curveMul;
+
+      const cx = -s.vy * inv, cy = s.vx * inv;
+      s.vx += cx * curve * dt;
+      s.vy += cy * curve * dt;
+    }
+
+    // Spin decay
+    s.spin *= (1 - 0.6 * PU.spinDecayMul * dt);
+
+    // Integrate
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+
+    // World bounds
+    s.x = clamp(s.x, 0, hole.w);
+
+    // Ground interaction
+    const gy = groundYAt(s.x) - disc.r;
+    const onGround = s.y >= gy - 0.5;
+
+    if(onGround){
+      s.y = gy;
+
+      if(Math.abs(s.vy) > 50 && s.bounce < 6){
+        s.vy *= -0.28;
+        s.vx *= 0.82;
+        s.spin *= 0.86;
+        s.bounce++;
+      }else{
+        s.vy = 0;
+      }
+
+      const surf = surfaceAt(s.x);
+      let fricMul = 1.0;
+      if(surf.type === 'sand') fricMul *= PU.sandFricMul;
+
+      s.vx *= (0.987 + 0.010 * surf.rolling) * fricMul;
+      s.spin *= 0.98;
+      s.pitch *= 0.92;
+      s.vy *= 0.7;
+
+      if(Math.abs(s.vx) < 15 && s.spin < 120){
+        break;
+      }
+    }
+
+    // Water: treat as "landing"
+    if(inWater(s.x, s.y)){
+      break;
+    }
+  }
+
+  const dx = hole.cupX - s.x;
+  const dM = Math.abs(dx) / PX_PER_M;
+  let deltaText;
+  if(dM < 1.0) deltaText = 'pin-high';
+  else deltaText = `${Math.round(dM)} m ${dx > 0 ? 'short' : 'long'}`;
+
+  return { path, landing: {x:s.x, y:s.y}, deltaText };
+}
+
+function updateAimPrediction(force=false){
+  if(!elProjChip || !elProjVal) return;
+
+  if(!aiming || !meterOn || !hole){
+    predPath = null;
+    predLanding = null;
+    elProjChip.style.display = 'none';
+    return;
+  }
+
+  const now = performance.now();
+  const power = clamp(meter, 0, 1);
+  const angle = aimAngle;
+
+  // Throttle + only recompute when inputs have moved meaningfully
+  const shouldRecalc =
+    force ||
+    (now - predLastCalcMs) > 120 ||
+    Math.abs(angle - predCache.angle) > 0.003 ||
+    Math.abs(power - predCache.power) > 0.02 ||
+    Math.abs(wind - predCache.wind) > 0.05 ||
+    Math.abs(windLift - predCache.windLift) > 0.05 ||
+    releaseMode !== predCache.releaseMode;
+
+  if(!shouldRecalc) return;
+
+  predLastCalcMs = now;
+  predCache = { angle, power, wind, windLift, releaseMode };
+
+  const res = simulateAimTrajectory(angle, power);
+  predPath = res.path;
+  predLanding = res.landing;
+  predDeltaText = res.deltaText;
+
+  elProjChip.style.display = 'flex';
+  elProjVal.textContent = predDeltaText;
+}
+
+function drawPredictedArc(){
+  if(!predPath || predPath.length < 2) return;
+
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 10]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+
+  ctx.beginPath();
+  for(let i=0;i<predPath.length;i++){
+    const p = predPath[i];
+    const sx = p.x - view.x;
+    const sy = p.y - view.y;
+    if(i===0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if(predLanding){
+    const sx = predLanding.x - view.x;
+    const sy = predLanding.y - view.y;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 7, 0, Math.PI*2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+
     function centerCameraOnDisc(){
       if(!hole){ return; }
       view.x = clamp(disc.x - view.w*0.45, 0, WORLD.w - view.w);
@@ -1696,6 +1902,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
         ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x - view.x, p.y - view.y, 2.2, 0, TAU); ctx.fill(); ctx.globalAlpha=1;
       }
 
+      if(aiming && meterOn) drawPredictedArc();
       drawDisc();
       if(aiming){ drawAimArrow(); }
 
@@ -2653,6 +2860,20 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       ctx.globalAlpha = 1;
     }
     function roundedRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function updateDistanceUI(){
+  if(!elDistVal) return;
+  if(!hole){
+    elDistVal.textContent = '—';
+    return;
+  }
+  const tx = hole.cupX;
+  const ty = groundYAt(tx) - 60;
+  const distPx = Math.hypot(tx - disc.x, ty - disc.y);
+  const distM = distPx / PX_PER_M;
+  elDistVal.textContent = String(Math.max(0, Math.round(distM)));
+}
+
+
 
     // ===== Resize
     function resize(){
