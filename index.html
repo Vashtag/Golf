@@ -259,7 +259,7 @@
         cloudAlpha: 0.70,
         sun: { visible:false, intensity:0.55, radiusMul:1.0, halo:0.75 },
         vignette: 0.45, waterShine:0.55,
-        haze: 0.22, groundFog: 0.20, mistOverWater: 0.15,
+        haze: 0.0, groundFog: 0.0, mistOverWater: 0.0,
         mtnAlphaNear: 0.80, mtnAlphaFar: 0.45,
         tint: { color:'#7c6cff', amount:0.18 },
         night: 0.55
@@ -1094,16 +1094,33 @@ const gWidth = 200 + Math.random()*160;
           let L=i, R=i;
           while(L>0 && points[L].y <= surface) L--;
           while(R<n-1 && points[R].y <= surface) R++;
-          const leftShoulder  = Math.min(points[Math.max(L-1,0)].y,   points[Math.max(L-2,0)].y);
-          const rightShoulder = Math.min(points[Math.min(R+1,n-1)].y, points[Math.min(R+2,n-1)].y);
-          const spillY = Math.min(leftShoulder, rightShoulder) - 8;
-          if(surface > spillY) surface = spillY;
+          const leftShoulder  = Math.max(points[Math.max(L-1,0)].y,   points[Math.max(L-2,0)].y);
+          const rightShoulder = Math.max(points[Math.min(R+1,n-1)].y, points[Math.min(R+2,n-1)].y);
+          // IMPORTANT: Canvas Y increases downward. Keep the water surface *below* both banks
+          // to prevent the lake from clipping through ground/walls.
+          const spillY = Math.max(leftShoulder, rightShoulder) + 8;
+          if(surface < spillY) surface = spillY;
 
           L=i; R=i;
           while(L>0 && points[L].y <= surface) L--;
           while(R<n-1 && points[R].y <= surface) R++;
 
-          const x0 = points[L].x, x1 = points[R].x;
+          let x0 = points[L].x, x1 = points[R].x;
+          // Compute exact shoreline intersections with the water surface to avoid visual clipping
+          if(L < n-1){
+            const a = points[L], b = points[L+1];
+            if(a.y !== b.y){
+              const t = (surface - a.y) / (b.y - a.y);
+              if(t > 0 && t < 1) x0 = a.x + t*(b.x - a.x);
+            }
+          }
+          if(R > 0){
+            const a = points[R-1], b = points[R];
+            if(a.y !== b.y){
+              const t = (surface - a.y) / (b.y - a.y);
+              if(t > 0 && t < 1) x1 = a.x + t*(b.x - a.x);
+            }
+          }
           const width = x1 - x0;
           const cx = (x0 + x1) * 0.5;
           out.push({ i, x0, x1, width, cx, surfaceY:surface, bottomY:bottom });
@@ -1115,7 +1132,9 @@ const gWidth = 200 + Math.random()*160;
 
       const waters=[];
       (function buildWaters(){
-        const minWidth = 160;
+        // Water frequency tuning: allow narrower basins so water appears more often.
+        const minWidth = 120;      // preferred minimum basin width for water
+        const minWidthFinal = 90;  // allow shorter spans after clipping away from green/edges
         const waterCandidates = basinsAll
           .filter(b => b.width >= minWidth)
           .sort((a,b)=>{
@@ -1140,7 +1159,7 @@ const gWidth = 200 + Math.random()*160;
           let x0 = clamp(b.x0 + 1, 60, w-60);
           let x1 = clamp(b.x1 - 1, 60, w-60);
           [x0,x1] = clipAwayFromGreen(x0,x1);
-          if(x1 - x0 < minWidth) continue;
+          if (x1 - x0 < minWidthFinal) continue;
           const overlaps = waters.some(p => Math.min(p.x+p.w, x1) - Math.max(p.x, x0) > 40);
           if(overlaps) continue;
           waters.push({ x:x0, w:(x1-x0), y:b.surfaceY, h: h - b.surfaceY + 60, seed:(Math.random()*1e9)|0 });
@@ -1151,7 +1170,7 @@ const gWidth = 200 + Math.random()*160;
           if(near){
             let x0 = clamp(near.x0 + 1,60,w-60), x1 = clamp(near.x1 - 1,60,w-60);
             [x0,x1] = clipAwayFromGreen(x0,x1);
-            if(x1-x0 >= minWidth){
+            if (x1 - x0 >= minWidthFinal) {
               waters.push({ x:x0, w:(x1-x0), y:near.surfaceY, h:h-near.surfaceY+60, seed:(Math.random()*1e9)|0 });
             }
           }
