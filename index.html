@@ -1216,23 +1216,33 @@ else if (dist >= 1200) par = 4;
 
       // Wind Geyser
       (function addGeyser(H){
-        const leftBound  = H.tee.x + 360;
-        const rightBound = H.cupX - 320;
-        let span = rightBound - leftBound;
-        if (span < 220){
-          span = Math.max(200, (H.cupX - H.tee.x) - 480);
-        }
-        const gx = clamp(leftBound + Math.random()*span, 140, H.w - 140);
+  // Optional updraft column (not every hole)
+  let chance = 0.42;
+  if (typeof currentBiomeVariant !== 'undefined' && currentBiomeVariant){
+    if (currentBiomeVariant.id === 'snow')  chance = 0.28;
+    if (currentBiomeVariant.id === 'oasis') chance = 0.38;
+  }
+  if (Math.random() >= chance){ H.geyser = null; return; }
 
-        H.geyser = {
-          x: gx,
-          rx: 90 + Math.random()*50,
-          height: 340 + Math.random()*220,
-          strength: 0.60,
-          drift: { amp: 24 + Math.random()*26, speed: 0.5 + Math.random()*0.7, phase: Math.random()*TAU },
-          seed: (Math.random()*1e9)|0
-        };
-      })(result);
+  const leftBound  = H.tee.x + 360;
+  const rightBound = H.cupX - 320;
+  let span = rightBound - leftBound;
+  if (span < 220){
+    span = Math.max(200, (H.cupX - H.tee.x) - 480);
+  }
+  const gx = clamp(leftBound + Math.random()*span, 140, H.w - 140);
+
+  H.geyser = {
+    x: gx,
+    rx: 110 + Math.random()*60,
+    height: 420 + Math.random()*280,
+    // 0.78–1.10 (used as a multiplier in the physics updraft)
+    strength: 0.78 + Math.random()*0.32,
+    drift: { amp: 28 + Math.random()*32, speed: 0.45 + Math.random()*0.75, phase: Math.random()*TAU },
+    seed: (Math.random()*1e9)|0
+  };
+})(result);
+
 
       return result;
     }
@@ -1507,21 +1517,36 @@ applyTheme(biome, currentBiomeVariant);
 
           // Wind Geyser: add pure vertical updraft
           if (hole?.geyser) {
-            const G = hole.geyser;
-            const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
-            const baseY = groundYAt(gx);
-            const dx = Math.abs(disc.x - gx);
-            const xFall = Math.exp(-0.5 * (dx*dx) / (G.rx*G.rx));
-            const yRatio = clamp((baseY - disc.y) / G.height, 0, 1);
-            const profile = xFall * yRatio;
+  const G = hole.geyser;
+  const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
+  const baseY = groundYAt(gx);
 
-            if (profile > 0) {
-              const turb = 0.06 * Math.sin(clock*18 + (disc.x+disc.y)*0.02 + (G.seed & 1023));
-              const boost = G.strength * profile * (1 + turb);
-              const updraft = 0.00450 * currentDisc.glide * v*v * (Math.abs(aoa) + 0.08) * boost;
-              lift += updraft;
-            }
-          }
+  const dx = Math.abs(disc.x - gx);
+  const xFall = Math.exp(-0.5 * (dx*dx) / (G.rx*G.rx));
+
+  // Height fraction above ground: 0 near ground, 1 near the top of the column
+  const h = clamp((baseY - disc.y) / G.height, 0, 1);
+
+  // Strongest near the base, tapering with height
+  const profile = xFall * (1 - h);
+
+  if (profile > 0.001) {
+    // Mild turbulence so it feels "alive", but keep it stable (no NaNs / no sign flips)
+    const turb = 0.08 * Math.sin(clock*14 + (disc.x + disc.y)*0.02 + (G.seed & 1023));
+    const column = clamp(1 + turb, 0.6, 1.4);
+
+    // Updraft should be noticeable even at low disc speed
+    const vScale = 0.70 + 0.30 * Math.min(1, v / 18);
+    const aoaScale = 0.85 + 0.30 * Math.min(1, Math.abs(aoa) / 0.70);
+
+    // px/s^2 (acts like negative gravity inside the column)
+    const base = 1200 + 900 * G.strength;
+
+    const updraft = base * profile * column * vScale * aoaScale;
+    lift += updraft;
+  }
+}
+
 
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
