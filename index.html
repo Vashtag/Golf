@@ -1,9 +1,10 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Dusk Drive — Disc Golf (valley-driven water & sand)</title>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport"/>
+<title>Dusk Drive — Disc Golf (valley-driven water &amp; sand)</title>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
@@ -59,97 +60,85 @@
 </style>
 </head>
 <body>
-  <div id="wrap"><canvas id="game" aria-label="Dusk Drive side-view game canvas"></canvas></div>
-
-  <!-- HUD -->
-  <div class="hud" aria-live="polite">
-    <div class="topbar">
-      <div class="row">
-        <div class="chip"><span class="label">Hole</span> <strong id="holeNum">1</strong>/<span id="holesTotal">3</span></div>
-        <div class="chip"><span class="label">Par</span> <strong id="parLabel">3</strong></div>
-        <div class="chip"><span class="label">Strokes</span> <strong id="strokes">0</strong></div>
-      </div>
-      <div class="row">
-        <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
-        <div class="chip"><span class="label">To pin</span> <span id="distVal">—</span>m</div>
-        <div class="chip" id="projChip" style="display:none"><span class="label">Projected landing</span> <span id="projVal">—</span></div>
-        <button class="btn" id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
-      </div>
-    </div>
-
-    <div class="bottombar">
-      <div class="panel controls">
-        <div class="seg" id="clubSeg" role="group" aria-label="Disc select"></div>
-        <div class="seg" id="spinSeg" role="group" aria-label="Release angle">
-          <button class="btn" data-spin="-1" aria-pressed="false" title="Hyzer (−15°)">Hyzer</button>
-          <button class="btn" data-spin="0"  aria-pressed="true"  title="Flat (0°)">Flat</button>
-          <button class="btn" data-spin="1"  aria-pressed="false" title="Anhyzer (+15°)">Anhy</button>
-        </div>
-        <div class="seg" id="handSeg" role="group" aria-label="Throw style">
-          <button class="btn" data-hand="RHBH" aria-pressed="true" title="Right-hand backhand">RHBH</button>
-          <button class="btn" data-hand="LHBH" aria-pressed="false" title="Left-hand backhand">LHBH</button>
-        </div>
-
-        <!-- Daytime segment -->
-        
-
-
-        <button class="btn" id="btnNewRound" title="Restart round">↻ Round</button>
-      </div>
-    </div>
-
-    <div class="powermeter" id="powermeter" aria-hidden="true"><div class="fill" id="powerfill"></div></div>
-  </div>
-
-  <!-- Screens -->
-  <div id="screenIntro" class="screen" role="dialog" aria-modal="true">
-    <div class="card">
-      <h1>🥏 Dusk Drive — Disc Golf</h1>
-      <div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind &amp; glide, varied terrain.</div>
-      <div class="grid">
-        <div class="tag">Drivers • Fairways • Mids • Putters</div>
-        <div class="tag">Vertical Wind &amp; Lift</div>
-        <div class="tag">Turn/Fade Curve</div>
-        <div class="tag">Procedural Holes (+variants)</div>
-      </div>
-      <p class="small" style="margin-top:.7rem">Best in landscape • Mobile-friendly • Haptics on chains</p>
-      <div style="margin-top:.7rem"><button class="btn" id="btnPlay">Start Round</button></div>
-    </div>
-  </div>
-
-  <div id="screenSummary" class="screen" style="display:none" role="dialog" aria-modal="true">
-    <div class="card">
-      <h2>Round Complete</h2>
-      <p class="sub">Total strokes: <strong id="sumStrokes">0</strong> • Par: <strong id="sumPar">0</strong> • Score: <strong id="sumScore">E</strong></p>
-      <div class="grid" id="holeBreakdown"></div>
-      <div style="margin-top:.7rem"><button class="btn" id="btnPlayAgain">Play Again</button></div>
-    </div>
-  </div>
-
-  <div id="screenSettings" class="screen" style="display:none" role="dialog" aria-modal="true">
-    <div class="card">
-      <h2>Settings</h2>
-      <div class="grid">
-        <label class="chip" style="justify-content:space-between">
-          <span>Reduced motion</span>
-          <input type="checkbox" id="chkReduced" />
-        </label>
-        <label class="chip" style="justify-content:space-between">
-          <span>Audio (ambience &amp; SFX)</span>
-          <input type="checkbox" id="chkAudio" />
-        </label>
-        <label class="chip" style="justify-content:space-between">
-          <span>Wind (toggle)</span>
-          <input type="checkbox" id="chkWind" checked />
-        </label>
-      </div>
-      <p class="small" style="margin-top:.7rem">Accents: <span style="color:var(--accent)">primary</span> • <span style="color:var(--accent2)">secondary</span> • <span style="color:var(--accent3)">tertiary</span></p>
-      <div style="margin-top:.7rem"><button class="btn" id="btnCloseSettings">Close</button></div>
-    </div>
-  </div>
-
-  <div id="landscapeHint"><div class="card small">For best experience, rotate to landscape.</div></div>
-
+<div id="wrap"><canvas aria-label="Dusk Drive side-view game canvas" id="game"></canvas></div>
+<!-- HUD -->
+<div aria-live="polite" class="hud">
+<div class="topbar">
+<div class="row">
+<div class="chip"><span class="label">Hole</span> <strong id="holeNum">1</strong>/<span id="holesTotal">3</span></div>
+<div class="chip"><span class="label">Par</span> <strong id="parLabel">3</strong></div>
+<div class="chip"><span class="label">Strokes</span> <strong id="strokes">0</strong></div>
+</div>
+<div class="row">
+<div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
+<div class="chip"><span class="label">To pin</span> <span id="distVal">—</span>m</div>
+<div class="chip" id="projChip" style="display:none"><span class="label">Projected landing</span> <span id="projVal">—</span></div>
+<button aria-label="Settings" class="btn" id="btnSettings" title="Settings">⚙️</button>
+</div>
+</div>
+<div class="bottombar">
+<div class="panel controls">
+<div aria-label="Disc select" class="seg" id="clubSeg" role="group"></div>
+<div aria-label="Release angle" class="seg" id="spinSeg" role="group">
+<button aria-pressed="false" class="btn" data-spin="-1" title="Hyzer (−15°)">Hyzer</button>
+<button aria-pressed="true" class="btn" data-spin="0" title="Flat (0°)">Flat</button>
+<button aria-pressed="false" class="btn" data-spin="1" title="Anhyzer (+15°)">Anhy</button>
+</div>
+<div aria-label="Throw style" class="seg" id="handSeg" role="group">
+<button aria-pressed="true" class="btn" data-hand="RHBH" title="Right-hand backhand">RHBH</button>
+<button aria-pressed="false" class="btn" data-hand="LHBH" title="Left-hand backhand">LHBH</button>
+</div>
+<!-- Daytime segment -->
+<button class="btn" id="btnNewRound" title="Restart round">↻ Round</button>
+</div>
+</div>
+<div aria-hidden="true" class="powermeter" id="powermeter"><div class="fill" id="powerfill"></div></div>
+</div>
+<!-- Screens -->
+<div aria-modal="true" class="screen" id="screenIntro" role="dialog">
+<div class="card">
+<h1>🥏 Dusk Drive — Disc Golf</h1>
+<div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind &amp; glide, varied terrain.</div>
+<div class="grid">
+<div class="tag">Drivers • Fairways • Mids • Putters</div>
+<div class="tag">Vertical Wind &amp; Lift</div>
+<div class="tag">Turn/Fade Curve</div>
+<div class="tag">Procedural Holes (+variants)</div>
+</div>
+<p class="small" style="margin-top:.7rem">Best in landscape • Mobile-friendly • Haptics on chains</p>
+<div style="margin-top:.7rem"><button class="btn" id="btnPlay">Start Round</button></div>
+</div>
+</div>
+<div aria-modal="true" class="screen" id="screenSummary" role="dialog" style="display:none">
+<div class="card">
+<h2>Round Complete</h2>
+<p class="sub">Total strokes: <strong id="sumStrokes">0</strong> • Par: <strong id="sumPar">0</strong> • Score: <strong id="sumScore">E</strong></p>
+<div class="grid" id="holeBreakdown"></div>
+<div style="margin-top:.7rem"><button class="btn" id="btnPlayAgain">Play Again</button></div>
+</div>
+</div>
+<div aria-modal="true" class="screen" id="screenSettings" role="dialog" style="display:none">
+<div class="card">
+<h2>Settings</h2>
+<div class="grid">
+<label class="chip" style="justify-content:space-between">
+<span>Reduced motion</span>
+<input id="chkReduced" type="checkbox"/>
+</label>
+<label class="chip" style="justify-content:space-between">
+<span>Audio (ambience &amp; SFX)</span>
+<input id="chkAudio" type="checkbox"/>
+</label>
+<label class="chip" style="justify-content:space-between">
+<span>Wind (toggle)</span>
+<input checked="" id="chkWind" type="checkbox"/>
+</label>
+</div>
+<p class="small" style="margin-top:.7rem">Accents: <span style="color:var(--accent)">primary</span> • <span style="color:var(--accent2)">secondary</span> • <span style="color:var(--accent3)">tertiary</span></p>
+<div style="margin-top:.7rem"><button class="btn" id="btnCloseSettings">Close</button></div>
+</div>
+</div>
+<div id="landscapeHint"><div class="card small">For best experience, rotate to landscape.</div></div>
 <script>
 (function initWhenReady(){
   if(document.readyState === 'loading'){
@@ -1518,7 +1507,7 @@ applyTheme(biome, currentBiomeVariant);
           // Wind Geyser: add pure vertical updraft
           if (hole?.geyser) {
   const G = hole.geyser;
-  const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
+  const gx = G.x;
   const baseY = groundYAt(gx);
 
   const dx = Math.abs(disc.x - gx);
@@ -2942,10 +2931,15 @@ function drawGrass(){
       }
     }
 
+    
     function drawGeyser(){
       if(!hole?.geyser) return;
       const G = hole.geyser;
-      const gx = G.x + Math.sin(clock*G.drift.speed + G.drift.phase)*G.drift.amp;
+
+      // Vent is fixed in the ground; we only use drift to animate the plume internally.
+      const gx = G.x;
+      const sway = Math.sin(clock*G.drift.speed + G.drift.phase) * G.drift.amp;
+
       const gy = groundYAt(gx);
 
       const sx = gx - view.x;
@@ -2954,8 +2948,43 @@ function drawGrass(){
       ctx.save();
       ctx.translate(sx, sy);
 
+      // --- Vent "hole" in the ground ---
+      const yL = groundYAt(gx - 7), yR = groundYAt(gx + 7);
+      const ang = Math.atan2(yR - yL, 14);
+
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.translate(0, 3);
+
+      const rOuter = Math.max(9, G.rx * 0.78);
+      const rInner = Math.max(6, G.rx * 0.52);
+
+      // Shadow pocket
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.ellipse(0, 2, rOuter*1.05, 10, 0, 0, TAU); ctx.fill();
+
+      // Rim ring
+      const rim = ctx.createRadialGradient(0, 0, rInner*0.45, 0, 0, rOuter*1.05);
+      rim.addColorStop(0, 'rgba(0,0,0,0.00)');
+      rim.addColorStop(0.55, 'rgba(0,0,0,0.35)');
+      rim.addColorStop(1.0, 'rgba(255,255,255,0.10)');
+      ctx.fillStyle = rim;
+      ctx.beginPath(); ctx.ellipse(0, 0, rOuter, 9, 0, 0, TAU); ctx.fill();
+
+      // Inner hole
+      ctx.fillStyle = 'rgba(0,0,0,0.72)';
+      ctx.beginPath(); ctx.ellipse(0, 1, rInner, 6.6, 0, 0, TAU); ctx.fill();
+
+      // Tiny highlight
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(-1.2, -0.8, rOuter*0.78, 6.8, 0, 0.2, Math.PI-0.2); ctx.stroke();
+
+      ctx.restore();
+
+      // --- Plume above vent ---
       ctx.fillStyle = 'rgba(73,208,255,0.10)';
-      ctx.beginPath(); ctx.ellipse(0, 2, G.rx, 10, 0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(sway*0.10, 2, G.rx, 10, 0, 0, TAU); ctx.fill();
 
       const H = G.height * 0.85;
       const N = 9;
@@ -2965,7 +2994,7 @@ function drawGrass(){
         const w = G.rx*(1 - 0.18*t);
         const hh = 10 + 6*(1 - t);
         ctx.globalAlpha = 0.12 * (1 - t) + 0.04;
-        ctx.beginPath(); ctx.ellipse(0, y, w, hh, 0, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(sway*0.12, y, w, hh, 0, 0, TAU); ctx.fill();
       }
       ctx.globalAlpha = 1;
 
@@ -2979,7 +3008,7 @@ function drawGrass(){
           const t = s/20;
           const y = -t*H + Math.sin(clock*1.6 + t*6 + phase)*4;
           const r = G.rx*(1 - 0.25*t) * (0.75 + 0.25*Math.sin(t*8 + phase));
-          const x = Math.sin(t*3 + phase)*r*0.06;
+          const x = (Math.sin(t*3 + phase)*r*0.06) + sway*0.18;
           if(!started){ ctx.moveTo(x, y); started=true; } else ctx.lineTo(x, y);
         }
         ctx.stroke();
@@ -2987,6 +3016,7 @@ function drawGrass(){
 
       ctx.restore();
     }
+
 
     function drawBasket(){
       const gx = hole.cupX;
