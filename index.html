@@ -1202,32 +1202,42 @@ else if (dist >= 1200) par = 4;
         tee:{x:teeX,y:teeY},
         par
       };
-
-      // Wind Geyser
-      (function addGeyser(H){
-  // Optional updraft column (not every hole)
-  let chance = 0.42;
+// Wind Geyser
+(function addGeyser(H){
+  // Updraft vent (visual + physics). Spawns probabilistically and chooses a varied position.
+  let chance = 0.45;
   if (typeof currentBiomeVariant !== 'undefined' && currentBiomeVariant){
     if (currentBiomeVariant.id === 'snow')  chance = 0.28;
     if (currentBiomeVariant.id === 'oasis') chance = 0.38;
   }
   if (Math.random() >= chance){ H.geyser = null; return; }
 
-  const leftBound  = H.tee.x + 360;
-  const rightBound = H.cupX - 320;
-  let span = rightBound - leftBound;
-  if (span < 220){
-    span = Math.max(200, (H.cupX - H.tee.x) - 480);
-  }
-  const gx = clamp(leftBound + Math.random()*span, 140, H.w - 140);
+  // Placement: pick one of three longitudinal zones so it doesn't always land in the same spot.
+  const leftEdge  = Math.min(H.tee.x, H.cupX) + 280;
+  const rightEdge = Math.max(H.tee.x, H.cupX) - 240;
+
+  const minX = clamp(Math.min(leftEdge, rightEdge), 140, H.w - 140);
+  const maxX = clamp(Math.max(leftEdge, rightEdge), 140, H.w - 140);
+  const span = Math.max(260, maxX - minX);
+
+  const z0 = minX;
+  const z1 = minX + span*0.33;
+  const z2 = minX + span*0.66;
+  const zones = [
+    [z0, z1],
+    [z1 - 40, z2 + 40],
+    [z2, minX + span]
+  ];
+  const z = zones[(Math.random()*zones.length)|0];
+  const gx = clamp(z[0] + Math.random()*(z[1]-z[0]), 140, H.w - 140);
 
   H.geyser = {
     x: gx,
-    rx: 110 + Math.random()*60,
-    height: 420 + Math.random()*280,
-    // 0.78–1.10 (used as a multiplier in the physics updraft)
-    strength: 0.78 + Math.random()*0.32,
-    drift: { amp: 28 + Math.random()*32, speed: 0.45 + Math.random()*0.75, phase: Math.random()*TAU },
+    rx: 70 + Math.random()*55,
+    height: 320 + Math.random()*240,
+    // 0.78–1.12 (used as a multiplier in the physics updraft)
+    strength: 0.78 + Math.random()*0.34,
+    drift: { amp: 26 + Math.random()*40, speed: 0.45 + Math.random()*0.85, phase: Math.random()*TAU },
     seed: (Math.random()*1e9)|0
   };
 })(result);
@@ -2933,92 +2943,51 @@ function drawGrass(){
 
     
     function drawGeyser(){
-      if(!hole?.geyser) return;
-      const G = hole.geyser;
+  if (!hole || !hole.geyser) return;
+  const G = hole.geyser;
 
-      // Vent is fixed in the ground; we only use drift to animate the plume internally.
-      const gx = G.x;
-      const sway = Math.sin(clock*G.drift.speed + G.drift.phase) * G.drift.amp;
+  const gx = G.x;
+  const gy = groundYAt(gx);
+  const sx = gx - view.x;
+  const sy = gy - view.y;
 
-      const gy = groundYAt(gx);
+  // Visual-only "vent": just the wavy vertical air lines (no fan body / pads / puffs).
+  const rx = Math.max(10, G.rx * 0.50);        // narrower than the physics radius
+  const h  = Math.max(80, G.height * 0.70);    // shorter plume to read as "small vent"
 
-      const sx = gx - view.x;
-      const sy = gy - view.y;
+  const sway = Math.sin(clock * (G.drift?.speed || 0.0) + (G.drift?.phase || 0.0)) * (G.drift?.amp || 0.0);
 
-      ctx.save();
-      ctx.translate(sx, sy);
+  ctx.save();
+  ctx.translate(sx, sy);
 
-      // --- Vent "hole" in the ground ---
-      const yL = groundYAt(gx - 7), yR = groundYAt(gx + 7);
-      const ang = Math.atan2(yR - yL, 14);
+  ctx.globalAlpha = 0.80;
+  ctx.strokeStyle = "rgba(215,248,255,0.45)";
+  ctx.lineCap = "round";
 
-      ctx.save();
-      ctx.rotate(ang);
-      ctx.translate(0, 3);
+  const lines = 3;
+  for (let i = 0; i < lines; i++){
+    const t = i / (lines - 1) - 0.5;
+    const x0 = t * rx * 0.55 + sway * 0.18;
+    const steps = 18;
 
-      const rOuter = Math.max(9, G.rx * 0.78);
-      const rInner = Math.max(6, G.rx * 0.52);
-
-      // Shadow pocket
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.beginPath(); ctx.ellipse(0, 2, rOuter*1.05, 10, 0, 0, TAU); ctx.fill();
-
-      // Rim ring
-      const rim = ctx.createRadialGradient(0, 0, rInner*0.45, 0, 0, rOuter*1.05);
-      rim.addColorStop(0, 'rgba(0,0,0,0.00)');
-      rim.addColorStop(0.55, 'rgba(0,0,0,0.35)');
-      rim.addColorStop(1.0, 'rgba(255,255,255,0.10)');
-      ctx.fillStyle = rim;
-      ctx.beginPath(); ctx.ellipse(0, 0, rOuter, 9, 0, 0, TAU); ctx.fill();
-
-      // Inner hole
-      ctx.fillStyle = 'rgba(0,0,0,0.72)';
-      ctx.beginPath(); ctx.ellipse(0, 1, rInner, 6.6, 0, 0, TAU); ctx.fill();
-
-      // Tiny highlight
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(-1.2, -0.8, rOuter*0.78, 6.8, 0, 0.2, Math.PI-0.2); ctx.stroke();
-
-      ctx.restore();
-
-      // --- Plume above vent ---
-      ctx.fillStyle = 'rgba(73,208,255,0.10)';
-      ctx.beginPath(); ctx.ellipse(sway*0.10, 2, G.rx, 10, 0, 0, TAU); ctx.fill();
-
-      const H = G.height * 0.85;
-      const N = 9;
-      for(let i=0;i<N;i++){
-        const t = i/(N-1);
-        const y = -t*H + Math.sin(clock*2.2 + t*6.0 + (G.seed&255))*2;
-        const w = G.rx*(1 - 0.18*t);
-        const hh = 10 + 6*(1 - t);
-        ctx.globalAlpha = 0.12 * (1 - t) + 0.04;
-        ctx.beginPath(); ctx.ellipse(sway*0.12, y, w, hh, 0, 0, TAU); ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-
-      ctx.strokeStyle = 'rgba(73,208,255,0.08)';
-      ctx.lineWidth = 1;
-      const lines = 6;
-      for(let k=0;k<lines;k++){
-        const phase = (k/lines)*TAU + (G.seed%100)/50;
-        ctx.beginPath(); let started=false;
-        for(let s=0; s<=20; s++){
-          const t = s/20;
-          const y = -t*H + Math.sin(clock*1.6 + t*6 + phase)*4;
-          const r = G.rx*(1 - 0.25*t) * (0.75 + 0.25*Math.sin(t*8 + phase));
-          const x = (Math.sin(t*3 + phase)*r*0.06) + sway*0.18;
-          if(!started){ ctx.moveTo(x, y); started=true; } else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-      }
-
-      ctx.restore();
+    ctx.beginPath();
+    for (let s = 0; s <= steps; s++){
+      const p = s / steps;
+      const y = -h * p;
+      const wob = Math.sin(p * 9 + clock * 4 + i * 1.3) * (rx * 0.12) * (1 - p);
+      const x = x0 + wob;
+      if (s === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
 
+    ctx.lineWidth = (i === 1) ? 2.4 : 1.9;
+    ctx.stroke();
+  }
 
-    function drawBasket(){
+  ctx.restore();
+}
+
+function drawBasket(){
       const gx = hole.cupX;
       const gyCup = groundYAt(gx);
       const x = gx - view.x;
