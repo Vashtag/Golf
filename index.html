@@ -858,10 +858,10 @@ let predCache = { angle:NaN, power:NaN, wind:NaN, windLift:NaN, releaseMode:NaN 
       const q = qualityScale();
       const night = clamp(atmo.night, 0, 1);
       // Chance-based: dusk/night = likely; other variants = rare
-      const baseChance = 0.10 + 0.70*night; // 0.10..0.80
+      const baseChance = 0.05 + 0.25*night; // 0.05..0.30 (reduced firefly frequency)
       if(Math.random() > baseChance) return;
 
-      const count = Math.floor((18 + Math.random()*26) * (0.6 + 0.6*q) * (0.55 + 0.85*night));
+      const count = Math.floor((6 + Math.random()*8) * (0.55 + 0.45*q) * (0.35 + 0.65*night));
       const x0 = clamp(view.x + 40, 0, WORLD.w);
       const x1 = clamp(view.x + view.w - 40, 0, WORLD.w);
 
@@ -871,9 +871,9 @@ let predCache = { angle:NaN, power:NaN, wind:NaN, windLift:NaN, releaseMode:NaN 
         const y = gy - (40 + Math.random()*160);
         const phase = Math.random()*TAU;
         const speed = 0.8 + Math.random()*1.4;
-        const amp = 10 + Math.random()*28;
+        const amp = 7 + Math.random()*18;
         const glow = 0.5 + Math.random()*0.7;
-        const r = 1.2 + Math.random()*1.8;
+        const r = 0.7 + Math.random()*1.0;
         const hue = 46 + Math.random()*24; // warm yellow-green
         fireflies.push({ x, y, baseY:y, phase, speed, amp, glow, r, hue, vx:(Math.random()*18-9) });
       }
@@ -916,17 +916,17 @@ let predCache = { angle:NaN, power:NaN, wind:NaN, windLift:NaN, releaseMode:NaN 
         if(sx < -30 || sx > canvas.width/DPR + 30 || sy < -30 || sy > canvas.height/DPR + 30) continue;
 
         const tw = 0.5 + 0.5*Math.sin(F.phase*2.4 + F.x*0.01);
-        const a = Math.max(0, (0.20 + 0.55*tw) * F.glow * alphaMul);
+        const a = Math.max(0, (0.14 + 0.38*tw) * F.glow * alphaMul);
 
         const col = `hsla(${F.hue}, 90%, 70%, ${a})`;
         const r = F.r;
 
         // halo
-        const g = ctx.createRadialGradient(sx, sy, r*0.5, sx, sy, r*6.0);
+        const g = ctx.createRadialGradient(sx, sy, r*0.5, sx, sy, r*4.5);
         g.addColorStop(0, col);
         g.addColorStop(1, `hsla(${F.hue}, 90%, 70%, 0)`);
         ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(sx, sy, r*6.0, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx, sy, r*4.5, 0, TAU); ctx.fill();
 
         // core
         ctx.globalAlpha = 0.85*a;
