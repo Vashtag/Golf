@@ -403,9 +403,10 @@ function resolveVariantForHole(){
     const NOSE_FAST_DEG = -6;
     const NOSE_SLOW_DEG =  7;
 
-    // ===== Vertical wind (lift only)
+    // ===== Wind
     let windOn = true;
     let windLift = 0;             // -1 .. +1 (down .. up)
+    let windSide = 0;             // -1 .. +1 (headwind .. tailwind)
 
     // ===== Persistent Powerups (round-long)
     const Owned = new Set();
@@ -845,7 +846,7 @@ let predPath = null;         // [{x,y}, ...] world coords
 let predLanding = null;      // {x,y}
 let predDeltaText = '';
 let predLastCalcMs = 0;
-let predCache = { angle:NaN, power:NaN, windLift:NaN, releaseMode:NaN };
+let predCache = { angle:NaN, power:NaN, windLift:NaN, windSide:NaN, releaseMode:NaN };
 
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[], snowbanks:[] };
@@ -1377,6 +1378,7 @@ applyTheme(biome, currentBiomeVariant);
       elHole.textContent = (holeIndex+1); elPar.textContent = hole.par;
 
       windLift = windOn ? (Math.random()*2 - 1) : 0;
+      windSide = windOn ? (Math.random()*2 - 1) : 0;
       updateWindUI();
       updateDistanceUI();
       updateAimPrediction();
@@ -1389,7 +1391,15 @@ applyTheme(biome, currentBiomeVariant);
     }
 
     function endHole(){
-      roundData.holes[holeIndex].strokes = strokes; roundData.totalStrokes += strokes; holeIndex++;
+      roundData.holes[holeIndex].strokes = strokes; roundData.totalStrokes += strokes;
+      // Score callout
+      if(strokes === 1){ addToast('Hole in One!'); }
+      else {
+        const delta = strokes - hole.par;
+        const callout = delta <= -3 ? 'Albatross!' : delta === -2 ? 'Eagle!' : delta === -1 ? 'Birdie!' : delta === 0 ? 'Par' : delta === 1 ? 'Bogey' : delta === 2 ? 'Double Bogey' : delta === 3 ? 'Triple Bogey' : '+' + delta;
+        addToast(callout);
+      }
+      holeIndex++;
       if(holeIndex>=HOLES_PER_ROUND){
         sumStrokes.textContent = roundData.totalStrokes; sumPar.textContent = roundData.totalPar; const diff = roundData.totalStrokes - roundData.totalPar; sumScore.textContent = diff===0? 'E' : (diff>0? '+'+diff : diff);
         holeBreakdown.innerHTML = ''; roundData.holes.forEach((h,i)=>{ const div=document.createElement('div'); div.className='chip'; div.textContent=`Hole ${i+1}: ${h.strokes} (Par ${h.par})`; holeBreakdown.appendChild(div); });
@@ -1423,9 +1433,12 @@ applyTheme(biome, currentBiomeVariant);
 
     // ===== Wind UI
     function updateWindUI(){
-      const mag = Math.abs(windOn ? windLift : 0);
+      const wl = windOn ? windLift : 0;
+      const ws = windOn ? windSide : 0;
+      const mag = Math.hypot(wl, ws);
       elWindVal.textContent = mag.toFixed(1)+'x';
-      const rot = (windLift >= 0 ? 180 : 0);
+      // Arrow points in the wind direction (up = updraft, right = tailwind)
+      const rot = Math.atan2(ws, wl) * (180 / Math.PI);
       elWindArrow.style.transform = `rotate(${rot}deg)`;
     }
 
@@ -1556,8 +1569,11 @@ applyTheme(biome, currentBiomeVariant);
           const curveMulEff = Math.max(0.90, PU.curveMul);
           const side = (hand==='RHBH'?1:-1);
 
+          // Horizontal wind force (headwind/tailwind)
+          const windSideForce = (windOn ? windSide * 280 * Math.max(0.65, PU.windScaleMul) : 0);
+
           // 1) Integrate forces without curve "push"
-          const ax = dragX;
+          const ax = dragX + windSideForce;
           const ay = GRAV + dragY - lift;
           disc.vx += ax*dt; disc.vy += ay*dt;
 
@@ -1707,6 +1723,8 @@ function simulateAimTrajectory(angle, power){
       const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * windScaleEff) : 1);
       const lift = 0.00450 * d.glide * v * v * aoa * windMul;
 
+      const windSideForce = (windOn ? windSide * 280 * Math.max(0.65, PU.windScaleMul) : 0);
+
       const turnPhase = tPow * tPow;
       const fadePhase = (1 - tPow);
       const hyz = releaseMode;
@@ -1717,7 +1735,7 @@ function simulateAimTrajectory(angle, power){
       const curveMulEff = Math.max(0.90, PU.curveMul);
       const side = (hand === 'RHBH' ? 1 : -1);
 
-      const ax = dragX;
+      const ax = dragX + windSideForce;
       const ay = GRAV + dragY - lift;
       s.vx += ax * dt;
       s.vy += ay * dt;
@@ -1820,12 +1838,13 @@ function updateAimPrediction(force=false){
     Math.abs(angle - predCache.angle) > 0.003 ||
     Math.abs(power - predCache.power) > 0.02 ||
     Math.abs(windLift - predCache.windLift) > 0.05 ||
+    Math.abs(windSide - predCache.windSide) > 0.05 ||
     releaseMode !== predCache.releaseMode;
 
   if(!shouldRecalc) return;
 
   predLastCalcMs = now;
-  predCache = { angle, power, windLift, releaseMode };
+  predCache = { angle, power, windLift, windSide, releaseMode };
 
   const res = simulateAimTrajectory(angle, power);
   predPath = res.path;
