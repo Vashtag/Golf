@@ -166,8 +166,6 @@
     const clubSeg = document.getElementById('clubSeg');
     const spinSeg = document.getElementById('spinSeg');
     const handSeg = document.getElementById('handSeg');
-    const daySeg = document.getElementById('daySeg');
-
     const screenIntro = document.getElementById('screenIntro');
     const screenSummary = document.getElementById('screenSummary');
     const screenSettings = document.getElementById('screenSettings');
@@ -441,7 +439,7 @@ function resolveVariantForHole(){
     function rand01(seed, i){ return hash32((seed ^ (i|0))>>>0) / RAND_MAX; }
     function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
     function lerp(a,b,t){ return a + (b-a)*t; }
-    function normalizeAngle(a){ while(a > Math.PI*2) a -= Math.PI*2; while(a < -Math.PI*2) a += Math.PI*2; return a; }
+    function normalizeAngle(a){ while(a > Math.PI) a -= Math.PI*2; while(a < -Math.PI) a += Math.PI*2; return a; }
 
     // ===== Ambient Audio (hum + wind) with context suspend/resume
     const AudioMini = (()=>{ let ctx=null, windNode=null, masterGain=null; let inited=false;
@@ -502,6 +500,7 @@ function resolveVariantForHole(){
         a.preload = 'auto';
         a.volume = vol;
         a.playbackRate = rateMin + Math.random()*(rateMax-rateMin);
+        a.onended = function(){ this.src = ''; };
         a.play().catch(()=>{});
       }
       return {
@@ -846,7 +845,7 @@ let predPath = null;         // [{x,y}, ...] world coords
 let predLanding = null;      // {x,y}
 let predDeltaText = '';
 let predLastCalcMs = 0;
-let predCache = { angle:NaN, power:NaN, wind:NaN, windLift:NaN, releaseMode:NaN };
+let predCache = { angle:NaN, power:NaN, windLift:NaN, releaseMode:NaN };
 
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[], snowbanks:[] };
@@ -1661,19 +1660,26 @@ applyTheme(biome, currentBiomeVariant);
     }
 
 function simulateAimTrajectory(angle, power){
-  // Mirror throwDisc() + updateDisc() physics (without collisions / basket catch / particles)
-  const speedMult = (PU.speed ? 1.18 : 1.0) * (PU.golden ? 1.06 : 1.0);
-  const spinMult  = (PU.spin ? 1.22 : 1.0);
-  const throwSpeed = 1650 * (0.5 + 0.7 * power) * speedMult;
+  // Mirror throwDisc() + update() airborne/ground physics for aim preview.
+  const d = currentDisc;
+  const surface = surfaceAt(disc.x);
+  let powerMul = 1.0;
+  if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
+  if(surface === 'sand' && PU.sandPowerMin > powerMul) powerMul = PU.sandPowerMin;
+  const throwPower = (0.25 + 0.75 * power) * d.speed * powerMul;
+  const throwSpeed = 1650 * throwPower;
 
+  const spin0 = 14 + 20 * throwPower;
   const s = {
     x: disc.x,
     y: disc.y,
     vx: Math.cos(angle) * throwSpeed,
     vy: Math.sin(angle) * throwSpeed,
-    spin: SPIN_BASE * (0.7 + 0.6 * power) * currentDisc.spinMult * spinMult,
-    pitch: clamp(angle * 0.6, -0.6, 0.6),
-    bounce: 0
+    orient: angle + (NOSE_FAST_DEG * Math.PI / 180),
+    spin: spin0,
+    spin0: spin0,
+    bank: (releaseMode * 16) * Math.PI / 180,
+    onGround: false
   };
 
   const path = [];
@@ -1684,87 +1690,104 @@ function simulateAimTrajectory(angle, power){
   for(let i=0;i<totalSteps;i++){
     if(i <= pathSteps && (i % 2 === 0)) path.push({x:s.x, y:s.y});
 
-    const speed = Math.hypot(s.vx, s.vy);
-    const spinNorm = clamp(s.spin / SPIN_BASE, 0, 1);
+    if(!s.onGround){
+      const v = Math.hypot(s.vx, s.vy) || 0.0001;
+      const vAngle = Math.atan2(s.vy, s.vx);
+      const tPow = clamp(v / 1600, 0, 1);
+      const spinNorm = clamp(s.spin / (s.spin0 || 1), 0, 1);
 
-    // Gravity
-    s.vy += GRAV * dt;
+      const aoaRaw = normalizeAngle(s.orient - vAngle);
+      const aoa = clamp(aoaRaw + 0.06, -0.6, 0.6);
+      const dragMulEff = Math.max(0.85, PU.dragMul);
+      const dragMag = 0.00050 * v * (1 + 0.7 * Math.abs(aoa)) * dragMulEff;
+      const dragX = -dragMag * s.vx;
+      const dragY = -dragMag * s.vy;
 
-    // Drag (spin helps stability)
-    const drag = AERO_DRAG * PU.dragMul * (1 + 0.6 * (1 - spinNorm));
-    s.vx *= (1 - drag * dt);
-    s.vy *= (1 - drag * dt);
+      const windScaleEff = 0.50 * Math.max(0.65, PU.windScaleMul);
+      const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * windScaleEff) : 1);
+      const lift = 0.00450 * d.glide * v * v * aoa * windMul;
 
-    // Wind
-    s.vx += (wind * WIND_SIDE * PU.windScaleMul) * dt;
-    s.vy += (windLift * 320 * PU.windScaleMul) * dt;
+      const turnPhase = tPow * tPow;
+      const fadePhase = (1 - tPow);
+      const hyz = releaseMode;
+      const turnAmt = d.turn * turnPhase * (0.7 + 0.6 * spinNorm) * (1 + 0.35 * hyz);
+      const fadeAmt = d.fade * fadePhase * (0.9 + 0.5 * (1 - spinNorm)) * (1 - 0.25 * hyz);
+      const bankBias = 0.12 * Math.sin(s.bank);
+      const curve = (turnAmt - fadeAmt + bankBias);
+      const curveMulEff = Math.max(0.90, PU.curveMul);
+      const side = (hand === 'RHBH' ? 1 : -1);
 
-    // Lift (perpendicular to velocity)
-    if(speed > 1){
-      const lift = AERO_LIFT * currentDisc.lift * spinNorm * (speed * 0.0009);
-      const inv = 1 / Math.max(1, speed);
-      const lx = -s.vy * inv, ly = s.vx * inv;
-      s.vx += lx * lift * dt;
-      s.vy += ly * lift * dt;
+      const ax = dragX;
+      const ay = GRAV + dragY - lift;
+      s.vx += ax * dt;
+      s.vy += ay * dt;
 
-      // Turn + fade + hyzer/anhyzer release
-      const fast = clamp((speed - 240) / 600, 0, 1);
-      const turnAmt = currentDisc.turn * fast;
-      const fadeAmt = currentDisc.fade * (1 - fast) * (1 - 0.5 * spinNorm);
-      let curve = (turnAmt + fadeAmt) * currentDisc.curve * PU.curveMul;
+      const curveRate = 54 * curveMulEff * curve * side;
+      const speedNow = Math.hypot(s.vx, s.vy);
+      if(speedNow > 1e-3){
+        const dTheta = (curveRate / speedNow) * dt;
+        if(dTheta){
+          const cosT = Math.cos(dTheta), sinT = Math.sin(dTheta);
+          const vx0 = s.vx, vy0 = s.vy;
+          s.vx = vx0 * cosT - vy0 * sinT;
+          s.vy = vx0 * sinT + vy0 * cosT;
+        }
+      }
 
-      const hyz = releaseMode * 0.6;
-      curve += hyz * 0.55 * currentDisc.curve * PU.curveMul;
+      s.spin *= Math.exp(-0.35 * PU.spinDecayMul * dt);
+      const bankRelax = 0.2 + 0.9 * (1 - spinNorm);
+      s.bank += (-s.bank) * (1 - Math.exp(-dt * bankRelax));
 
-      const cx = -s.vy * inv, cy = s.vx * inv;
-      s.vx += cx * curve * dt;
-      s.vy += cy * curve * dt;
+      const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI / 180;
+      const targetOrient = vAngle + noseBias;
+      s.orient += (targetOrient - s.orient) * (1 - Math.exp(-dt * 3.4));
+
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+
+      const gy = groundYAt(clamp(s.x, 0, hole.w));
+      if(s.y + disc.r >= gy){
+        s.y = gy - disc.r - 0.01;
+        const surf = surfaceAt(s.x);
+        const entryAngle = Math.atan2(Math.abs(s.vy), Math.abs(s.vx));
+        const shallow = entryAngle < (12 * Math.PI / 180);
+        const fast = Math.hypot(s.vx, s.vy) > 900;
+
+        if(surf !== 'sand' && surf !== 'green' && shallow && fast){
+          s.vy = -Math.max(180, Math.abs(s.vy) * 0.55);
+          s.vx *= 0.88;
+        } else {
+          const rest = SURF[surf]?.rest ?? 0.14;
+          s.vy = -s.vy * rest;
+          s.vx *= 0.84;
+          if(Math.abs(s.vy) < 120) s.vy = 0;
+          s.onGround = true;
+        }
+      }
+    } else {
+      const gy = groundYAt(clamp(s.x, 0, hole.w));
+      if(s.y + disc.r < gy - 0.5){
+        s.onGround = false;
+      } else {
+        s.y = gy - disc.r;
+        const surf = surfaceAt(s.x);
+        let fric = SURF[surf]?.fric ?? 740;
+        if(surf === 'sand') fric *= PU.sandFricMul;
+        let dec = fric * 2.1;
+        if(surf === 'sand') dec = fric * 2.6;
+        if(surf === 'green') dec = fric * 2.3;
+
+        const sign = Math.sign(s.vx) || 0;
+        let newSpeed = Math.abs(s.vx) - dec * dt;
+        if(newSpeed < 0) newSpeed = 0;
+        s.vx = sign * newSpeed;
+        s.x += s.vx * dt;
+        if(Math.abs(s.vx) < 8) break;
+      }
     }
 
-    // Spin decay
-    s.spin *= (1 - 0.6 * PU.spinDecayMul * dt);
-
-    // Integrate
-    s.x += s.vx * dt;
-    s.y += s.vy * dt;
-
-    // World bounds
     s.x = clamp(s.x, 0, hole.w);
-
-    // Ground interaction
-    const gy = groundYAt(s.x) - disc.r;
-    const onGround = s.y >= gy - 0.5;
-
-    if(onGround){
-      s.y = gy;
-
-      if(Math.abs(s.vy) > 50 && s.bounce < 6){
-        s.vy *= -0.28;
-        s.vx *= 0.82;
-        s.spin *= 0.86;
-        s.bounce++;
-      }else{
-        s.vy = 0;
-      }
-
-      const surf = surfaceAt(s.x);
-      let fricMul = 1.0;
-      if(surf.type === 'sand') fricMul *= PU.sandFricMul;
-
-      s.vx *= (0.987 + 0.010 * surf.rolling) * fricMul;
-      s.spin *= 0.98;
-      s.pitch *= 0.92;
-      s.vy *= 0.7;
-
-      if(Math.abs(s.vx) < 15 && s.spin < 120){
-        break;
-      }
-    }
-
-    // Water: treat as "landing"
-    if(inWater(s.x, s.y)){
-      break;
-    }
+    if(inWater(s.x, s.y + disc.r * 0.6)) break;
   }
 
   const dx = hole.cupX - s.x;
@@ -1796,14 +1819,13 @@ function updateAimPrediction(force=false){
     (now - predLastCalcMs) > 120 ||
     Math.abs(angle - predCache.angle) > 0.003 ||
     Math.abs(power - predCache.power) > 0.02 ||
-    Math.abs(wind - predCache.wind) > 0.05 ||
     Math.abs(windLift - predCache.windLift) > 0.05 ||
     releaseMode !== predCache.releaseMode;
 
   if(!shouldRecalc) return;
 
   predLastCalcMs = now;
-  predCache = { angle, power, wind, windLift, releaseMode };
+  predCache = { angle, power, windLift, releaseMode };
 
   const res = simulateAimTrajectory(angle, power);
   predPath = res.path;
@@ -1985,10 +2007,6 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       // Expose per-hole arrays for helpers
       hole.icePatches = scenery.icePatches;
       hole.landmark  = scenery.landmark;
-      if(typeof currentHole !== 'undefined'){
-        currentHole.icePatches = hole.icePatches;
-        currentHole.landmark = hole.landmark;
-      }
 
     }
 
@@ -2567,9 +2585,9 @@ function drawGrass(){
     function drawLandmark(){
       if(!hole || !hole.landmark) return;
       const lm = hole.landmark;
-      const sx = (lm.x - view.x) * view.scale;
-      const sy = (lm.y - view.y) * view.scale;
-      const S = (lm.s || 1) * view.scale;
+      const sx = lm.x - view.x;
+      const sy = lm.y - view.y;
+      const S = lm.s || 1;
 
       const nightiness = (atmo && typeof atmo.night === 'number') ? atmo.night : 0;
       const a = 0.30 + 0.35 * Math.min(1, nightiness);
@@ -3170,7 +3188,7 @@ function updateDistanceUI(){
         const ms = (t||0);
         if(!loop._lastRecover || (ms - loop._lastRecover) > 2000){
           loop._lastRecover = ms;
-          try { toast('Recovered from an error — resetting disc.'); } catch {}
+          try { addToast('Recovered from an error — resetting disc.'); } catch {}
           try {
             // Minimal, safe reset
             if(hole && disc){
