@@ -232,6 +232,10 @@
 <div class="chip wind"><span class="label">Wind</span> <span id="windVal">0</span><span class="arrow" id="windArrow"></span></div>
 <div class="chip"><span class="label">To pin</span> <span id="distVal">—</span>m</div>
 <div class="chip" id="projChip" style="display:none"><span class="label">Projected landing</span> <span id="projVal">—</span></div>
+<div class="seg" id="zoomSeg" style="gap:0">
+<button aria-label="Zoom out" class="btn" id="btnZoomOut" title="Zoom out">−</button>
+<button aria-label="Zoom in" class="btn" id="btnZoomIn" title="Zoom in">+</button>
+</div>
 <button aria-label="Settings" class="btn" id="btnSettings" title="Settings">⚙️</button>
 </div>
 </div>
@@ -346,6 +350,8 @@
     const HOLES_PER_ROUND = 18; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
+    let zoomLevel = 1.0; // 1.0 = default, <1 = zoomed out, >1 = zoomed in
+    const ZOOM_MIN = 0.5, ZOOM_MAX = 2.0, ZOOM_STEP = 0.15;
 
     // OPTIM: cached styles/gradients
     const cached = {
@@ -1229,6 +1235,121 @@ const gWidth = 200 + Math.random()*160;
         }
       }
 
+      // ===== HOLE LAYOUT VARIANTS =====
+      // Each layout sculpts terrain into a distinctive shape. Picked randomly (~40% of holes get a special layout).
+      const HOLE_LAYOUTS = ['valley_carry','island_green','ridgeback','canyon','plateau_green','downhill'];
+      const layoutRoll = Math.random();
+      const holeLayout = layoutRoll < 0.40 ? HOLE_LAYOUTS[(Math.random()*HOLE_LAYOUTS.length)|0] : 'standard';
+
+      if(holeLayout === 'valley_carry'){
+        // Deep valley with water between tee and green; green is raised.
+        const valleyCx = lerp(teeX + 200, cupX - 200, 0.45 + Math.random()*0.1);
+        const valleyW = 260 + Math.random()*180;
+        const valleyD = 100 + Math.random()*60; // depth (canvas Y down = deeper)
+        for(let i=0;i<points.length;i++){
+          const dx = points[i].x - valleyCx;
+          const t = dx / (valleyW * 0.5);
+          if(Math.abs(t) < 1.0){
+            const shape = Math.cos(t * Math.PI * 0.5); // smooth U shape
+            points[i].y += valleyD * shape;
+          }
+        }
+        // Raise the green side
+        for(let i=0;i<points.length;i++){
+          if(points[i].x >= gx0 - 80 && points[i].x <= gx1 + 80){
+            const edgeT = (points[i].x < gx0) ? (points[i].x - (gx0-80))/80 :
+                          (points[i].x > gx1) ? (gx1+80 - points[i].x)/80 : 1;
+            points[i].y -= 45 * Math.max(0, edgeT);
+          }
+        }
+      }
+      else if(holeLayout === 'island_green'){
+        // Depress terrain around the green to create a water-surrounded island.
+        const moatInner = gWidth * 0.5 + 20;
+        const moatOuter = moatInner + 140 + Math.random()*80;
+        const moatDepth = 80 + Math.random()*40;
+        for(let i=0;i<points.length;i++){
+          const dx = Math.abs(points[i].x - cupX);
+          if(dx > moatInner && dx < moatOuter){
+            const t = (dx - moatInner) / (moatOuter - moatInner);
+            const shape = Math.sin(t * Math.PI); // deepest in middle of moat
+            points[i].y += moatDepth * shape;
+          }
+        }
+        // Slightly raise the green island itself
+        for(let i=0;i<points.length;i++){
+          if(points[i].x >= gx0 && points[i].x <= gx1){
+            points[i].y -= 20;
+          }
+        }
+      }
+      else if(holeLayout === 'ridgeback'){
+        // Raised spine down the middle third of the fairway; disc rolls off to sides.
+        const ridgeStart = lerp(teeX + 160, cupX - 300, 0.1);
+        const ridgeEnd = lerp(teeX + 400, cupX - 100, 0.9);
+        const ridgeH = 55 + Math.random()*35;
+        for(let i=0;i<points.length;i++){
+          const px = points[i].x;
+          if(px >= ridgeStart && px <= ridgeEnd){
+            const along = (px - ridgeStart) / (ridgeEnd - ridgeStart);
+            const envelope = Math.sin(along * Math.PI); // taper at ends
+            // Raise center, creating a crown
+            const midFairway = lerp(teeX, cupX, along);
+            const cross = (px - midFairway);
+            const crossW = 140 + Math.random()*60;
+            const crown = Math.exp(-(cross*cross)/(2*crossW*crossW));
+            points[i].y -= ridgeH * envelope * crown;
+          }
+        }
+      }
+      else if(holeLayout === 'canyon'){
+        // Tight corridor: raise walls on both sides of the fairway mid-section.
+        const canyonStart = lerp(teeX + 180, cupX * 0.4, Math.random()*0.3);
+        const canyonEnd = lerp(cupX * 0.6, cupX - 160, 0.7 + Math.random()*0.3);
+        const wallH = 70 + Math.random()*50;
+        const corridorW = 160 + Math.random()*100;
+        for(let i=0;i<points.length;i++){
+          const px = points[i].x;
+          if(px >= canyonStart && px <= canyonEnd){
+            const along = (px - canyonStart) / (canyonEnd - canyonStart);
+            const envelope = Math.sin(along * Math.PI);
+            // Fairway center line
+            const centerLine = lerp(teeX, cupX, along);
+            const off = Math.abs(px - centerLine);
+            if(off > corridorW * 0.5){
+              const wallT = Math.min(1, (off - corridorW*0.5) / 120);
+              points[i].y -= wallH * envelope * wallT;
+            }
+          }
+        }
+      }
+      else if(holeLayout === 'plateau_green'){
+        // Green sits on a raised flat mesa with steep drop-offs.
+        const plateauW = gWidth + 100 + Math.random()*60;
+        const plateauH = 65 + Math.random()*40;
+        const rampW = 60 + Math.random()*40;
+        for(let i=0;i<points.length;i++){
+          const dx = points[i].x - cupX;
+          const adx = Math.abs(dx);
+          if(adx < plateauW * 0.5){
+            points[i].y -= plateauH;
+          } else if(adx < plateauW * 0.5 + rampW){
+            const t = (adx - plateauW*0.5) / rampW;
+            points[i].y -= plateauH * (1 - t*t); // quadratic ramp
+          }
+        }
+      }
+      else if(holeLayout === 'downhill'){
+        // Dramatic elevation drop from tee to green.
+        const dropAmt = 100 + Math.random()*80;
+        for(let i=0;i<points.length;i++){
+          const t = clamp((points[i].x - teeX) / (cupX - teeX), 0, 1);
+          // Smooth S-curve drop
+          const s = t*t*(3-2*t);
+          points[i].y += dropAmt * s;
+        }
+      }
+
       function scanBasins(){
         const n = points.length, out=[];
         const bankMin = 32, bankMax = 64;
@@ -1352,6 +1473,20 @@ if (dist >= 2700) par = 6;
 else if (dist >= 2000) par = 5;
 else if (dist >= 1200) par = 4;
 
+      // For island_green, ensure moat basins get water even if natural basin detection is sparse.
+      if(holeLayout === 'island_green' && waters.length === 0){
+        const moatInner = gWidth * 0.5 + 20;
+        const moatOuter = moatInner + 140;
+        // Left moat
+        const lx0 = cupX - moatOuter, lx1 = cupX - moatInner;
+        const lSurf = sampleY(points, (lx0+lx1)*0.5) + 10;
+        if(lx1 > lx0 + 60) waters.push({ x:lx0, w:lx1-lx0, y:lSurf, h:h-lSurf+60, seed:(Math.random()*1e9)|0 });
+        // Right moat
+        const rx0 = cupX + moatInner, rx1 = cupX + moatOuter;
+        const rSurf = sampleY(points, (rx0+rx1)*0.5) + 10;
+        if(rx1 > rx0 + 60) waters.push({ x:rx0, w:rx1-rx0, y:rSurf, h:h-rSurf+60, seed:(Math.random()*1e9)|0 });
+      }
+
       const result = {
         w, h, points, step, cupX,
         green:{x0:gx0,x1:gx1,y:0},
@@ -1359,7 +1494,8 @@ else if (dist >= 1200) par = 4;
         sands,
         roughs,
         tee:{x:teeX,y:teeY},
-        par
+        par,
+        layout: holeLayout
       };
 // Wind Geyser
 (function addGeyser(H){
@@ -1545,6 +1681,10 @@ applyTheme(biome, currentBiomeVariant);
       disc.x = hole.tee.x; disc.y = hole.tee.y - disc.r - 1; disc.vx=0; disc.vy=0; disc.atRest=true; disc.onGround=true; disc.lastSafe={x:disc.x,y:disc.y}; disc.orient=0; disc.spin=0; disc.bank=0; strokes=0; elStrokes.textContent=strokes;
       centerCameraOnDisc();
 
+      // Layout callout
+      const LAYOUT_NAMES = { valley_carry:'Valley Carry', island_green:'Island Green', ridgeback:'Ridgeback', canyon:'Canyon Shot', plateau_green:'Plateau Green', downhill:'Downhill Run' };
+      if(hole.layout && LAYOUT_NAMES[hole.layout]) addToast(LAYOUT_NAMES[hole.layout]);
+
       // Fireflies depend on view + nighttime
       buildFireflies();
     }
@@ -1602,7 +1742,7 @@ applyTheme(biome, currentBiomeVariant);
     }
 
     // ===== Input (Pointer Events + capture)
-    function screenToWorld(x,y){ return { x: x/DPR + view.x, y: y/DPR + view.y }; }
+    function screenToWorld(x,y){ return { x: x/(DPR*zoomLevel) + view.x, y: y/(DPR*zoomLevel) + view.y }; }
     function onPointerDown(e){
       if(!hole || !disc.atRest) return;
       try{ canvas.setPointerCapture?.(e.pointerId); }catch{}
@@ -2190,7 +2330,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
 
 // ===== Rendering
     function draw(){
-      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.setTransform(DPR*zoomLevel,0,0,DPR*zoomLevel,0,0); ctx.clearRect(0,0,canvas.width,canvas.height);
 
       drawSkyGradient();
 
@@ -2251,7 +2391,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
     function drawSkyGradient(){
       if(!cached.skyGradient) rebuildSkyGradient();
       ctx.fillStyle = cached.skyGradient;
-      ctx.fillRect(0,0,canvas.width/DPR,canvas.height/DPR);
+      ctx.fillRect(0,0,view.w,view.h);
     }
 
     function drawStars(){
@@ -3277,7 +3417,7 @@ function drawBasket(){
     }
 
     function drawVignette(){
-      const w = canvas.width/DPR, h = canvas.height/DPR;
+      const w = view.w, h = view.h;
       const v = Math.max(0, Math.min(1, atmo.vignette ?? 0.35));
       const g = ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.2,w*0.5,h*0.55,Math.max(w,h)*0.7);
       g.addColorStop(0,'rgba(0,0,0,0)');
@@ -3288,7 +3428,7 @@ function drawBasket(){
     function drawToasts(){
       if(!toasts.length) return;
       ctx.save();
-      const w = canvas.width / DPR;
+      const w = view.w;
       const y0 = 48;
       ctx.font = '600 14px system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial';
       ctx.textAlign = 'center';
@@ -3330,8 +3470,8 @@ function updateDistanceUI(){
       DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
       canvas.width = Math.floor(window.innerWidth * DPR);
       canvas.height = Math.floor(window.innerHeight * DPR);
-      view.w = canvas.width/DPR;
-      view.h = canvas.height/DPR;
+      view.w = (canvas.width/DPR) / zoomLevel;
+      view.h = (canvas.height/DPR) / zoomLevel;
       refreshColorsFromCSS();
       rebuildSkyGradient();
       rebuildMountainsOffscreen();
@@ -3402,6 +3542,19 @@ function updateDistanceUI(){
     btnNewRound.addEventListener('click', ()=>{ Sfx.init(); newRound(); });
     btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
     btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
+
+    // ===== Zoom controls
+    const btnZoomIn = document.getElementById('btnZoomIn');
+    const btnZoomOut = document.getElementById('btnZoomOut');
+    function applyZoom(newZoom){
+      zoomLevel = clamp(newZoom, ZOOM_MIN, ZOOM_MAX);
+      view.w = (canvas.width/DPR) / zoomLevel;
+      view.h = (canvas.height/DPR) / zoomLevel;
+      centerCameraOnDisc();
+      rebuildSkyGradient();
+    }
+    btnZoomIn.addEventListener('click', (e)=>{ e.stopPropagation(); applyZoom(zoomLevel + ZOOM_STEP); });
+    btnZoomOut.addEventListener('click', (e)=>{ e.stopPropagation(); applyZoom(zoomLevel - ZOOM_STEP); });
 
     // Persisted toggles
     const prefKeys = { reduced:'prefReduced', audio:'prefAudio', wind:'prefWind' };
