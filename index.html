@@ -914,8 +914,9 @@ function pickWeighted(list, weightFn){
     function makeCloudSprite(C){
       const cvs = document.createElement('canvas');
       const cctx = cvs.getContext('2d');
-      const width  = Math.ceil(240 * C.scale);
-      const height = Math.ceil(120 * C.scale);
+      const pad = Math.ceil(80 * C.scale);
+      const width  = Math.ceil(240 * C.scale) + pad * 2;
+      const height = Math.ceil(120 * C.scale) + pad * 2;
       cvs.width = width; cvs.height = height;
       const cx = width/2, cy = height/2;
 
@@ -929,10 +930,11 @@ function pickWeighted(list, weightFn){
         const ox = (i - (puffCount-1)/2) * (r*0.9) + (rand01(C.seed,30+i)-0.5)*r*0.3;
         const oy = (rand01(C.seed,40+i)-0.5) * r * 0.35;
         const px = cx + ox, py = cy + oy;
-        const g = cctx.createRadialGradient(px, py, r*0.35, px, py, r*1.3);
-        g.addColorStop(0,'rgba(255,255,255,0.55)');
+        const g = cctx.createRadialGradient(px, py, r*0.2, px, py, r*1.5);
+        g.addColorStop(0,'rgba(255,255,255,0.45)');
+        g.addColorStop(0.4,'rgba(255,255,255,0.22)');
         g.addColorStop(1,'rgba(255,255,255,0.00)');
-        cctx.fillStyle = g; cctx.beginPath(); cctx.arc(px, py, r*1.3, 0, TAU); cctx.fill();
+        cctx.fillStyle = g; cctx.beginPath(); cctx.arc(px, py, r*1.5, 0, TAU); cctx.fill();
       }
 
       cctx.globalAlpha = C.alpha;
@@ -3972,23 +3974,37 @@ function drawGrass(){
       }
       ctx.restore();
 
-            // Snowbanks (snow biome variant)
+            // Snowbanks (snow biome variant) — soft layered mounds
       if(scenery.snowbanks && scenery.snowbanks.length){
         ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.strokeStyle = 'rgba(255,255,255,0.20)';
         for(const b of scenery.snowbanks){
           const x = b.x - view.x, y = b.y - view.y;
           if(x < -(b.w+60) || x > canvas.width/DPR + (b.w+60)) continue;
-          ctx.globalAlpha = b.a;
-          const topY = y - b.h;
+          // Layered sub-mounds for organic shape
+          const lumps = 3 + Math.floor((b.x * 7.3) % 3);
+          for(let i=0;i<lumps;i++){
+            const t = (i + 0.5) / lumps;
+            const lx = x + (t - 0.5) * b.w * 0.9;
+            const lr = b.w * (0.22 + 0.12 * Math.sin(b.x * 3.1 + i * 2.7));
+            const lh = b.h * (0.6 + 0.4 * Math.cos(b.x * 1.9 + i * 1.3));
+            const ly = y - lh * 0.15;
+            const g = ctx.createRadialGradient(lx, ly, 0, lx, ly + lh * 0.3, Math.max(lr, lh));
+            g.addColorStop(0, `rgba(255,255,255,${(0.55 * b.a).toFixed(3)})`);
+            g.addColorStop(0.5, `rgba(245,248,255,${(0.3 * b.a).toFixed(3)})`);
+            g.addColorStop(1, 'rgba(240,245,255,0.00)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.ellipse(lx, ly, lr, lh * 0.7, 0, 0, TAU);
+            ctx.fill();
+          }
+          // Soft highlight on top
+          const hg = ctx.createRadialGradient(x, y - b.h * 0.5, 0, x, y - b.h * 0.3, b.w * 0.35);
+          hg.addColorStop(0, `rgba(255,255,255,${(0.25 * b.a).toFixed(3)})`);
+          hg.addColorStop(1, 'rgba(255,255,255,0.00)');
+          ctx.fillStyle = hg;
           ctx.beginPath();
-          ctx.moveTo(x - b.w*0.5, y);
-          ctx.bezierCurveTo(x - b.w*0.25, topY, x + b.w*0.25, topY, x + b.w*0.5, y);
-          ctx.quadraticCurveTo(x, y + b.h*0.22, x - b.w*0.5, y);
-          ctx.closePath();
+          ctx.ellipse(x, y - b.h * 0.35, b.w * 0.35, b.h * 0.5, 0, 0, TAU);
           ctx.fill();
-          ctx.stroke();
         }
         ctx.restore();
       }
