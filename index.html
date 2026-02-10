@@ -2832,11 +2832,12 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       drawBgStructures();
       drawWaterBodies();
 
-      // Ground fill
+      // Ground fill (extend to bottom of visible area so zoom-out has no gap)
       ctx.fillStyle = cached.colors.fg;
-      ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, hole.h - view.y + 100);
+      const groundBottom = Math.max(hole.h - view.y + 100, view.h + 10);
+      ctx.beginPath(); ctx.moveTo(hole.points[0].x - view.x, groundBottom);
       for(const p of hole.points){ ctx.lineTo(p.x - view.x, p.y - view.y); }
-      ctx.lineTo(hole.points[hole.points.length-1].x - view.x, hole.h - view.y + 100); ctx.closePath(); ctx.fill();
+      ctx.lineTo(hole.points[hole.points.length-1].x - view.x, groundBottom); ctx.closePath(); ctx.fill();
 
       drawIcePatches();
       drawGrass();
