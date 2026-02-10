@@ -809,6 +809,7 @@ function pickWeighted(list, weightFn){
       clouds:[],
       cloudDir:1,
       windmills:[],
+      bgStructures:[], // silos, water towers, radio towers, etc.
       stars:[],
       moon:null
     };
@@ -851,6 +852,9 @@ function pickWeighted(list, weightFn){
 
       // Windmills
       buildWindmills();
+
+      // Background structures (silos, water towers, radio towers, etc.)
+      buildBgStructures();
 
       // Stars & moon (for night/dusk; drawn with alpha driven by atmo.night)
       buildStarsAndMoon();
@@ -959,6 +963,27 @@ function pickWeighted(list, weightFn){
         const tilt = (rand01(s,6)-0.5) * (14*Math.PI/180);
 
         backdrop.windmills.push({ x, h, r, speed, spin0, tilt });
+      }
+    }
+
+    // Background structures: silhouettes rendered on the farthest mountain layer
+    function buildBgStructures(){
+      backdrop.bgStructures.length = 0;
+      const types = ['silo','water_tower','radio_tower','church','grain_elevator','power_lines','barn_bg','lookout_tower'];
+      const count = 2 + Math.floor(rand01(backdrop.seed,900)*4); // 2-5 structures
+      const used = [];
+      for(let i=0, tries=count*10; i<tries && backdrop.bgStructures.length<count; i++){
+        const s = hash32(backdrop.seed ^ (0xBEEF00 + i*1301));
+        const u = 0.08 + rand01(s,1)*0.84;
+        const x = WORLD.w * u;
+        // Min spacing from other structures and from windmills
+        if(!used.every(px => Math.abs(px - x) > 300)) continue;
+        if(backdrop.windmills.some(w => Math.abs(w.x - x) < 300)) continue;
+        used.push(x);
+        const type = types[Math.floor(rand01(s,2)*types.length)];
+        const scale = 0.7 + rand01(s,3)*0.6;
+        const seed = s;
+        backdrop.bgStructures.push({ x, type, scale, seed });
       }
     }
 
@@ -2333,17 +2358,19 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
         }
       }
 
-      // Rare, one-per-hole landmark (purely decorative)
-      if(Math.random() < 0.18){
+      // Foreground landmark (purely decorative) — ~35% chance per hole
+      if(Math.random() < 0.35){
         const biomeId = currentBiomeVariant ? currentBiomeVariant.id : 'forest';
         let choices;
-        if(biomeId === 'snow') choices = ['ice_cave', 'bridge'];
-        else if(biomeId === 'desert') choices = ['abandoned_bus', 'bridge'];
-        else if(biomeId === 'prairie') choices = ['barn', 'windmill_cluster'];
-        else choices = ['barn', 'bridge', 'abandoned_bus', 'windmill_cluster'];
+        if(biomeId === 'snow') choices = ['ice_cave', 'bridge', 'cabin', 'stone_wall', 'campfire'];
+        else if(biomeId === 'desert' || biomeId === 'cactus') choices = ['abandoned_bus', 'bridge', 'water_well', 'tent_camp', 'stone_wall'];
+        else if(biomeId === 'oasis') choices = ['bridge', 'tent_camp', 'water_well', 'abandoned_bus'];
+        else if(biomeId === 'prairie' || biomeId === 'juniper') choices = ['barn', 'windmill_cluster', 'hay_bales', 'shed', 'fence_gate'];
+        else if(biomeId === 'deadwood') choices = ['abandoned_bus', 'stone_wall', 'campfire', 'shed'];
+        else choices = ['barn', 'bridge', 'abandoned_bus', 'windmill_cluster', 'cabin', 'hay_bales', 'shed', 'fence_gate', 'campfire', 'tent_camp'];
         const type = choices[Math.floor(Math.random()*choices.length)];
         const x = lerp(hole.tee.x+220, hole.cupX-220, Math.random());
-        scenery.landmark = { type, x, y: groundYAt(x), s: 1.0 };
+        scenery.landmark = { type, x, y: groundYAt(x), s: 1.0, seed: (Math.random()*1e9)|0 };
       }
 
       // Expose per-hole arrays for helpers
@@ -2372,6 +2399,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       if(!hole){ drawVignette(); drawToasts(); return; }
 
       drawWindmills();
+      drawBgStructures();
       drawWaterBodies();
 
       // Ground fill
@@ -2849,6 +2877,253 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       }
     }
 
+    function drawBgStructures(){
+      if(!backdrop.bgStructures?.length || !backdrop.mountains?.length) return;
+      const L = backdrop.mountains[backdrop.mountains.length - 1];
+      const idx = backdrop.mountains.length - 1;
+      const parX = L.parallax;
+      const parY = 0.06 * idx;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.80)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.80)';
+      ctx.lineWidth = 1.5;
+
+      for(const B of backdrop.bgStructures){
+        const sx = B.x - view.x * parX;
+        if(sx < -200 || sx > view.w + 200) continue;
+        let baseY = mountainYAt(L, B.x) - view.y * parY + 2;
+        const S = B.scale;
+
+        if(B.type === 'silo'){
+          // Cylindrical silo with domed top
+          const w = 28*S, h = 70*S;
+          ctx.beginPath();
+          ctx.rect(sx - w/2, baseY - h, w, h);
+          ctx.fill();
+          // dome
+          ctx.beginPath();
+          ctx.ellipse(sx, baseY - h, w/2, 12*S, 0, Math.PI, 0);
+          ctx.fill();
+          // horizontal bands
+          ctx.save(); ctx.globalAlpha = 0.35;
+          for(let j=1;j<4;j++){
+            const y = baseY - h*j/4;
+            ctx.beginPath(); ctx.moveTo(sx-w/2, y); ctx.lineTo(sx+w/2, y); ctx.stroke();
+          }
+          ctx.restore();
+        }
+        else if(B.type === 'water_tower'){
+          // Stilted tank
+          const tw = 34*S, th = 22*S, legH = 60*S;
+          const topY = baseY - legH - th;
+          // legs
+          ctx.beginPath();
+          ctx.moveTo(sx-tw*0.4, baseY); ctx.lineTo(sx-tw*0.25, topY+th);
+          ctx.moveTo(sx+tw*0.4, baseY); ctx.lineTo(sx+tw*0.25, topY+th);
+          ctx.moveTo(sx, baseY); ctx.lineTo(sx, topY+th);
+          ctx.stroke();
+          // cross brace
+          ctx.beginPath();
+          ctx.moveTo(sx-tw*0.35, baseY-legH*0.5); ctx.lineTo(sx+tw*0.35, baseY-legH*0.5);
+          ctx.stroke();
+          // tank body
+          ctx.beginPath();
+          ctx.ellipse(sx, topY + th*0.5, tw/2, th/2, 0, 0, TAU);
+          ctx.fill();
+          // cap
+          ctx.beginPath();
+          ctx.ellipse(sx, topY, tw*0.3, 6*S, 0, Math.PI, 0);
+          ctx.fill();
+        }
+        else if(B.type === 'radio_tower'){
+          // Tall lattice tower with blinking light
+          const h = 100*S;
+          const bw = 18*S;
+          // main legs (tapered)
+          ctx.beginPath();
+          ctx.moveTo(sx-bw/2, baseY); ctx.lineTo(sx-3*S, baseY-h);
+          ctx.moveTo(sx+bw/2, baseY); ctx.lineTo(sx+3*S, baseY-h);
+          ctx.stroke();
+          // cross braces
+          const braces = 5;
+          for(let j=1;j<=braces;j++){
+            const t = j/(braces+1);
+            const y = baseY - h*t;
+            const w = lerp(bw/2, 3*S, t);
+            ctx.beginPath(); ctx.moveTo(sx-w, y); ctx.lineTo(sx+w, y); ctx.stroke();
+            // X brace
+            if(j < braces){
+              const y2 = baseY - h*(j+1)/(braces+1);
+              const w2 = lerp(bw/2, 3*S, (j+1)/(braces+1));
+              ctx.save(); ctx.globalAlpha = 0.4;
+              ctx.beginPath(); ctx.moveTo(sx-w, y); ctx.lineTo(sx+w2, y2); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(sx+w, y); ctx.lineTo(sx-w2, y2); ctx.stroke();
+              ctx.restore();
+            }
+          }
+          // blinking red light at top
+          const blink = (Math.sin(clock*3.5 + B.seed) > 0.3) ? 1 : 0;
+          if(blink){
+            ctx.save();
+            ctx.fillStyle = 'rgba(255,40,40,0.85)';
+            ctx.beginPath(); ctx.arc(sx, baseY-h-2*S, 2.5*S, 0, TAU); ctx.fill();
+            // glow
+            ctx.globalAlpha = 0.25;
+            ctx.beginPath(); ctx.arc(sx, baseY-h-2*S, 6*S, 0, TAU); ctx.fill();
+            ctx.restore();
+          }
+        }
+        else if(B.type === 'church'){
+          // Simple chapel with steeple
+          const w = 50*S, h = 36*S;
+          ctx.beginPath();
+          ctx.rect(sx - w/2, baseY - h, w, h);
+          ctx.fill();
+          // roof
+          ctx.beginPath();
+          ctx.moveTo(sx - w*0.55, baseY - h);
+          ctx.lineTo(sx, baseY - h - 18*S);
+          ctx.lineTo(sx + w*0.55, baseY - h);
+          ctx.closePath();
+          ctx.fill();
+          // steeple
+          const sw = 10*S, sh = 34*S;
+          ctx.beginPath();
+          ctx.rect(sx - sw/2, baseY - h - 18*S - sh, sw, sh);
+          ctx.fill();
+          // spire
+          ctx.beginPath();
+          ctx.moveTo(sx - sw*0.6, baseY - h - 18*S - sh);
+          ctx.lineTo(sx, baseY - h - 18*S - sh - 16*S);
+          ctx.lineTo(sx + sw*0.6, baseY - h - 18*S - sh);
+          ctx.closePath();
+          ctx.fill();
+          // cross
+          ctx.lineWidth = 2*S;
+          const crossY = baseY - h - 18*S - sh - 16*S;
+          ctx.beginPath();
+          ctx.moveTo(sx, crossY - 8*S); ctx.lineTo(sx, crossY);
+          ctx.moveTo(sx-4*S, crossY - 5*S); ctx.lineTo(sx+4*S, crossY - 5*S);
+          ctx.stroke();
+          ctx.lineWidth = 1.5;
+        }
+        else if(B.type === 'grain_elevator'){
+          // Tall rectangular + small annex
+          const w = 36*S, h = 80*S;
+          ctx.beginPath();
+          ctx.rect(sx - w/2, baseY - h, w, h);
+          ctx.fill();
+          // pitched top
+          ctx.beginPath();
+          ctx.moveTo(sx - w*0.55, baseY - h);
+          ctx.lineTo(sx, baseY - h - 14*S);
+          ctx.lineTo(sx + w*0.55, baseY - h);
+          ctx.closePath();
+          ctx.fill();
+          // annex
+          const aw = 22*S, ah = 40*S;
+          ctx.beginPath();
+          ctx.rect(sx + w/2, baseY - ah, aw, ah);
+          ctx.fill();
+          // conveyor arm to annex top
+          ctx.beginPath();
+          ctx.moveTo(sx, baseY - h + 6*S);
+          ctx.lineTo(sx + w/2 + aw*0.5, baseY - ah);
+          ctx.stroke();
+        }
+        else if(B.type === 'power_lines'){
+          // Power-line poles with catenary wires
+          const h = 55*S, spacing = 120*S;
+          for(let p=0;p<2;p++){
+            const px = sx + (p-0.5)*spacing;
+            // pole
+            ctx.beginPath();
+            ctx.moveTo(px, baseY); ctx.lineTo(px, baseY-h);
+            ctx.stroke();
+            // crossarm
+            const cw = 18*S;
+            ctx.beginPath();
+            ctx.moveTo(px-cw, baseY-h+4*S); ctx.lineTo(px+cw, baseY-h+4*S);
+            ctx.stroke();
+          }
+          // catenary wires
+          ctx.save(); ctx.globalAlpha = 0.55;
+          for(let w=0;w<3;w++){
+            const wy = 4*S + w*5*S;
+            const x1 = sx - spacing*0.5, x2 = sx + spacing*0.5;
+            const y1 = baseY - h + wy, y2 = baseY - h + wy;
+            const sag = 12*S + w*3*S;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.quadraticCurveTo((x1+x2)/2, (y1+y2)/2 + sag, x2, y2);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+        else if(B.type === 'barn_bg'){
+          // Background barn silhouette (simpler than foreground)
+          const w = 70*S, h = 40*S;
+          ctx.beginPath();
+          ctx.rect(sx - w/2, baseY - h, w, h);
+          ctx.fill();
+          // gambrel roof
+          ctx.beginPath();
+          ctx.moveTo(sx - w*0.55, baseY - h);
+          ctx.lineTo(sx - w*0.3, baseY - h - 20*S);
+          ctx.lineTo(sx + w*0.3, baseY - h - 20*S);
+          ctx.lineTo(sx + w*0.55, baseY - h);
+          ctx.closePath();
+          ctx.fill();
+          // cupola
+          ctx.beginPath();
+          ctx.rect(sx - 5*S, baseY - h - 20*S - 10*S, 10*S, 10*S);
+          ctx.fill();
+          // small weathervane
+          ctx.beginPath();
+          ctx.moveTo(sx, baseY - h - 30*S); ctx.lineTo(sx, baseY - h - 36*S);
+          ctx.moveTo(sx-4*S, baseY - h - 34*S); ctx.lineTo(sx+4*S, baseY - h - 34*S);
+          ctx.stroke();
+        }
+        else if(B.type === 'lookout_tower'){
+          // Fire lookout / ranger tower
+          const h = 75*S, cabW = 20*S, cabH = 14*S;
+          const legSpread = 22*S;
+          // four legs converging
+          ctx.beginPath();
+          ctx.moveTo(sx-legSpread, baseY); ctx.lineTo(sx-cabW*0.4, baseY-h+cabH);
+          ctx.moveTo(sx+legSpread, baseY); ctx.lineTo(sx+cabW*0.4, baseY-h+cabH);
+          ctx.stroke();
+          // cross braces
+          for(let j=1;j<4;j++){
+            const t = j/4;
+            const y = baseY - (h-cabH)*t;
+            const w = lerp(legSpread, cabW*0.4, t);
+            ctx.beginPath(); ctx.moveTo(sx-w, y); ctx.lineTo(sx+w, y); ctx.stroke();
+          }
+          // cabin
+          ctx.beginPath();
+          ctx.rect(sx - cabW/2, baseY - h, cabW, cabH);
+          ctx.fill();
+          // railing around cabin
+          ctx.save(); ctx.globalAlpha = 0.5;
+          const railW = cabW*0.7;
+          ctx.beginPath();
+          ctx.rect(sx - railW, baseY - h - 2*S, railW*2, 2*S);
+          ctx.stroke();
+          ctx.restore();
+          // roof
+          ctx.beginPath();
+          ctx.moveTo(sx - cabW*0.6, baseY - h);
+          ctx.lineTo(sx, baseY - h - 8*S);
+          ctx.lineTo(sx + cabW*0.6, baseY - h);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
     const GRASS_STEP = 26;
     function drawIcePatches(){
   if(!hole||!hole.icePatches) return;
@@ -3020,6 +3295,214 @@ function drawGrass(){
         ctx.beginPath();
         ctx.ellipse(sx, sy - 18*S, w*0.45, h*0.35, 0, 0, Math.PI*2);
         ctx.fill();
+        ctx.restore();
+      }else if(lm.type === 'cabin'){
+        // Small log cabin
+        const w = 60*S, h = 34*S;
+        ctx.beginPath();
+        ctx.rect(sx - w/2, sy - h, w, h);
+        ctx.fill();
+        // roof
+        ctx.beginPath();
+        ctx.moveTo(sx - w*0.6, sy - h);
+        ctx.lineTo(sx, sy - h - 22*S);
+        ctx.lineTo(sx + w*0.6, sy - h);
+        ctx.closePath();
+        ctx.fill();
+        // chimney
+        ctx.beginPath();
+        ctx.rect(sx + w*0.2, sy - h - 22*S - 4*S, 10*S, 18*S);
+        ctx.fill();
+        // smoke wisps (animated)
+        ctx.save(); ctx.globalAlpha = 0.2;
+        const chimX = sx + w*0.2 + 5*S;
+        const chimTopY = sy - h - 22*S - 4*S;
+        for(let p=0;p<3;p++){
+          const drift = Math.sin(clock*0.8 + p*1.5 + (lm.seed||0)%100) * 8*S;
+          const py = chimTopY - 12*S - p*10*S;
+          ctx.beginPath(); ctx.arc(chimX + drift, py, 4*S + p*2*S, 0, TAU); ctx.fill();
+        }
+        ctx.restore();
+        // door
+        ctx.beginPath();
+        ctx.rect(sx - 8*S, sy - 22*S, 16*S, 22*S);
+        ctx.stroke();
+        // window
+        ctx.beginPath();
+        ctx.rect(sx + w*0.15, sy - h + 8*S, 12*S, 10*S);
+        ctx.stroke();
+      }else if(lm.type === 'hay_bales'){
+        // Cluster of round hay bales
+        const count = 3 + Math.floor(((lm.seed||0)%5));
+        for(let i=0;i<count;i++){
+          const bx = sx + (i - count/2) * 28*S + ((lm.seed||0)%(7+i))*0.5;
+          const by = sy;
+          const r = 13*S + (i%2)*3*S;
+          // cylinder face
+          ctx.beginPath(); ctx.ellipse(bx, by - r, r, r*0.7, 0, 0, TAU); ctx.fill();
+          // spiral hint
+          ctx.save(); ctx.globalAlpha = 0.3;
+          ctx.beginPath(); ctx.arc(bx, by - r, r*0.4, 0, TAU); ctx.stroke();
+          ctx.restore();
+        }
+      }else if(lm.type === 'shed'){
+        // Small garden shed / equipment hut
+        const w = 44*S, h = 30*S;
+        ctx.beginPath();
+        ctx.rect(sx - w/2, sy - h, w, h);
+        ctx.fill();
+        // slanted roof
+        ctx.beginPath();
+        ctx.moveTo(sx - w*0.55, sy - h);
+        ctx.lineTo(sx - w*0.45, sy - h - 10*S);
+        ctx.lineTo(sx + w*0.55, sy - h - 6*S);
+        ctx.lineTo(sx + w*0.55, sy - h);
+        ctx.closePath();
+        ctx.fill();
+        // door
+        ctx.beginPath();
+        ctx.rect(sx - 7*S, sy - 20*S, 14*S, 20*S);
+        ctx.stroke();
+      }else if(lm.type === 'fence_gate'){
+        // Split-rail fence with gate opening
+        const fenceW = 100*S;
+        const postH = 26*S;
+        const posts = 5;
+        for(let i=0;i<posts;i++){
+          if(i === 2) continue; // gate gap
+          const px = sx - fenceW/2 + (fenceW/(posts-1))*i;
+          ctx.beginPath();
+          ctx.moveTo(px, sy); ctx.lineTo(px, sy - postH);
+          ctx.stroke();
+        }
+        // rails
+        for(let r=0;r<2;r++){
+          const ry = sy - 8*S - r*10*S;
+          ctx.beginPath();
+          ctx.moveTo(sx - fenceW/2, ry);
+          ctx.lineTo(sx - fenceW/2 + fenceW*0.35, ry);
+          ctx.moveTo(sx - fenceW/2 + fenceW*0.55, ry);
+          ctx.lineTo(sx + fenceW/2, ry);
+          ctx.stroke();
+        }
+        // gate posts (thicker)
+        ctx.lineWidth = Math.max(3, 3*S);
+        const g1 = sx - fenceW/2 + fenceW*0.35;
+        const g2 = sx - fenceW/2 + fenceW*0.55;
+        ctx.beginPath();
+        ctx.moveTo(g1, sy); ctx.lineTo(g1, sy - postH - 4*S);
+        ctx.moveTo(g2, sy); ctx.lineTo(g2, sy - postH - 4*S);
+        ctx.stroke();
+        ctx.lineWidth = Math.max(2, 2*S);
+      }else if(lm.type === 'water_well'){
+        // Stone well with roof
+        const ww = 30*S, wh = 20*S;
+        // well wall (trapezoid)
+        ctx.beginPath();
+        ctx.moveTo(sx - ww/2, sy); ctx.lineTo(sx - ww*0.45, sy - wh);
+        ctx.lineTo(sx + ww*0.45, sy - wh); ctx.lineTo(sx + ww/2, sy);
+        ctx.closePath();
+        ctx.fill();
+        // posts
+        ctx.beginPath();
+        ctx.moveTo(sx - ww*0.35, sy - wh); ctx.lineTo(sx - ww*0.3, sy - wh - 28*S);
+        ctx.moveTo(sx + ww*0.35, sy - wh); ctx.lineTo(sx + ww*0.3, sy - wh - 28*S);
+        ctx.stroke();
+        // little roof
+        const roofY = sy - wh - 28*S;
+        ctx.beginPath();
+        ctx.moveTo(sx - ww*0.55, roofY + 2*S);
+        ctx.lineTo(sx, roofY - 8*S);
+        ctx.lineTo(sx + ww*0.55, roofY + 2*S);
+        ctx.closePath();
+        ctx.fill();
+        // crossbar with bucket hint
+        ctx.beginPath();
+        ctx.moveTo(sx - ww*0.3, roofY + 6*S);
+        ctx.lineTo(sx + ww*0.3, roofY + 6*S);
+        ctx.stroke();
+      }else if(lm.type === 'campfire'){
+        // Small campfire ring with glow
+        const ringR = 14*S;
+        // stone ring
+        ctx.save(); ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy - 2*S, ringR, ringR*0.35, 0, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+        // logs
+        ctx.beginPath();
+        ctx.moveTo(sx - 8*S, sy - 4*S); ctx.lineTo(sx + 6*S, sy - 8*S);
+        ctx.moveTo(sx + 8*S, sy - 3*S); ctx.lineTo(sx - 5*S, sy - 9*S);
+        ctx.stroke();
+        // flame glow (animated)
+        const flicker = 0.6 + 0.4*Math.sin(clock*6 + (lm.seed||0));
+        ctx.save();
+        ctx.fillStyle = `rgba(255,140,40,${0.25*flicker})`;
+        ctx.beginPath(); ctx.ellipse(sx, sy - 10*S, 8*S, 14*S*flicker, 0, 0, TAU); ctx.fill();
+        ctx.fillStyle = `rgba(255,200,60,${0.35*flicker})`;
+        ctx.beginPath(); ctx.ellipse(sx, sy - 8*S, 4*S, 8*S*flicker, 0, 0, TAU); ctx.fill();
+        ctx.restore();
+      }else if(lm.type === 'tent_camp'){
+        // A-frame tent with small flag
+        const tw = 40*S, th = 28*S;
+        ctx.beginPath();
+        ctx.moveTo(sx - tw/2, sy);
+        ctx.lineTo(sx, sy - th);
+        ctx.lineTo(sx + tw/2, sy);
+        ctx.closePath();
+        ctx.fill();
+        // tent opening
+        ctx.save(); ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(sx - tw*0.2, sy);
+        ctx.lineTo(sx, sy - th*0.65);
+        ctx.lineTo(sx + tw*0.2, sy);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+        // flag pole next to tent
+        const poleX = sx + tw*0.45;
+        ctx.beginPath();
+        ctx.moveTo(poleX, sy); ctx.lineTo(poleX, sy - th - 14*S);
+        ctx.stroke();
+        // flag (animated flutter)
+        const flutter = Math.sin(clock*4 + (lm.seed||0)) * 3*S;
+        ctx.beginPath();
+        ctx.moveTo(poleX, sy - th - 14*S);
+        ctx.lineTo(poleX + 12*S, sy - th - 10*S + flutter);
+        ctx.lineTo(poleX, sy - th - 6*S);
+        ctx.closePath();
+        ctx.fill();
+      }else if(lm.type === 'stone_wall'){
+        // Low crumbling stone wall
+        const ww = 100*S, wh = 14*S;
+        ctx.beginPath();
+        ctx.rect(sx - ww/2, sy - wh, ww, wh);
+        ctx.fill();
+        // stone texture (horizontal + vertical lines)
+        ctx.save(); ctx.globalAlpha = 0.3;
+        const rows = 3;
+        for(let r=1;r<rows;r++){
+          const y = sy - wh + (wh/rows)*r;
+          ctx.beginPath(); ctx.moveTo(sx-ww/2, y); ctx.lineTo(sx+ww/2, y); ctx.stroke();
+        }
+        // vertical joints (staggered)
+        for(let r=0;r<rows;r++){
+          const y = sy - wh + (wh/rows)*r;
+          const off = (r%2) * 12*S;
+          for(let c=0;c<6;c++){
+            const cx = sx - ww/2 + off + c*(ww/5);
+            if(cx > sx + ww/2) break;
+            ctx.beginPath(); ctx.moveTo(cx, y); ctx.lineTo(cx, y + wh/rows); ctx.stroke();
+          }
+        }
+        ctx.restore();
+        // crumble at one end
+        ctx.save(); ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.rect(sx + ww/2 - 6*S, sy - wh + 4*S, 6*S, wh - 4*S);
+        ctx.fillStyle = ink; ctx.fill();
         ctx.restore();
       }
 
