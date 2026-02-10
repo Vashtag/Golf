@@ -1011,7 +1011,7 @@ let predPath = null;         // [{x,y}, ...] world coords
 let predLanding = null;      // {x,y}
 let predDeltaText = '';
 let predLastCalcMs = 0;
-let predCache = { angle:NaN, power:NaN, windLift:NaN, windSide:NaN, releaseMode:NaN };
+let predCache = { angle:NaN, power:NaN, windLift:NaN, windSide:NaN, releaseMode:NaN, hand:'' };
 
     // Scenery
     let scenery = { trees:[], rocks:[], fences:[], snowbanks:[] };
@@ -1770,16 +1770,28 @@ applyTheme(biome, currentBiomeVariant);
       if(surface === 'sand' && PU.sandPowerMin > powerMul) powerMul = PU.sandPowerMin;
       const base = 1650;
       const power = (0.25 + 0.75*meter) * d.speed * powerMul;
-      const speed = base * power;
-      const dir = aimAngle;
+
+      // Release angle affects launch angle, speed, and spin
+      // Hyzer (-1): steeper launch, more speed, more spin (stable fade)
+      // Anhyzer (+1): flatter launch, less speed, less spin (more turn/flip)
+      const hyz = releaseMode; // -1, 0, or 1
+      const launchOffset = hyz * 0.055; // ~3.2° adjustment
+      const speedMod = 1 + hyz * -0.05; // hyzer +5% speed, anhyzer -5%
+      const spinMod  = 1 + hyz * -0.12; // hyzer +12% spin, anhyzer -12%
+
+      const speed = base * power * speedMod;
+      const dir = aimAngle + launchOffset;
+
+      // Hand affects spin direction / curve sign, but also slight launch offset
+      const handSign = (hand === 'RHBH' ? 1 : -1);
 
       disc.vx = Math.cos(dir) * speed;
       disc.vy = Math.sin(dir) * speed;
 
       disc.orient = dir + (NOSE_FAST_DEG * Math.PI/180);
-      disc.spin0  = 14 + 20*power;
+      disc.spin0  = (14 + 20*power) * spinMod;
       disc.spin   = disc.spin0;
-      disc.bank   = (releaseMode * 16) * Math.PI/180;
+      disc.bank   = (hyz * 24) * Math.PI/180; // ±24° (was ±16°)
 
       disc.atRest=false; disc.onGround=false; strokes++; elStrokes.textContent=strokes; roundData.holes[holeIndex].strokes = strokes; if(navigator.vibrate) navigator.vibrate(16);
       Sfx.playThrow();
@@ -1822,8 +1834,9 @@ applyTheme(biome, currentBiomeVariant);
           const windScaleEff = 0.50 * Math.max(0.65, PU.windScaleMul);
           const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * windScaleEff) : 1);
 
-          // Base aero lift
-          let lift = 0.00450 * currentDisc.glide * v*v * aoa * windMul;
+          // Base aero lift — anhyzer adds glide (stays aloft), hyzer reduces it (comes down)
+          const glideMod = 1 + releaseMode * 0.14; // anhyzer +14% glide, hyzer -14%
+          let lift = 0.00450 * currentDisc.glide * glideMod * v*v * aoa * windMul;
 
           // Wind Geyser: add pure vertical updraft
           if (hole?.geyser) {
@@ -1861,9 +1874,11 @@ applyTheme(biome, currentBiomeVariant);
           const turnPhase = tPow*tPow;
           const fadePhase = (1 - tPow);
           const hyz = releaseMode;
-          let turnAmt = currentDisc.turn * turnPhase * (0.7 + 0.6*spinNorm) * (1 + 0.35*hyz);
-          let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.25*hyz);
-          const bankBias = 0.12 * Math.sin(disc.bank);
+          // Hyzer: suppresses turn, amplifies fade → steeper descent, hooks hard at end
+          // Anhyzer: amplifies turn, suppresses fade → stays flatter, flips over
+          let turnAmt = currentDisc.turn * turnPhase * (0.7 + 0.6*spinNorm) * (1 + 0.55*hyz);
+          let fadeAmt = currentDisc.fade * fadePhase * (0.9 + 0.5*(1 - spinNorm)) * (1 - 0.45*hyz);
+          const bankBias = 0.28 * Math.sin(disc.bank);
           const curve = (turnAmt - fadeAmt + bankBias);
           const curveMulEff = Math.max(0.90, PU.curveMul);
           const side = (hand==='RHBH'?1:-1);
@@ -1889,9 +1904,9 @@ applyTheme(biome, currentBiomeVariant);
             }
           }
 
-          // Spin decay and bank relax
+          // Spin decay and bank relax — slower relaxation so release angle matters longer
           disc.spin *= Math.exp(-0.35 * PU.spinDecayMul * dt);
-          const bankRelax = 0.2 + 0.9*(1 - spinNorm);
+          const bankRelax = 0.12 + 0.55*(1 - spinNorm);
           disc.bank += (-disc.bank) * (1 - Math.exp(-dt*bankRelax));
 
           const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI/180;
@@ -1982,18 +1997,25 @@ function simulateAimTrajectory(angle, power){
   if(SURF[surface] && SURF[surface].powerMul) powerMul = SURF[surface].powerMul;
   if(surface === 'sand' && PU.sandPowerMin > powerMul) powerMul = PU.sandPowerMin;
   const throwPower = (0.25 + 0.75 * power) * d.speed * powerMul;
-  const throwSpeed = 1650 * throwPower;
 
-  const spin0 = 14 + 20 * throwPower;
+  // Mirror release angle modifiers from throwDisc
+  const hyz = releaseMode;
+  const launchOffset = hyz * 0.055;
+  const speedMod = 1 + hyz * -0.05;
+  const spinMod  = 1 + hyz * -0.12;
+  const throwSpeed = 1650 * throwPower * speedMod;
+  const dir = angle + launchOffset;
+
+  const spin0 = (14 + 20 * throwPower) * spinMod;
   const s = {
     x: disc.x,
     y: disc.y,
-    vx: Math.cos(angle) * throwSpeed,
-    vy: Math.sin(angle) * throwSpeed,
-    orient: angle + (NOSE_FAST_DEG * Math.PI / 180),
+    vx: Math.cos(dir) * throwSpeed,
+    vy: Math.sin(dir) * throwSpeed,
+    orient: dir + (NOSE_FAST_DEG * Math.PI / 180),
     spin: spin0,
     spin0: spin0,
-    bank: (releaseMode * 16) * Math.PI / 180,
+    bank: (hyz * 24) * Math.PI / 180,
     onGround: false
   };
 
@@ -2020,16 +2042,17 @@ function simulateAimTrajectory(angle, power){
 
       const windScaleEff = 0.50 * Math.max(0.65, PU.windScaleMul);
       const windMul = (windOn ? (1 + clamp(windLift, -1, 1) * windScaleEff) : 1);
-      const lift = 0.00450 * d.glide * v * v * aoa * windMul;
+      const glideMod = 1 + releaseMode * 0.14;
+      const lift = 0.00450 * d.glide * glideMod * v * v * aoa * windMul;
 
       const windSideForce = (windOn ? windSide * 280 * Math.max(0.65, PU.windScaleMul) : 0);
 
       const turnPhase = tPow * tPow;
       const fadePhase = (1 - tPow);
-      const hyz = releaseMode;
-      const turnAmt = d.turn * turnPhase * (0.7 + 0.6 * spinNorm) * (1 + 0.35 * hyz);
-      const fadeAmt = d.fade * fadePhase * (0.9 + 0.5 * (1 - spinNorm)) * (1 - 0.25 * hyz);
-      const bankBias = 0.12 * Math.sin(s.bank);
+      const hyzP = releaseMode;
+      const turnAmt = d.turn * turnPhase * (0.7 + 0.6 * spinNorm) * (1 + 0.55 * hyzP);
+      const fadeAmt = d.fade * fadePhase * (0.9 + 0.5 * (1 - spinNorm)) * (1 - 0.45 * hyzP);
+      const bankBias = 0.28 * Math.sin(s.bank);
       const curve = (turnAmt - fadeAmt + bankBias);
       const curveMulEff = Math.max(0.90, PU.curveMul);
       const side = (hand === 'RHBH' ? 1 : -1);
@@ -2052,7 +2075,7 @@ function simulateAimTrajectory(angle, power){
       }
 
       s.spin *= Math.exp(-0.35 * PU.spinDecayMul * dt);
-      const bankRelax = 0.2 + 0.9 * (1 - spinNorm);
+      const bankRelax = 0.12 + 0.55 * (1 - spinNorm);
       s.bank += (-s.bank) * (1 - Math.exp(-dt * bankRelax));
 
       const noseBias = (lerp(NOSE_FAST_DEG, NOSE_SLOW_DEG, 1 - tPow)) * Math.PI / 180;
@@ -2138,12 +2161,13 @@ function updateAimPrediction(force=false){
     Math.abs(power - predCache.power) > 0.02 ||
     Math.abs(windLift - predCache.windLift) > 0.05 ||
     Math.abs(windSide - predCache.windSide) > 0.05 ||
-    releaseMode !== predCache.releaseMode;
+    releaseMode !== predCache.releaseMode ||
+    hand !== predCache.hand;
 
   if(!shouldRecalc) return;
 
   predLastCalcMs = now;
-  predCache = { angle, power, windLift, windSide, releaseMode };
+  predCache = { angle, power, windLift, windSide, releaseMode, hand };
 
   const res = simulateAimTrajectory(angle, power);
   predPath = res.path;
