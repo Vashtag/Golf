@@ -296,6 +296,10 @@
 <span>Wind (toggle)</span>
 <input checked="" id="chkWind" type="checkbox"/>
 </label>
+<label class="chip" style="justify-content:space-between">
+<span>Boss mode (bosses only)</span>
+<input id="chkBoss" type="checkbox"/>
+</label>
 </div>
 <p class="small" style="margin-top:.7rem">Accents: <span style="color:var(--accent)">primary</span> • <span style="color:var(--accent2)">secondary</span> • <span style="color:var(--accent3)">tertiary</span></p>
 <div style="margin-top:.7rem"><button class="btn" id="btnCloseSettings">Close</button></div>
@@ -347,7 +351,8 @@
     const holeBreakdown = document.getElementById('holeBreakdown');
 
     // ===== Game Config & State
-    const HOLES_PER_ROUND = 18; elHolesTotal.textContent = HOLES_PER_ROUND;
+    let bossMode = false;
+    let HOLES_PER_ROUND = 18; elHolesTotal.textContent = HOLES_PER_ROUND;
     const WORLD = { w: 3400, h: 950 };
     let view = { x:0, y:0, w:0, h:0 };
     let zoomLevel = 1.0; // 1.0 = default, <1 = zoomed out, >1 = zoomed in
@@ -2062,8 +2067,8 @@ currentBiomeVariant = variants ? pickWeighted(variants, v => v.weight ?? 1) : nu
 
 applyTheme(biome, currentBiomeVariant);
 // IMPORTANT FIX: generate hole before selecting "auto" variants (auto uses hole.waters)
-      // Boss holes on 9 and 18
-      const isBossHole = (holeIndex === 8 || holeIndex === 17);
+      // Boss holes on 9 and 18 (or every hole in boss mode)
+      const isBossHole = bossMode || (holeIndex === 8 || holeIndex === 17);
       if(isBossHole){
         const bossType = BOSS_TYPES[Math.floor(Math.random()*BOSS_TYPES.length)];
         hole = genBossHole(bossType);
@@ -4494,19 +4499,23 @@ function updateDistanceUI(){
     btnZoomOut.addEventListener('click', (e)=>{ e.stopPropagation(); applyZoom(zoomLevel - ZOOM_STEP); });
 
     // Persisted toggles
-    const prefKeys = { reduced:'prefReduced', audio:'prefAudio', wind:'prefWind' };
+    const prefKeys = { reduced:'prefReduced', audio:'prefAudio', wind:'prefWind', boss:'prefBoss' };
     (function restorePrefs(){
       const r = localStorage.getItem(prefKeys.reduced); if(r!==null) chkReduced.checked = (r==='1');
       const a = localStorage.getItem(prefKeys.audio);   if(a!==null) chkAudio.checked   = (a==='1');
       const w = localStorage.getItem(prefKeys.wind);    if(w!==null) chkWind.checked    = (w==='1');
+      const b = localStorage.getItem(prefKeys.boss);    if(b!==null) chkBoss.checked    = (b==='1');
       reducedMotion = chkReduced.checked;
       windOn = chkWind.checked;
+      bossMode = chkBoss.checked;
+      if(bossMode){ HOLES_PER_ROUND = 8; elHolesTotal.textContent = HOLES_PER_ROUND; }
       updateWindUI();
     })();
 
     chkReduced.addEventListener('change', ()=>{ reducedMotion = chkReduced.checked; localStorage.setItem(prefKeys.reduced, chkReduced.checked?'1':'0'); });
     chkAudio.addEventListener('change', async ()=>{ const on = chkAudio.checked; localStorage.setItem(prefKeys.audio, on?'1':'0'); Sfx.setEnabled(on); await AudioMini.setEnabled(on); });
     chkWind.addEventListener('change', ()=>{ windOn = chkWind.checked; localStorage.setItem(prefKeys.wind, windOn?'1':'0'); updateWindUI(); AudioMini.setWind(windOn); });
+    chkBoss.addEventListener('change', ()=>{ bossMode = chkBoss.checked; localStorage.setItem(prefKeys.boss, bossMode?'1':'0'); HOLES_PER_ROUND = bossMode ? 8 : 18; elHolesTotal.textContent = HOLES_PER_ROUND; });
 
     // initialize toggles' effects
     Sfx.setEnabled(chkAudio.checked);
