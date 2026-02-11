@@ -54,6 +54,20 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem;margin-top:.4rem}
   .tag{display:inline-flex;gap:.45rem;align-items:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:.3rem .55rem;border-radius:999px;font-size:.85rem}
   .small{font-size:.9rem;color:var(--muted)}
+  /* Disc bag modal */
+  .bag-card{position:relative;overflow:visible}
+  .bag-top{margin:-1rem auto .2rem auto;width:80px;height:32px;background:linear-gradient(180deg,#6b4226 0%,#8b5e3c 60%,#a0714f 100%);border-radius:14px 14px 0 0;border:2px solid rgba(255,255,255,.12);border-bottom:0;position:relative}
+  .bag-top::after{content:'';position:absolute;top:6px;left:50%;transform:translateX(-50%);width:28px;height:10px;border:2px solid rgba(255,255,255,.18);border-radius:6px;background:rgba(0,0,0,.15)}
+  .bag-card .card-body{background:linear-gradient(180deg,rgba(107,66,38,.15),rgba(107,66,38,.05));border-radius:0 0 14px 14px}
+  .bag-discs{display:grid;grid-template-columns:repeat(2,1fr);gap:.7rem;margin-top:.6rem}
+  .bag-slot{position:relative;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.10);border-radius:14px;padding:.8rem .6rem;text-align:center;transition:border-color .3s,box-shadow .3s}
+  .bag-slot.unlocked{border-color:var(--accent);box-shadow:0 0 12px rgba(255,138,61,.15)}
+  .bag-slot.locked{opacity:.45;filter:grayscale(.8)}
+  .bag-slot .disc-icon{font-size:2rem;margin-bottom:.3rem}
+  .bag-slot .disc-name{font-weight:700;font-size:.95rem}
+  .bag-slot .disc-desc{font-size:.78rem;color:var(--muted);margin-top:.2rem}
+  .bag-slot .lock-badge{position:absolute;top:.45rem;right:.45rem;font-size:.85rem;opacity:.7}
+  .bag-slot.unlocked .lock-badge{display:none}
   #landscapeHint{position:fixed;inset:auto 0 0 0;display:none;justify-content:center}
   #landscapeHint .card{margin:0 auto 12px auto}
   @media (orientation:portrait){ #landscapeHint{display:flex} }
@@ -241,7 +255,10 @@
 </div>
 <div class="bottombar">
 <div class="panel controls">
+<div style="display:flex;gap:.35rem;align-items:center">
 <div aria-label="Disc select" class="seg" id="clubSeg" role="group"></div>
+<button class="btn" id="btnBag" title="Open disc bag" style="font-size:1.1rem;padding:.45rem .6rem">🎒</button>
+</div>
 <div aria-label="Release angle" class="seg" id="spinSeg" role="group">
 <button aria-pressed="false" class="btn" data-spin="-1" title="Hyzer (−15°)">Hyzer</button>
 <button aria-pressed="true" class="btn" data-spin="0" title="Flat (0°)">Flat</button>
@@ -305,6 +322,15 @@
 <div style="margin-top:.7rem"><button class="btn" id="btnCloseSettings">Close</button></div>
 </div>
 </div>
+<div aria-modal="true" class="screen" id="screenBag" role="dialog" style="display:none">
+<div class="card bag-card">
+<div class="bag-top"></div>
+<h2 style="margin-top:.4rem">Disc Bag</h2>
+<div class="sub">Pop balloons to unlock new discs!</div>
+<div class="bag-discs" id="bagDiscs"></div>
+<div style="margin-top:.7rem"><button class="btn" id="btnCloseBag">Close</button></div>
+</div>
+</div>
 <div id="landscapeHint"><div class="card small">Tip: Landscape gives a wider view of the course.</div></div>
 <script>
 (function initWhenReady(){
@@ -341,6 +367,10 @@
     const btnNewRound = document.getElementById('btnNewRound');
     const btnSettings = document.getElementById('btnSettings');
     const btnCloseSettings = document.getElementById('btnCloseSettings');
+    const screenBag = document.getElementById('screenBag');
+    const bagDiscs = document.getElementById('bagDiscs');
+    const btnBag = document.getElementById('btnBag');
+    const btnCloseBag = document.getElementById('btnCloseBag');
     const chkReduced = document.getElementById('chkReduced');
     const chkAudio = document.getElementById('chkAudio');
     const chkWind = document.getElementById('chkWind');
@@ -4525,6 +4555,31 @@ function updateDistanceUI(){
     btnNewRound.addEventListener('click', ()=>{ Sfx.init(); newRound(); });
     btnSettings.addEventListener('click', ()=>{ screenSettings.style.display='grid'; });
     btnCloseSettings.addEventListener('click', ()=>{ screenSettings.style.display='none'; });
+
+    // Disc bag modal
+    const DISC_DESCRIPTIONS = {
+      DRV: 'Max distance off the tee. High speed, strong fade.',
+      FAI: 'Controlled distance. Good glide with moderate fade.',
+      MID: 'Versatile approach disc. Best glide, gentle fade.',
+      PUT: 'Accuracy for short range. Minimal turn and fade.'
+    };
+    const DISC_ICONS = { DRV:'💿', FAI:'💠', MID:'🔵', PUT:'🟢' };
+    function buildBagContents(){
+      bagDiscs.innerHTML = '';
+      DISCS.forEach(d => {
+        const unlocked = unlockedDiscs.has(d.id);
+        const slot = document.createElement('div');
+        slot.className = 'bag-slot ' + (unlocked ? 'unlocked' : 'locked');
+        slot.innerHTML =
+          '<div class="lock-badge">🔒</div>' +
+          '<div class="disc-icon">' + (unlocked ? DISC_ICONS[d.id] : '❓') + '</div>' +
+          '<div class="disc-name">' + (unlocked ? d.name : '???') + '</div>' +
+          '<div class="disc-desc">' + (unlocked ? DISC_DESCRIPTIONS[d.id] : 'Pop a balloon to unlock!') + '</div>';
+        bagDiscs.appendChild(slot);
+      });
+    }
+    btnBag.addEventListener('click', ()=>{ buildBagContents(); screenBag.style.display='grid'; });
+    btnCloseBag.addEventListener('click', ()=>{ screenBag.style.display='none'; });
 
     // ===== Zoom controls
     const btnZoomIn = document.getElementById('btnZoomIn');
