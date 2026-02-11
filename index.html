@@ -556,6 +556,16 @@ function resolveVariantForHole(){
       { id:'PUT', name:'Putter',  speed:0.62, glide:1.00, turn:-0.3, fade:0.9 }
     ];
 
+    // Disc bag progression – start with Driver & Putter; unlock Fairway & Mid via balloons
+    const unlockedDiscs = new Set();
+    (function initDiscUnlocks(){
+      const saved = localStorage.getItem('unlockedDiscs');
+      if(saved){ try{ JSON.parse(saved).forEach(id=> unlockedDiscs.add(id)); }catch(e){} }
+      if(!unlockedDiscs.size){ unlockedDiscs.add('DRV'); unlockedDiscs.add('PUT'); }
+    })();
+    function saveDiscUnlocks(){ localStorage.setItem('unlockedDiscs', JSON.stringify([...unlockedDiscs])); }
+    function unlockDisc(discId){ if(unlockedDiscs.has(discId)) return false; unlockedDiscs.add(discId); saveDiscUnlocks(); return true; }
+
     // Surfaces
     const SURF = {
   ice:{ fric:0.004, rest:0.02 },
@@ -598,6 +608,18 @@ function resolveVariantForHole(){
       else if(id==='wind'){ PU.windScaleMul *= 0.80; addToast('Powerup: Wind Tamer'); }
       else if(id==='sand'){ PU.sandFricMul *= 0.90; PU.sandPowerMin = Math.max(PU.sandPowerMin, 0.80); addToast('Powerup: Sand Wedges'); }
       else if(id==='chain'){ PU.rimHalfBonus = Math.min(3, PU.rimHalfBonus + 2); PU.vyThreshMul *= 0.90; addToast('Powerup: Chain Magnet'); }
+    }
+
+    function grantBalloonReward(){
+      const locked = DISCS.filter(d => !unlockedDiscs.has(d.id));
+      if(locked.length > 0){
+        const d = locked[(Math.random()*locked.length)|0];
+        unlockDisc(d.id);
+        addToast('Disc Unlocked: ' + d.name);
+        buildDiscs();
+      } else {
+        grantRandomPowerup();
+      }
     }
 
     // Release angle / throw style
@@ -2009,7 +2031,7 @@ else if (dist >= 1200) par = 4;
         const dx = disc.x - cx, dy = disc.y - cy;
         if(Math.hypot(dx,dy) < (disc.r + B.r)){
           spawnParticles('spark', cx, cy, 18);
-          grantRandomPowerup();
+          grantBalloonReward();
           hole.balloons.splice(i,1);
         }
       }
@@ -2147,16 +2169,18 @@ applyTheme(biome, currentBiomeVariant);
     function buildDiscs(){
       clubSeg.innerHTML='';
       DISCS.forEach((d,idx)=>{
+        if(!unlockedDiscs.has(d.id)) return;
         const b=document.createElement('button'); b.className='btn'; b.textContent=d.name; b.dataset.disc=idx;
-        b.setAttribute('aria-pressed', idx===1? 'true':'false');
+        b.setAttribute('aria-pressed','false');
         b.addEventListener('click',()=>selectDisc(idx,true));
         clubSeg.appendChild(b);
       });
-      const savedIdx = parseInt(localStorage.getItem('discIdx')||'1',10);
-      selectDisc(isFinite(savedIdx)? savedIdx:1, false);
+      const savedIdx = parseInt(localStorage.getItem('discIdx')||'0',10);
+      const idx = (isFinite(savedIdx) && DISCS[savedIdx] && unlockedDiscs.has(DISCS[savedIdx].id)) ? savedIdx : DISCS.findIndex(d=>unlockedDiscs.has(d.id));
+      selectDisc(idx, false);
     }
-    let currentDisc = DISCS[1];
-    function selectDisc(i, persist){ currentDisc = DISCS[i]; [...clubSeg.querySelectorAll('button')].forEach((b,idx)=> b.setAttribute('aria-pressed', idx===i? 'true':'false')); if(persist) localStorage.setItem('discIdx', String(i)); }
+    let currentDisc = DISCS[0];
+    function selectDisc(i, persist){ currentDisc = DISCS[i]; [...clubSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', parseInt(b.dataset.disc)===i? 'true':'false')); if(persist) localStorage.setItem('discIdx', String(i)); }
     spinSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; releaseMode = parseInt(btn.dataset.spin,10); [...spinSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); localStorage.setItem('releaseMode', String(releaseMode)); });
     handSeg.addEventListener('click', (e)=>{ const btn = e.target.closest('button'); if(!btn) return; hand = btn.dataset.hand; [...handSeg.querySelectorAll('button')].forEach(b=> b.setAttribute('aria-pressed', b===btn? 'true':'false')); localStorage.setItem('hand', hand); });
 
