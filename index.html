@@ -62,26 +62,23 @@
   .bag-discs{display:grid;grid-template-columns:repeat(2,1fr);gap:.7rem;margin-top:.6rem}
   .bag-slot{position:relative;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.10);border-radius:14px;padding:.8rem .6rem;text-align:center;transition:border-color .3s,box-shadow .3s}
   .bag-slot.unlocked{border-color:var(--accent);box-shadow:0 0 12px rgba(255,138,61,.15)}
-  .bag-slot.locked{opacity:.45;filter:grayscale(.8)}
+  .bag-slot.locked{opacity:.55;filter:grayscale(.6);cursor:pointer}
+  .bag-slot.locked:hover{opacity:.8;filter:grayscale(.2);border-color:var(--accent);box-shadow:0 0 10px rgba(255,138,61,.2)}
   .bag-slot .disc-icon{font-size:2rem;margin-bottom:.3rem}
   .bag-slot .disc-name{font-weight:700;font-size:.95rem}
   .bag-slot .disc-desc{font-size:.78rem;color:var(--muted);margin-top:.2rem}
   .bag-slot .lock-badge{position:absolute;top:.45rem;right:.45rem;font-size:.85rem;opacity:.7}
   .bag-slot.unlocked .lock-badge{display:none}
+  .bag-slot .buy-hint{font-size:.75rem;color:var(--accent);margin-top:.3rem;font-weight:600}
   .skin-row{display:flex;gap:.35rem;justify-content:center;margin-top:.4rem;flex-wrap:wrap}
-  .skin-btn{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.15);cursor:pointer;transition:transform .15s,border-color .15s;padding:0;background:none}
+  .skin-btn{position:relative;width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.15);cursor:pointer;transition:transform .15s,border-color .15s;padding:0;background:none}
   .skin-btn:hover{transform:scale(1.15)}
   .skin-btn[aria-pressed="true"]{border-color:#fff;transform:scale(1.2);box-shadow:0 0 8px rgba(255,255,255,.3)}
   .skin-btn .swatch{display:block;width:100%;height:100%;border-radius:50%}
-  /* Shop */
-  .shop-item{background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.10);border-radius:14px;padding:.7rem .6rem;text-align:center;display:flex;flex-direction:column;align-items:center;gap:.3rem}
-  .shop-item.owned{border-color:var(--accent3);opacity:.7}
-  .shop-item .shop-icon{font-size:1.6rem}
-  .shop-item .shop-name{font-weight:700;font-size:.9rem}
-  .shop-item .shop-price{font-size:.8rem;color:var(--accent)}
-  .shop-item .shop-owned-label{font-size:.8rem;color:var(--accent3)}
-  .shop-item button.btn{font-size:.8rem;padding:.35rem .6rem;margin-top:.2rem}
-  .shop-item button.btn:disabled{opacity:.4;cursor:not-allowed}
+  .skin-btn.locked-skin{opacity:.4;border-style:dashed}
+  .skin-btn.locked-skin:hover{opacity:.75;transform:scale(1.25)}
+  .skin-btn .price-tip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(0,0,0,.85);color:var(--accent);font-size:.7rem;padding:.2rem .45rem;border-radius:6px;white-space:nowrap;pointer-events:none;font-weight:600;z-index:5}
+  .skin-btn.locked-skin:hover .price-tip{display:block}
   #landscapeHint{position:fixed;inset:auto 0 0 0;display:none;justify-content:center}
   #landscapeHint .card{margin:0 auto 12px auto}
   @media (orientation:portrait){ #landscapeHint{display:flex} }
@@ -341,20 +338,9 @@
 <div class="card bag-card">
 <div class="bag-top"></div>
 <h2 style="margin-top:.4rem">Disc Bag</h2>
-<div class="sub">Earn coins by completing holes — spend them in the shop!</div>
+<div class="sub">🪙 <strong id="bagBalance">0</strong> coins</div>
 <div class="bag-discs" id="bagDiscs"></div>
-<div style="margin-top:.7rem;display:flex;gap:.5rem;justify-content:center"><button class="btn" id="btnShop">🪙 Shop</button><button class="btn" id="btnCloseBag">Close</button></div>
-</div>
-</div>
-<div aria-modal="true" class="screen" id="screenShop" role="dialog" style="display:none">
-<div class="card">
-<h2>🪙 Shop</h2>
-<div class="sub">Balance: <strong id="shopBalance">0</strong> coins</div>
-<h3 style="margin:.6rem 0 .3rem;font-size:1rem">Discs</h3>
-<div class="grid" id="shopDiscs"></div>
-<h3 style="margin:.6rem 0 .3rem;font-size:1rem">Disc Skins</h3>
-<div class="grid" id="shopSkins"></div>
-<div style="margin-top:.7rem"><button class="btn" id="btnCloseShop">Close</button></div>
+<div style="margin-top:.7rem;display:flex;gap:.5rem;justify-content:center"><button class="btn" id="btnCloseBag">Close</button></div>
 </div>
 </div>
 <div id="landscapeHint"><div class="card small">Tip: Landscape gives a wider view of the course.</div></div>
@@ -673,8 +659,8 @@ function resolveVariantForHole(){
     function updateCoinDisplay(){
       const el = document.getElementById('coinDisplay');
       if(el) el.textContent = coins;
-      const sb = document.getElementById('shopBalance');
-      if(sb) sb.textContent = coins;
+      const bb = document.getElementById('bagBalance');
+      if(bb) bb.textContent = coins;
     }
 
     // Coin rewards per hole: base coins for par, bonus/penalty per stroke under/over
@@ -4678,19 +4664,19 @@ function updateDistanceUI(){
     };
     const DISC_ICONS = { DRV:'💿', FAI:'💠', MID:'🔵', PUT:'🟢' };
     function buildBagContents(){
+      updateCoinDisplay();
       bagDiscs.innerHTML = '';
       DISCS.forEach(d => {
         const unlocked = unlockedDiscs.has(d.id);
+        const price = DISC_PRICES[d.id];
         const slot = document.createElement('div');
         slot.className = 'bag-slot ' + (unlocked ? 'unlocked' : 'locked');
-        const price = DISC_PRICES[d.id];
-        const lockMsg = price ? ('Buy in shop for ' + price + ' coins') : '';
-        let html =
-          '<div class="lock-badge">🔒</div>' +
-          '<div class="disc-icon">' + (unlocked ? DISC_ICONS[d.id] : '❓') + '</div>' +
-          '<div class="disc-name">' + (unlocked ? d.name : '???') + '</div>' +
-          '<div class="disc-desc">' + (unlocked ? DISC_DESCRIPTIONS[d.id] : lockMsg) + '</div>';
+        let html = '<div class="lock-badge">🔒</div>' +
+          '<div class="disc-icon">' + DISC_ICONS[d.id] + '</div>' +
+          '<div class="disc-name">' + d.name + '</div>' +
+          '<div class="disc-desc">' + DISC_DESCRIPTIONS[d.id] + '</div>';
         if(unlocked){
+          // Show skin swatches – owned are selectable, unowned are purchasable
           html += '<div class="skin-row">';
           DISC_SKINS[d.id].forEach((skin, si) => {
             const owned = ownsSkin(d.id, si);
@@ -4698,19 +4684,51 @@ function updateDistanceUI(){
             if(owned){
               html += '<button class="skin-btn" aria-pressed="' + sel + '" data-disc="' + d.id + '" data-skin="' + si + '" title="' + skin.name + '"><span class="swatch" style="background:' + skin.fill + '"></span></button>';
             } else {
-              html += '<button class="skin-btn" style="opacity:.35" aria-pressed="false" disabled title="' + skin.name + ' (locked)"><span class="swatch" style="background:' + skin.fill + '"></span></button>';
+              html += '<button class="skin-btn locked-skin" aria-pressed="false" data-buy-skin-disc="' + d.id + '" data-buy-skin-idx="' + si + '" title="' + skin.name + ' — ' + SKIN_PRICE + ' coins"><span class="swatch" style="background:' + skin.fill + '"></span><span class="price-tip">🪙 ' + SKIN_PRICE + '</span></button>';
             }
           });
           html += '</div>';
+        } else if(price){
+          // Locked disc – show price hint
+          html += '<div class="buy-hint">🔒 ' + price + ' coins</div>';
+          slot.dataset.buyDisc = d.id;
         }
         slot.innerHTML = html;
         bagDiscs.appendChild(slot);
       });
-      bagDiscs.addEventListener('click', handleSkinClick);
     }
-    function handleSkinClick(e){
+    function handleBagClick(e){
+      // Buy a locked disc
+      const slot = e.target.closest('[data-buy-disc]');
+      if(slot){
+        const discId = slot.dataset.buyDisc;
+        const price = DISC_PRICES[discId];
+        if(!price) return;
+        if(coins < price){ addToast('Need ' + price + ' coins'); return; }
+        if(spendCoins(price)){
+          unlockDisc(discId);
+          buildDiscs();
+          buildBagContents();
+          addToast('Purchased: ' + DISCS.find(d=>d.id===discId).name);
+        }
+        return;
+      }
+      // Buy a locked skin
+      const skinBtn = e.target.closest('[data-buy-skin-disc]');
+      if(skinBtn){
+        const discId = skinBtn.dataset.buySkinDisc;
+        const skinIdx = parseInt(skinBtn.dataset.buySkinIdx, 10);
+        if(buySkin(discId, skinIdx)){
+          buildBagContents();
+          addToast('Purchased: ' + DISC_SKINS[discId][skinIdx].name + ' skin');
+        } else if(!ownsSkin(discId, skinIdx)){
+          addToast('Need ' + SKIN_PRICE + ' coins');
+        }
+        return;
+      }
+      // Select an owned skin
       const btn = e.target.closest('.skin-btn');
-      if(!btn || btn.disabled) return;
+      if(!btn || btn.classList.contains('locked-skin')) return;
       const discId = btn.dataset.disc;
       const skinIdx = parseInt(btn.dataset.skin, 10);
       if(!ownsSkin(discId, skinIdx)) return;
@@ -4720,96 +4738,7 @@ function updateDistanceUI(){
     }
     btnBag.addEventListener('click', ()=>{ buildBagContents(); screenBag.style.display='grid'; });
     btnCloseBag.addEventListener('click', ()=>{ screenBag.style.display='none'; });
-
-    // ===== Shop =====
-    const screenShop = document.getElementById('screenShop');
-    const shopDiscs = document.getElementById('shopDiscs');
-    const shopSkins = document.getElementById('shopSkins');
-    const btnShop = document.getElementById('btnShop');
-    const btnCloseShop = document.getElementById('btnCloseShop');
-
-    function buildShopContents(){
-      updateCoinDisplay();
-      // Disc section
-      shopDiscs.innerHTML = '';
-      DISCS.forEach(d => {
-        const price = DISC_PRICES[d.id];
-        if(!price) return; // DRV and PUT are free, not in shop
-        const unlocked = unlockedDiscs.has(d.id);
-        const item = document.createElement('div');
-        item.className = 'shop-item' + (unlocked ? ' owned' : '');
-        if(unlocked){
-          item.innerHTML =
-            '<div class="shop-icon">' + DISC_ICONS[d.id] + '</div>' +
-            '<div class="shop-name">' + d.name + '</div>' +
-            '<div class="shop-owned-label">Owned</div>';
-        } else {
-          const canAfford = coins >= price;
-          item.innerHTML =
-            '<div class="shop-icon">' + DISC_ICONS[d.id] + '</div>' +
-            '<div class="shop-name">' + d.name + '</div>' +
-            '<div class="disc-desc" style="font-size:.75rem;color:var(--muted)">' + DISC_DESCRIPTIONS[d.id] + '</div>' +
-            '<div class="shop-price">' + price + ' coins</div>' +
-            '<button class="btn" data-buy-disc="' + d.id + '"' + (canAfford ? '' : ' disabled') + '>' + (canAfford ? 'Buy' : 'Not enough coins') + '</button>';
-        }
-        shopDiscs.appendChild(item);
-      });
-
-      // Skins section
-      shopSkins.innerHTML = '';
-      DISCS.forEach(d => {
-        if(!unlockedDiscs.has(d.id)) return; // Only show skins for owned discs
-        DISC_SKINS[d.id].forEach((skin, si) => {
-          if(si === 0) return; // Default skin is free
-          const owned = ownsSkin(d.id, si);
-          const item = document.createElement('div');
-          item.className = 'shop-item' + (owned ? ' owned' : '');
-          if(owned){
-            item.innerHTML =
-              '<span class="swatch" style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + skin.fill + ';border:2px solid ' + skin.rim + '"></span>' +
-              '<div class="shop-name">' + d.name + ' — ' + skin.name + '</div>' +
-              '<div class="shop-owned-label">Owned</div>';
-          } else {
-            const canAfford = coins >= SKIN_PRICE;
-            item.innerHTML =
-              '<span class="swatch" style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + skin.fill + ';border:2px solid ' + skin.rim + '"></span>' +
-              '<div class="shop-name">' + d.name + ' — ' + skin.name + '</div>' +
-              '<div class="shop-price">' + SKIN_PRICE + ' coins</div>' +
-              '<button class="btn" data-buy-skin-disc="' + d.id + '" data-buy-skin-idx="' + si + '"' + (canAfford ? '' : ' disabled') + '>' + (canAfford ? 'Buy' : 'Not enough coins') + '</button>';
-          }
-          shopSkins.appendChild(item);
-        });
-      });
-    }
-
-    function handleShopClick(e){
-      const discBtn = e.target.closest('[data-buy-disc]');
-      if(discBtn){
-        const discId = discBtn.dataset.buyDisc;
-        const price = DISC_PRICES[discId];
-        if(price && spendCoins(price)){
-          unlockDisc(discId);
-          buildDiscs();
-          buildShopContents();
-          addToast('Purchased: ' + DISCS.find(d=>d.id===discId).name);
-        }
-        return;
-      }
-      const skinBtn = e.target.closest('[data-buy-skin-disc]');
-      if(skinBtn){
-        const discId = skinBtn.dataset.buySkinDisc;
-        const skinIdx = parseInt(skinBtn.dataset.buySkinIdx, 10);
-        if(buySkin(discId, skinIdx)){
-          buildShopContents();
-          addToast('Purchased: ' + DISC_SKINS[discId][skinIdx].name + ' skin');
-        }
-        return;
-      }
-    }
-
-    btnShop.addEventListener('click', ()=>{ screenBag.style.display='none'; buildShopContents(); screenShop.style.display='grid'; });
-    btnCloseShop.addEventListener('click', ()=>{ screenShop.style.display='none'; });
-    screenShop.addEventListener('click', handleShopClick);
+    bagDiscs.addEventListener('click', handleBagClick);
 
     // ===== Zoom controls
     const btnZoomIn = document.getElementById('btnZoomIn');
