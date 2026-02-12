@@ -47,9 +47,10 @@
 
   /* Screens */
   .screen{position:fixed;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.72),rgba(10,10,10,.6));display:grid;place-items:center;z-index:2}
+  #screenIntro{background:linear-gradient(180deg,rgba(10,10,10,.45),rgba(10,10,10,.35))}
   .card{background:var(--panel);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:1rem 1.2rem;max-width:720px;width:min(720px,92vw);text-align:center;max-height:calc(100vh - 2rem);max-height:calc(100dvh - 2rem);overflow-y:auto}
   /* Intro screen */
-  .intro-card{padding:2.2rem 1.6rem 1.4rem;display:flex;flex-direction:column;align-items:center;gap:0;overflow:visible}
+  .intro-card{padding:2.2rem 1.6rem 1.4rem;display:flex;flex-direction:column;align-items:center;gap:0;overflow:visible;background:rgba(5,6,7,.45);backdrop-filter:blur(14px)}
   .intro-disc{width:72px;height:72px;border-radius:50%;background:radial-gradient(circle at 38% 36%,rgba(255,255,255,.18),transparent 60%),conic-gradient(from 200deg,var(--accent),var(--accent2),var(--accent3),var(--accent));border:3px solid rgba(255,255,255,.12);box-shadow:0 0 28px rgba(255,138,61,.25),inset 0 0 14px rgba(0,0,0,.35);margin-bottom:1rem;animation:introSpin 8s linear infinite}
   @keyframes introSpin{to{transform:rotate(360deg)}}
   .intro-title{font-size:2.2rem;font-weight:800;letter-spacing:-.5px;margin:0 0 .15rem 0;background:linear-gradient(135deg,var(--text) 40%,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
@@ -4786,6 +4787,21 @@ function updateDistanceUI(){
     updateCoinDisplay();
 
     updateWindUI();
+
+    // Render a living scene behind the intro screen
+    (function initIntroBackdrop(){
+      const biome = pickWeighted(BIOMES, b => BIOME_WEIGHTS[b.name] ?? 1);
+      currentBiome = biome;
+      const variants = BIOME_VARIANTS[biome.name];
+      currentBiomeVariant = variants ? pickWeighted(variants, v => v.weight ?? 1) : null;
+      applyTheme(biome, currentBiomeVariant);
+      backdrop.seed = (Math.random()*1e9)|0;
+      buildBackdrop();
+      // Pick a random time of day (weighted toward dusk/night for drama)
+      const introWeights = { clear:0.30, dusk:0.40, night:0.30 };
+      const dayKey = weightedPickKey(introWeights);
+      applyDaytime(DAYTIMES[dayKey] || DAYTIMES.dusk);
+    })();
 
     // NOTE: Start screen stays until user clicks Start Round
   }
