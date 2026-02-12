@@ -47,7 +47,7 @@
 
   /* Screens */
   .screen{position:fixed;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.72),rgba(10,10,10,.6));display:grid;place-items:center;z-index:2}
-  .card{background:var(--panel);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:1rem 1.2rem;max-width:720px;width:min(720px,92vw);text-align:center}
+  .card{background:var(--panel);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:1rem 1.2rem;max-width:720px;width:min(720px,92vw);text-align:center;max-height:calc(100vh - 2rem);max-height:calc(100dvh - 2rem);overflow-y:auto}
   h1,h2{margin:.2rem 0 .6rem 0}
   h1{font-size:1.6rem}
   .sub{opacity:.85;margin:.3rem 0 1rem 0}
@@ -650,16 +650,15 @@ function resolveVariantForHole(){
       DISCS.forEach(d=>{ if(!(d.id in selectedSkins)) selectedSkins[d.id] = 0; });
     })();
     function saveSkins(){ localStorage.setItem('discSkins', JSON.stringify(selectedSkins)); }
-    function getDiscSkin(discId){ return DISC_SKINS[discId][selectedSkins[discId] || 0]; }
+    function getDiscSkin(discId){
+      const si = selectedSkins[discId] || 0;
+      if(typeof ownsSkin === 'function' && !ownsSkin(discId, si)) return DISC_SKINS[discId][0];
+      return DISC_SKINS[discId][si];
+    }
 
-    // Disc bag progression – start with Driver & Putter; unlock Fairway & Mid via coin shop
-    const unlockedDiscs = new Set();
-    (function initDiscUnlocks(){
-      const saved = localStorage.getItem('unlockedDiscs');
-      if(saved){ try{ JSON.parse(saved).forEach(id=> unlockedDiscs.add(id)); }catch(e){} }
-      if(!unlockedDiscs.size){ unlockedDiscs.add('DRV'); unlockedDiscs.add('PUT'); }
-    })();
-    function saveDiscUnlocks(){ localStorage.setItem('unlockedDiscs', JSON.stringify([...unlockedDiscs])); }
+    // Disc bag progression – always start with Driver & Putter; buy Fairway & Mid each session
+    const unlockedDiscs = new Set(['DRV', 'PUT']);
+    function saveDiscUnlocks(){ /* no-op: disc unlocks are session-only */ }
     function unlockDisc(discId){ if(unlockedDiscs.has(discId)) return false; unlockedDiscs.add(discId); saveDiscUnlocks(); return true; }
 
     // ===== Coin System =====
