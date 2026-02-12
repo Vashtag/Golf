@@ -2511,7 +2511,9 @@ applyTheme(biome, currentBiomeVariant);
           disc.vx += ax*dt; disc.vy += ay*dt;
 
           // 2) Apply heading rotation to simulate turn/fade
-          const curveRate = 54 * curveMulEff * curve * side;
+          // Flip curve sign when flying leftward so the vertical effect is symmetric
+          const dirSign = (disc.vx >= 0 ? 1 : -1);
+          const curveRate = 54 * curveMulEff * curve * side * dirSign;
           const speedNow = Math.hypot(disc.vx, disc.vy);
           if (speedNow > 1e-3) {
             const dTheta = (curveRate / speedNow) * dt;
@@ -2681,7 +2683,9 @@ function simulateAimTrajectory(angle, power){
       s.vx += ax * dt;
       s.vy += ay * dt;
 
-      const curveRate = 54 * curveMulEff * curve * side;
+      // Flip curve sign when flying leftward so the vertical effect is symmetric
+      const dirSign = (s.vx >= 0 ? 1 : -1);
+      const curveRate = 54 * curveMulEff * curve * side * dirSign;
       const speedNow = Math.hypot(s.vx, s.vy);
       if(speedNow > 1e-3){
         const dTheta = (curveRate / speedNow) * dt;
