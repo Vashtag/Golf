@@ -48,6 +48,16 @@
   /* Screens */
   .screen{position:fixed;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.72),rgba(10,10,10,.6));display:grid;place-items:center;z-index:2}
   .card{background:var(--panel);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:1rem 1.2rem;max-width:720px;width:min(720px,92vw);text-align:center;max-height:calc(100vh - 2rem);max-height:calc(100dvh - 2rem);overflow-y:auto}
+  /* Intro screen */
+  .intro-card{padding:2.2rem 1.6rem 1.4rem;display:flex;flex-direction:column;align-items:center;gap:0;overflow:visible}
+  .intro-disc{width:72px;height:72px;border-radius:50%;background:radial-gradient(circle at 38% 36%,rgba(255,255,255,.18),transparent 60%),conic-gradient(from 200deg,var(--accent),var(--accent2),var(--accent3),var(--accent));border:3px solid rgba(255,255,255,.12);box-shadow:0 0 28px rgba(255,138,61,.25),inset 0 0 14px rgba(0,0,0,.35);margin-bottom:1rem;animation:introSpin 8s linear infinite}
+  @keyframes introSpin{to{transform:rotate(360deg)}}
+  .intro-title{font-size:2.2rem;font-weight:800;letter-spacing:-.5px;margin:0 0 .15rem 0;background:linear-gradient(135deg,var(--text) 40%,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .intro-sub{font-size:1rem;text-transform:uppercase;letter-spacing:.35em;color:var(--muted);margin:0 0 1.6rem 0;font-weight:500}
+  .intro-btn{font-size:1.05rem;padding:.7rem 2.4rem;border-radius:999px;background:linear-gradient(135deg,var(--accent),#ff6a1a);border:none;color:#fff;font-weight:700;letter-spacing:.4px;box-shadow:0 4px 20px rgba(255,138,61,.3);transition:transform .15s,box-shadow .15s}
+  .intro-btn:hover{transform:translateY(-1px);box-shadow:0 6px 28px rgba(255,138,61,.45)}
+  .intro-btn:active{transform:translateY(1px);box-shadow:0 2px 12px rgba(255,138,61,.2)}
+  .intro-ver{margin-top:1.2rem;font-size:.72rem;color:var(--muted);opacity:.5;letter-spacing:.08em}
   h1,h2{margin:.2rem 0 .6rem 0}
   h1{font-size:1.6rem}
   .sub{opacity:.85;margin:.3rem 0 1rem 0}
@@ -288,17 +298,12 @@
 </div>
 <!-- Screens -->
 <div aria-modal="true" class="screen" id="screenIntro" role="dialog">
-<div class="card">
-<h1>🥏 Dusk Drive — Disc Golf</h1>
-<div class="sub">Drag to aim, hold to charge, release to throw. Hyzer/flat/anhyzer, vertical wind &amp; glide, varied terrain.</div>
-<div class="grid">
-<div class="tag">Drivers • Fairways • Mids • Putters</div>
-<div class="tag">Vertical Wind &amp; Lift</div>
-<div class="tag">Turn/Fade Curve</div>
-<div class="tag">Procedural Holes (+variants)</div>
-</div>
-<p class="small" style="margin-top:.7rem">Best in landscape • Mobile-friendly • Haptics on chains</p>
-<div style="margin-top:.7rem"><button class="btn" id="btnPlay">Start Round</button></div>
+<div class="card intro-card">
+<div class="intro-disc" aria-hidden="true"></div>
+<h1 class="intro-title">Dusk Drive</h1>
+<p class="intro-sub">Disc Golf</p>
+<button class="btn intro-btn" id="btnPlay">Start Round</button>
+<span class="intro-ver">v0.1.0</span>
 </div>
 </div>
 <div aria-modal="true" class="screen" id="screenSummary" role="dialog" style="display:none">
