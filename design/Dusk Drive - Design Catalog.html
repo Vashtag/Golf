@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Dusk Drive — Design Catalog</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0a0608;
+    --surface: #12090d;
+    --border: rgba(255,138,61,0.12);
+    --accent: #ff8a3d;
+    --accent2: #49d0ff;
+    --accent3: #86efac;
+    --text: #f0e8e0;
+    --muted: #7a6a62;
+    --panel: rgba(18,9,13,0.85);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 0 0 80px;
+  }
+
+  /* HERO */
+  .hero {
+    position: relative;
+    height: 220px;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    padding: 0 40px 28px;
+  }
+  .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-text { position: relative; z-index: 1; }
+  .hero-eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    opacity: .8;
+    margin-bottom: 6px;
+  }
+  .hero-title {
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -.03em;
+    color: var(--text);
+    line-height: 1;
+  }
+  .hero-title span { color: var(--accent); }
+
+  /* LAYOUT */
+  .page { max-width: 1100px; margin: 0 auto; padding: 0 28px; }
+
+  /* SECTION */
+  .section { margin-top: 56px; }
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .section-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    opacity: .6;
+    letter-spacing: .1em;
+    min-width: 28px;
+  }
+  .section-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+  }
+  .section-desc {
+    font-size: .82rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  /* GRID */
+  .grid { display: grid; gap: 12px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-6 { grid-template-columns: repeat(6, 1fr); }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-5 { grid-template-columns: repeat(5, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+
+  @media (max-width: 800px) {
+    .grid-6, .grid-4, .grid-5 { grid-template-columns: repeat(3, 1fr); }
+    .grid-3 { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 500px) {
+    .grid-6, .grid-4, .grid-5 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  }
+
+  /* CARD */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+  }
+  .card-label {
+    padding: 8px 10px;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: .02em;
+    border-top: 1px solid var(--border);
+  }
+  .card-label strong { color: var(--text); display: block; font-size: .82rem; margin-bottom: 1px; }
+  .card canvas, .card svg { display: block; width: 100%; }
+
+  /* STATUS PILL */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: .7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: .03em;
+  }
+  .pill-ready { background: rgba(134,239,172,.12); color: var(--accent3); border: 1px solid rgba(134,239,172,.2); }
+  .pill-anim  { background: rgba(73,208,255,.12);  color: var(--accent2); border: 1px solid rgba(73,208,255,.2); }
+
+  /* SCORE BADGES */
+  .badge-ring {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 18px 10px;
+    gap: 8px;
+  }
+
+  /* WIDE CARD — sky scenes */
+  .sky-card { height: 160px; position: relative; overflow: hidden; }
+  .sky-card canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+
+  /* DISC CARD */
+  .disc-preview { display: flex; align-items: center; justify-content: center; height: 90px; }
+
+  /* PARTICLE CARD */
+  .particle-stage { height: 110px; position: relative; overflow: hidden; }
+  .particle-stage canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+
+  /* STRUCTURE CARD */
+  .structure-stage { height: 140px; display: flex; align-items: flex-end; justify-content: center; padding: 0 10px 6px; }
+
+  /* GROUND TEXTURE */
+  .ground-swatch { height: 80px; position: relative; overflow: hidden; }
+
+  /* UI ELEMENT CARD */
+  .ui-stage { min-height: 70px; display: flex; align-items: center; justify-content: center; padding: 16px; }
+
+  /* TRAIL CARD */
+  .trail-stage { height: 120px; position: relative; overflow: hidden; }
+  .trail-stage canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+
+  /* TAGS row */
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 40px 0; margin-top: -8px; }
+  .tag {
+    font-size: .7rem; font-family: 'DM Mono', monospace;
+    color: var(--muted); background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 999px; padding: 2px 9px;
+    letter-spacing: .04em;
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <canvas id="heroCanvas"></canvas>
+  <div class="hero-text">
+    <div class="hero-eyebrow">Design Catalog · v1.0</div>
+    <h1 class="hero-title">Dusk <span>Drive</span></h1>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- SECTION 1: SILHOUETTE TREES -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">01</span>
+      <span class="section-title">Silhouette Tree Sprites</span>
+      <span class="section-desc">6 biome variants · scalable SVG</span>
+    </div>
+    <div class="grid grid-6" id="treeGrid"></div>
+  </div>
+
+  <!-- SECTION 2: GROUND TEXTURES -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">02</span>
+      <span class="section-title">Ground Surface Textures</span>
+      <span class="section-desc">Tileable · canvas-drawn</span>
+    </div>
+    <div class="grid grid-6" id="groundGrid"></div>
+  </div>
+
+  <!-- SECTION 3: SKY SCENES -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">03</span>
+      <span class="section-title">Animated Sky Scenes</span>
+      <span class="section-desc">Live animation · per-biome palette</span>
+    </div>
+    <div class="grid grid-3" id="skyGrid"></div>
+  </div>
+
+  <!-- SECTION 4: DISC SKINS -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">04</span>
+      <span class="section-title">Disc Skin Gallery</span>
+      <span class="section-desc">4 disc types · 5 skins each</span>
+    </div>
+    <div id="discGallery"></div>
+  </div>
+
+  <!-- SECTION 5: SCORE BADGES -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">05</span>
+      <span class="section-title">Score Badges</span>
+      <span class="section-desc">Animated on award</span>
+    </div>
+    <div class="grid grid-5" id="badgeGrid"></div>
+  </div>
+
+  <!-- SECTION 6: PARTICLE FX -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">06</span>
+      <span class="section-title">Particle Effects</span>
+      <span class="section-desc">Live · click to replay</span>
+    </div>
+    <div class="grid grid-4" id="particleGrid"></div>
+  </div>
+
+  <!-- SECTION 7: BACKGROUND STRUCTURES -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">07</span>
+      <span class="section-title">Background Structures</span>
+      <span class="section-desc">Silhouette · some animated</span>
+    </div>
+    <div class="grid grid-4" id="structureGrid"></div>
+  </div>
+
+  <!-- SECTION 8: UI ELEMENTS -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">08</span>
+      <span class="section-title">HUD & UI Elements</span>
+      <span class="section-desc">Refined glassmorphism system</span>
+    </div>
+    <div class="grid grid-3" id="uiGrid"></div>
+  </div>
+
+  <!-- SECTION 9: DISC TRAIL + EFFECTS -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">09</span>
+      <span class="section-title">Disc Trail & Motion FX</span>
+      <span class="section-desc">Animated · biome-reactive</span>
+    </div>
+    <div class="grid grid-2" id="trailGrid"></div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+const TAU = Math.PI * 2;
+const rnd = (s,i) => { let x = s ^ (i * 0x9e3779b9); x = ((x>>>16)^x) * 0x45d9f3b; x = ((x>>>16)^x) * 0x45d9f3b; return (((x>>>16)^x)>>>0) / 4294967295; };
+
+// ─────────────────────────────────────────────
+// HERO CANVAS
+// ─────────────────────────────────────────────
+(function(){
+  const cvs = document.getElementById('heroCanvas');
+  const ctx = cvs.getContext('2d');
+  let W, H, t = 0;
+  function resize(){ W = cvs.width = cvs.offsetWidth; H = cvs.height = cvs.offsetHeight; }
+  resize(); new ResizeObserver(resize).observe(cvs);
+
+  function frame(ts){
+    t = ts / 1000;
+    ctx.clearRect(0,0,W,H);
+    // Dusk sky gradient
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#ffe6ba'); g.addColorStop(.5,'#f38e41'); g.addColorStop(1,'#9d3e25');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+    // Sun glow
+    const sx = W * .72, sy = H * .38;
+    const sunG = ctx.createRadialGradient(sx,sy,2,sx,sy,80);
+    sunG.addColorStop(0,'rgba(255,240,180,.95)');
+    sunG.addColorStop(.3,'rgba(255,180,80,.4)');
+    sunG.addColorStop(1,'rgba(255,100,30,0)');
+    ctx.fillStyle = sunG; ctx.beginPath(); ctx.arc(sx,sy,80,0,TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,250,200,.95)'; ctx.beginPath(); ctx.arc(sx,sy,7,0,TAU); ctx.fill();
+
+    // Silhouette mountains (3 layers)
+    const layers = [
+      {par:.0, col:'rgba(60,20,10,.7)', a:40, f:.003, ph:0},
+      {par:.0, col:'rgba(20,8,4,.85)',  a:28, f:.005, ph:2.1},
+      {par:.0, col:'rgba(5,3,2,.95)',   a:18, f:.008, ph:4.5},
+    ];
+    layers.forEach(l=>{
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for(let x=0; x<=W; x+=4){
+        const y = H*.62 - Math.sin(x*l.f + l.ph)*l.a - Math.sin(x*l.f*2.3 + l.ph*.7)*l.a*.4;
+        x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      }
+      ctx.lineTo(W,H); ctx.closePath();
+      ctx.fillStyle = l.col; ctx.fill();
+    });
+
+    // Floating clouds
+    for(let i=0;i<3;i++){
+      const cx = (W*.15 + i*W*.32 + t*8*(i%2?1:-1)) % (W*1.1) - W*.05;
+      const cy = H * (.18 + i*.1);
+      const cg = ctx.createRadialGradient(cx,cy,0,cx,cy,50+i*15);
+      cg.addColorStop(0,'rgba(255,220,160,.15)');
+      cg.addColorStop(1,'rgba(255,200,140,0)');
+      ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(cx,cy,50+i*15,0,TAU); ctx.fill();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+// ─────────────────────────────────────────────
+// TREE SPRITES
+// ─────────────────────────────────────────────
+const TREES = [
+  { name:'Palm',      style:'palm'      },
+  { name:'Cactus',    style:'cactus'    },
+  { name:'Dead Tree', style:'dead'      },
+  { name:'Pine',      style:'pine'      },
+  { name:'Snow Pine', style:'snowpine'  },
+  { name:'Juniper',   style:'juniper'   },
+];
+
+function drawTree(ctx, style, cx, baseY, scale, seed){
+  const s = scale;
+  ctx.fillStyle = '#050607';
+  ctx.strokeStyle = '#050607';
+
+  if(style === 'palm'){
+    // trunk
+    ctx.beginPath(); ctx.moveTo(cx-4*s, baseY); ctx.bezierCurveTo(cx-3*s, baseY-30*s, cx+6*s, baseY-55*s, cx+2*s, baseY-80*s);
+    ctx.bezierCurveTo(cx+1*s, baseY-95*s, cx-2*s, baseY-95*s, cx-3*s, baseY-80*s);
+    ctx.bezierCurveTo(cx+3*s, baseY-55*s, cx-6*s, baseY-30*s, cx-7*s, baseY);
+    ctx.fill();
+    // fronds
+    const fronds = [[0,-1.0],[-0.7,-0.7],[-1.0,0],[-0.7,0.7],[0.7,-0.7],[1.0,0],[0.5,0.4]];
+    const top = {x: cx+2*s, y: baseY-92*s};
+    fronds.forEach(([dx,dy])=>{
+      const ex = top.x + dx*35*s, ey = top.y + dy*22*s;
+      ctx.beginPath(); ctx.moveTo(top.x, top.y);
+      ctx.bezierCurveTo(top.x+dx*15*s, top.y+dy*8*s, ex-dx*4*s, ey-dy*4*s, ex, ey);
+      ctx.lineWidth = 3*s; ctx.strokeStyle='#050607'; ctx.stroke();
+      // leaflets
+      for(let i=0;i<6;i++){
+        const t2 = (i+1)/8;
+        const lx = top.x + dx*t2*35*s, ly = top.y + dy*t2*22*s;
+        const perp = {x: -dy, y: dx};
+        ctx.beginPath(); ctx.moveTo(lx, ly);
+        ctx.lineTo(lx + perp.x*8*s*(1-t2*.5), ly + perp.y*8*s*(1-t2*.5));
+        ctx.lineWidth = 1.5*s; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(lx, ly);
+        ctx.lineTo(lx - perp.x*8*s*(1-t2*.5), ly - perp.y*8*s*(1-t2*.5));
+        ctx.lineWidth = 1.5*s; ctx.stroke();
+      }
+    });
+  }
+
+  else if(style === 'cactus'){
+    // main body
+    ctx.beginPath();
+    ctx.moveTo(cx-7*s, baseY); ctx.lineTo(cx-7*s, baseY-60*s);
+    ctx.arc(cx, baseY-60*s, 7*s, Math.PI, 0);
+    ctx.lineTo(cx+7*s, baseY); ctx.fill();
+    // left arm
+    ctx.beginPath();
+    ctx.moveTo(cx-7*s, baseY-30*s); ctx.lineTo(cx-28*s, baseY-30*s);
+    ctx.lineTo(cx-28*s, baseY-15*s); ctx.arc(cx-28*s, baseY-15*s, 6*s, 0, -Math.PI/2, true);
+    ctx.lineTo(cx-14*s, baseY-15*s); ctx.lineTo(cx-14*s, baseY-30*s); ctx.fill();
+    // right arm
+    ctx.beginPath();
+    ctx.moveTo(cx+7*s, baseY-38*s); ctx.lineTo(cx+24*s, baseY-38*s);
+    ctx.lineTo(cx+24*s, baseY-22*s); ctx.arc(cx+24*s, baseY-22*s, 6*s, Math.PI, Math.PI/2, true);
+    ctx.lineTo(cx+14*s, baseY-22*s); ctx.lineTo(cx+14*s, baseY-38*s); ctx.fill();
+  }
+
+  else if(style === 'dead'){
+    // trunk
+    ctx.lineWidth = 6*s; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(cx, baseY); ctx.lineTo(cx+2*s, baseY-60*s); ctx.stroke();
+    // branches
+    const branches = [
+      [cx+2*s, baseY-38*s, cx-20*s, baseY-60*s],
+      [cx+2*s, baseY-38*s, cx-14*s, baseY-50*s],
+      [cx+2*s, baseY-50*s, cx+22*s, baseY-70*s],
+      [cx+2*s, baseY-56*s, cx+10*s, baseY-72*s],
+      [cx+2*s, baseY-56*s, cx-8*s, baseY-75*s],
+    ];
+    branches.forEach(([x1,y1,x2,y2])=>{
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+      ctx.lineWidth = 3*s; ctx.stroke();
+    });
+  }
+
+  else if(style === 'pine'){
+    const tiers = 4;
+    for(let i=0;i<tiers;i++){
+      const ty = baseY - (i * 20*s) - 10*s;
+      const w = (tiers - i + 1) * 14*s;
+      ctx.beginPath();
+      ctx.moveTo(cx, ty - 22*s);
+      ctx.lineTo(cx - w, ty);
+      ctx.lineTo(cx + w, ty);
+      ctx.closePath(); ctx.fill();
+    }
+    // trunk
+    ctx.fillRect(cx-4*s, baseY-12*s, 8*s, 12*s);
+  }
+
+  else if(style === 'snowpine'){
+    const tiers = 4;
+    for(let i=0;i<tiers;i++){
+      const ty = baseY - (i * 20*s) - 10*s;
+      const w = (tiers - i + 1) * 14*s;
+      ctx.beginPath();
+      ctx.moveTo(cx, ty - 22*s);
+      ctx.lineTo(cx - w, ty);
+      ctx.lineTo(cx + w, ty);
+      ctx.closePath(); ctx.fill();
+      // snow caps
+      ctx.fillStyle = 'rgba(220,235,255,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(cx, ty - 22*s);
+      ctx.lineTo(cx - w*.45, ty - 8*s);
+      ctx.lineTo(cx + w*.45, ty - 8*s);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#050607';
+    }
+    ctx.fillRect(cx-4*s, baseY-12*s, 8*s, 12*s);
+  }
+
+  else if(style === 'juniper'){
+    // multi-blob canopy
+    [[-14*s,-54*s],[14*s,-54*s],[0,-70*s],[-8*s,-40*s],[8*s,-40*s]].forEach(([bx,by])=>{
+      ctx.beginPath();
+      ctx.arc(cx+bx, baseY+by, 16*s, 0, TAU);
+      ctx.fill();
+    });
+    ctx.fillRect(cx-3*s, baseY-24*s, 6*s, 24*s);
+  }
+}
+
+(function buildTrees(){
+  const grid = document.getElementById('treeGrid');
+  TREES.forEach(({name, style})=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const stage = document.createElement('div');
+    stage.style.cssText = 'height:130px;position:relative;background:linear-gradient(180deg,#ffe6ba 0%,#f38e41 55%,#9d3e25 100%)';
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+    stage.appendChild(cvs);
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.innerHTML = `<strong>${name}</strong>SVG · Silhouette`;
+    card.appendChild(stage); card.appendChild(label);
+    grid.appendChild(card);
+
+    function draw(){
+      cvs.width = cvs.offsetWidth * (window.devicePixelRatio||1);
+      cvs.height = cvs.offsetHeight * (window.devicePixelRatio||1);
+      const ctx = cvs.getContext('2d');
+      const W = cvs.width, H = cvs.height;
+      const dpr = window.devicePixelRatio || 1;
+
+      // Ground
+      ctx.fillStyle = '#050607';
+      ctx.fillRect(0, H*.82, W, H*.18);
+
+      // Subtle ground texture
+      ctx.fillStyle = 'rgba(255,138,61,.07)';
+      for(let i=0;i<6;i++){
+        const gx = rnd(i*31,0)*W, gy = H*.82 + rnd(i*31,1)*(H*.1);
+        ctx.beginPath(); ctx.ellipse(gx, gy, 12*dpr, 4*dpr, 0, 0, TAU); ctx.fill();
+      }
+
+      drawTree(ctx, style, W/2, H*.82, dpr*1.1, 42);
+    }
+    draw();
+    new ResizeObserver(draw).observe(cvs);
+  });
+})();
+
+// ─────────────────────────────────────────────
+// GROUND TEXTURES
+// ─────────────────────────────────────────────
+const GROUNDS = [
+  { name:'Fairway',  key:'fairway', c1:'#1e4a1e', c2:'#2a6b2a', dots:'rgba(80,180,80,.25)' },
+  { name:'Rough',    key:'rough',   c1:'#183818', c2:'#285028', dots:'rgba(60,140,60,.25)' },
+  { name:'Sand',     key:'sand',    c1:'#c8a85c', c2:'#d4b86a', dots:'rgba(200,180,100,.4)' },
+  { name:'Green',    key:'green',   c1:'#14601a', c2:'#1a7820', dots:'rgba(80,220,100,.2)' },
+  { name:'Rock',     key:'rock',    c1:'#3a3028', c2:'#4a3e34', dots:'rgba(100,80,60,.3)' },
+  { name:'Ice',      key:'ice',     c1:'#8ab8d4', c2:'#a8cce0', dots:'rgba(200,230,255,.4)' },
+];
+
+(function buildGrounds(){
+  const grid = document.getElementById('groundGrid');
+  GROUNDS.forEach(({name, key, c1, c2, dots})=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const stage = document.createElement('div');
+    stage.className = 'ground-swatch';
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+    stage.appendChild(cvs);
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.innerHTML = `<strong>${name}</strong>Tileable`;
+    card.appendChild(stage); card.appendChild(label);
+    grid.appendChild(card);
+
+    function draw(){
+      cvs.width = cvs.offsetWidth * (window.devicePixelRatio||1);
+      cvs.height = cvs.offsetHeight * (window.devicePixelRatio||1);
+      const ctx = cvs.getContext('2d');
+      const W = cvs.width, H = cvs.height;
+      const dpr = window.devicePixelRatio||1;
+
+      const g = ctx.createLinearGradient(0,0,0,H);
+      g.addColorStop(0, c2); g.addColorStop(1, c1);
+      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+      // Texture marks
+      ctx.fillStyle = dots;
+      const seed = name.charCodeAt(0);
+      if(key === 'sand'){
+        // ripple lines
+        for(let row=0; row<8; row++){
+          const y = (row/8)*H + 4*dpr;
+          ctx.beginPath(); ctx.moveTo(0, y);
+          for(let x=0; x<=W; x+=4){
+            ctx.lineTo(x, y + Math.sin(x*.04 + row*.7)*3*dpr);
+          }
+          ctx.lineWidth = 1.2*dpr; ctx.strokeStyle = 'rgba(255,220,140,.2)'; ctx.stroke();
+        }
+      } else if(key === 'ice'){
+        // crack lines
+        for(let i=0;i<5;i++){
+          ctx.beginPath();
+          let x = rnd(seed, i*7+1)*W, y = rnd(seed,i*7+2)*H;
+          ctx.moveTo(x,y);
+          for(let j=0;j<4;j++){
+            x += (rnd(seed,i*17+j)-0.5)*30*dpr;
+            y += (rnd(seed,i*17+j+1)-0.5)*20*dpr;
+            ctx.lineTo(x,y);
+          }
+          ctx.lineWidth = 0.8*dpr; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke();
+        }
+        // sheen
+        const sg = ctx.createLinearGradient(0,0,W,H);
+        sg.addColorStop(0,'rgba(255,255,255,.15)'); sg.addColorStop(.5,'rgba(255,255,255,0)'); sg.addColorStop(1,'rgba(200,240,255,.1)');
+        ctx.fillStyle=sg; ctx.fillRect(0,0,W,H);
+      } else if(key === 'rock'){
+        // irregular stones
+        for(let i=0;i<12;i++){
+          const rx = rnd(seed,i*5+1)*W, ry = rnd(seed,i*5+2)*H;
+          const rw = 6*dpr + rnd(seed,i*5+3)*12*dpr, rh = 4*dpr + rnd(seed,i*5+4)*8*dpr;
+          ctx.beginPath(); ctx.ellipse(rx,ry,rw,rh, rnd(seed,i*5)*Math.PI, 0, TAU);
+          ctx.fillStyle = i%2===0 ? 'rgba(0,0,0,.15)' : 'rgba(255,255,255,.07)'; ctx.fill();
+        }
+      } else {
+        // grass blades
+        for(let i=0;i<28;i++){
+          const bx = rnd(seed, i*3+1)*W;
+          const by = H - rnd(seed,i*3+2)*H*.3;
+          const bh = 5*dpr + rnd(seed,i*3+3)*8*dpr;
+          ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx+(rnd(seed,i*5)-.5)*4*dpr, by-bh);
+          ctx.lineWidth = 1.2*dpr; ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.stroke();
+        }
+      }
+    }
+    draw();
+    new ResizeObserver(draw).observe(cvs);
+  });
+})();
+
+// ─────────────────────────────────────────────
+// SKY SCENES (animated)
+// ─────────────────────────────────────────────
+const SKY_SCENES = [
+  {
+    name:'Clear Dusk', label:'Dunes · Oasis',
+    sky: ['#ffe6ba','#f38e41','#9d3e25'],
+    sun: {x:.72, y:.32, r:10, glow:'rgba(255,200,80,.6)'},
+    cloudAlpha: .6, stars: 0
+  },
+  {
+    name:'Dusk', label:'Crags · Deadwood',
+    sky: ['#f8c3da','#d5425a','#5b1a2b'],
+    sun: null,
+    tint: {color:'rgba(120,108,255,.22)'},
+    cloudAlpha: .35, stars: 0.4
+  },
+  {
+    name:'Night', label:'Hills · Snowfield',
+    sky: ['#1b2d55','#101b33','#050812'],
+    sun: null,
+    cloudAlpha: .15, stars: 1.0,
+    moon: {x:.65, y:.28, r:14}
+  },
+];
+
+(function buildSkies(){
+  const grid = document.getElementById('skyGrid');
+  SKY_SCENES.forEach((scene, si)=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const stage = document.createElement('div');
+    stage.className = 'sky-card';
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText='position:absolute;inset:0;width:100%;height:100%';
+    stage.appendChild(cvs);
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.innerHTML = `<strong>${scene.name}</strong>${scene.label} · <span style="color:var(--accent2)">Animated</span>`;
+    card.appendChild(stage); card.appendChild(label);
+    grid.appendChild(card);
+
+    let t = 0;
+    const starList = [];
+    for(let i=0;i<60;i++) starList.push({u:rnd(si*7+i,1), v:rnd(si*7+i,2)*.55+.03, r:.8+rnd(si*7+i,3)*1.6, ph:rnd(si*7+i,4)*TAU});
+
+    // Clouds
+    const clouds = [];
+    for(let i=0;i<4;i++){
+      clouds.push({u:rnd(si*3+i,10), v:.15+i*.09, scale:.7+rnd(si*3+i,11)*.8, speed:(3+rnd(si*3+i,12)*5)*( i%2?1:-1)});
+    }
+
+    function draw(ts){
+      t = ts/1000;
+      cvs.width = cvs.offsetWidth*(window.devicePixelRatio||1);
+      cvs.height = cvs.offsetHeight*(window.devicePixelRatio||1);
+      const ctx2 = cvs.getContext('2d');
+      const W = cvs.width, H = cvs.height;
+      const dpr = window.devicePixelRatio||1;
+
+      const g = ctx2.createLinearGradient(0,0,0,H);
+      g.addColorStop(0, scene.sky[0]);
+      g.addColorStop(.55, scene.sky[1]);
+      g.addColorStop(1, scene.sky[2]);
+      ctx2.fillStyle = g; ctx2.fillRect(0,0,W,H);
+
+      // Stars
+      if(scene.stars > 0){
+        starList.forEach(s=>{
+          const tw = .5 + .5*Math.sin(t*1.2 + s.ph);
+          ctx2.globalAlpha = scene.stars * (.3 + .7*tw) * .9;
+          ctx2.fillStyle='#fff';
+          ctx2.beginPath(); ctx2.arc(s.u*W, s.v*H, s.r*dpr, 0, TAU); ctx2.fill();
+        });
+        ctx2.globalAlpha = 1;
+      }
+
+      // Moon
+      if(scene.moon){
+        const mx = scene.moon.x*W, my = scene.moon.y*H, mr = scene.moon.r*dpr;
+        const moonG = ctx2.createRadialGradient(mx-mr*.3, my-mr*.3, mr*.1, mx, my, mr);
+        moonG.addColorStop(0,'rgba(240,245,255,.95)');
+        moonG.addColorStop(.7,'rgba(200,215,240,.7)');
+        moonG.addColorStop(1,'rgba(150,180,220,0)');
+        ctx2.fillStyle = moonG; ctx2.beginPath(); ctx2.arc(mx,my,mr*1.4,0,TAU); ctx2.fill();
+        ctx2.fillStyle='rgba(230,240,255,.92)'; ctx2.beginPath(); ctx2.arc(mx,my,mr,0,TAU); ctx2.fill();
+      }
+
+      // Sun
+      if(scene.sun){
+        const sx = scene.sun.x*W, sy = scene.sun.y*H;
+        const sunG2 = ctx2.createRadialGradient(sx,sy,2,sx,sy,60*dpr);
+        sunG2.addColorStop(0,'rgba(255,250,200,.95)');
+        sunG2.addColorStop(.4, scene.sun.glow);
+        sunG2.addColorStop(1,'rgba(255,100,30,0)');
+        ctx2.fillStyle=sunG2; ctx2.beginPath(); ctx2.arc(sx,sy,60*dpr,0,TAU); ctx2.fill();
+        ctx2.fillStyle='rgba(255,255,210,.98)'; ctx2.beginPath(); ctx2.arc(sx,sy,scene.sun.r*dpr,0,TAU); ctx2.fill();
+      }
+
+      // Clouds
+      clouds.forEach((c,ci)=>{
+        const cx2 = ((c.u*W + t*c.speed*dpr) % (W*1.2)) - W*.1;
+        const cy2 = c.v*H;
+        const sc = c.scale * dpr * 18;
+        const cg = ctx2.createRadialGradient(cx2,cy2,0,cx2,cy2,sc*3);
+        cg.addColorStop(0,`rgba(255,255,255,${scene.cloudAlpha*.4})`);
+        cg.addColorStop(1,'rgba(255,255,255,0)');
+        ctx2.fillStyle=cg;
+        for(let pi=0;pi<5;pi++){
+          const ox=(pi-2)*sc*.8, oy=(rnd(ci*7+pi,1)-.5)*sc*.4;
+          ctx2.beginPath(); ctx2.arc(cx2+ox,cy2+oy,sc*(0.7+rnd(ci*7+pi,2)*.5),0,TAU); ctx2.fill();
+        }
+      });
+
+      // Mountains silhouette
+      [
+        {col:'rgba(0,0,0,.55)', a:.12, f:.004, ph:.3},
+        {col:'rgba(0,0,0,.72)', a:.09, f:.006, ph:1.8},
+        {col:'rgba(0,0,0,.88)', a:.06, f:.009, ph:3.5},
+      ].forEach(l=>{
+        ctx2.beginPath(); ctx2.moveTo(0,H);
+        for(let x=0;x<=W;x+=3){
+          const y = H*(1-l.a) - Math.sin(x*l.f+l.ph)*H*.1 - Math.sin(x*l.f*2.1+l.ph*.6)*H*.04;
+          x===0 ? ctx2.moveTo(x,y) : ctx2.lineTo(x,y);
+        }
+        ctx2.lineTo(W,H); ctx2.closePath();
+        ctx2.fillStyle=l.col; ctx2.fill();
+      });
+
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  });
+})();
+
+// ─────────────────────────────────────────────
+// DISC SKINS
+// ─────────────────────────────────────────────
+const DISC_TYPES = [
+  { id:'DRV', name:'Driver' },
+  { id:'FAI', name:'Fairway' },
+  { id:'MID', name:'Mid' },
+  { id:'PUT', name:'Putter' },
+];
+const DISC_SKINS = {
+  DRV: [{name:'Ice',fill:'#49d0ff',rim:'rgba(0,60,90,.5)'},{name:'Fire',fill:'#ff4422',rim:'rgba(120,20,0,.5)'},{name:'Lime',fill:'#7cfc00',rim:'rgba(30,80,0,.5)'},{name:'Gold',fill:'#ffd700',rim:'rgba(100,80,0,.5)'},{name:'Violet',fill:'#b266ff',rim:'rgba(60,0,100,.5)'}],
+  FAI: [{name:'Pearl',fill:'#e8e0f0',rim:'rgba(80,60,100,.45)'},{name:'Teal',fill:'#20c9b0',rim:'rgba(0,70,60,.5)'},{name:'Rose',fill:'#ff6b8a',rim:'rgba(100,20,40,.5)'},{name:'Slate',fill:'#7a8b9a',rim:'rgba(30,40,50,.5)'},{name:'Sunset',fill:'#ff9a56',rim:'rgba(100,50,0,.5)'}],
+  MID: [{name:'Cloud',fill:'#f8fafc',rim:'rgba(0,0,0,.45)'},{name:'Ocean',fill:'#2288cc',rim:'rgba(0,40,80,.5)'},{name:'Berry',fill:'#cc44aa',rim:'rgba(80,0,60,.5)'},{name:'Mint',fill:'#66ddaa',rim:'rgba(0,70,50,.5)'},{name:'Storm',fill:'#556677',rim:'rgba(20,30,40,.55)'}],
+  PUT: [{name:'Blaze',fill:'#ff8a3d',rim:'rgba(100,40,0,.5)'},{name:'Sky',fill:'#66bbff',rim:'rgba(0,50,100,.5)'},{name:'Neon',fill:'#39ff14',rim:'rgba(0,80,0,.5)'},{name:'Pink',fill:'#ff69b4',rim:'rgba(100,20,60,.5)'},{name:'Bone',fill:'#e8dcc8',rim:'rgba(60,50,30,.5)'}],
+};
+
+function drawDisc(ctx, cx, cy, r, fill, rim, t){
+  // Main body
+  const bodyG = ctx.createRadialGradient(cx-r*.3, cy-r*.3, r*.05, cx, cy, r);
+  bodyG.addColorStop(0, 'rgba(255,255,255,.25)');
+  bodyG.addColorStop(.5, fill);
+  bodyG.addColorStop(1, rim.replace('.5)','.8)'));
+  ctx.fillStyle = bodyG;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill();
+
+  // Rim ring
+  ctx.strokeStyle = 'rgba(0,0,0,.25)';
+  ctx.lineWidth = r*.12;
+  ctx.beginPath(); ctx.arc(cx, cy, r*.75, 0, TAU); ctx.stroke();
+
+  // Highlight
+  const hl = ctx.createRadialGradient(cx-r*.2, cy-r*.3, 0, cx-r*.2, cy-r*.3, r*.55);
+  hl.addColorStop(0,'rgba(255,255,255,.5)');
+  hl.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=hl; ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.fill();
+
+  // Spin shine (animated)
+  if(t !== undefined){
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(t);
+    ctx.strokeStyle = 'rgba(255,255,255,.15)';
+    ctx.lineWidth = 1.5;
+    for(let i=0;i<3;i++){
+      ctx.beginPath(); ctx.arc(0, 0, r*(.3+i*.22), -Math.PI*.3, Math.PI*.3); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+(function buildDiscs(){
+  const gallery = document.getElementById('discGallery');
+  DISC_TYPES.forEach(disc=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-bottom:10px';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'font-size:.78rem;font-weight:600;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;padding:0 2px;margin-bottom:6px;font-family:"DM Mono",monospace';
+    hdr.textContent = disc.name;
+    row.appendChild(hdr);
+
+    const skinRow = document.createElement('div');
+    skinRow.className = 'grid grid-5';
+    skinRow.style.gap = '8px';
+
+    DISC_SKINS[disc.id].forEach((skin, si)=>{
+      const card = document.createElement('div');
+      card.className = 'card';
+      const stage = document.createElement('div');
+      stage.className = 'disc-preview';
+      stage.style.background = 'linear-gradient(135deg,#12090d 0%,#1a0e14 100%)';
+      const cvs = document.createElement('canvas');
+      cvs.style.cssText='width:80px;height:80px;flex-shrink:0';
+      stage.appendChild(cvs);
+      const label = document.createElement('div');
+      label.className = 'card-label';
+      label.innerHTML = `<strong>${skin.name}</strong>${disc.id}`;
+      card.appendChild(stage); card.appendChild(label);
+      skinRow.appendChild(card);
+
+      let t2=0;
+      function drawD(ts){
+        t2 = ts/1000;
+        const dpr=window.devicePixelRatio||1;
+        cvs.width=80*dpr; cvs.height=80*dpr;
+        const c2=cvs.getContext('2d');
+        c2.scale(dpr,dpr);
+        drawDisc(c2, 40,40, 28, skin.fill, skin.rim, t2*(0.8+si*.2));
+        requestAnimationFrame(drawD);
+      }
+      requestAnimationFrame(drawD);
+    });
+
+    row.appendChild(skinRow);
+    gallery.appendChild(row);
+  });
+})();
+
+// ─────────────────────────────────────────────
+// SCORE BADGES
+// ─────────────────────────────────────────────
+const BADGES = [
+  { name:'Hole In One', short:'1', stroke:-4, color:'#ffd700', glow:'rgba(255,215,0,.5)', ring:'#ffed80', label:'1' },
+  { name:'Eagle',       short:'−2',stroke:-2, color:'#49d0ff', glow:'rgba(73,208,255,.4)', ring:'#88e8ff', label:'−2' },
+  { name:'Birdie',      short:'−1',stroke:-1, color:'#86efac', glow:'rgba(134,239,172,.4)', ring:'#b0ffc8', label:'−1' },
+  { name:'Par',         short:'E', stroke:0,  color:'#a0b0c0', glow:'rgba(160,176,192,.3)', ring:'#c8d8e8', label:'E' },
+  { name:'Bogey',       short:'+1',stroke:1,  color:'#ff8a3d', glow:'rgba(255,138,61,.35)', ring:'#ffb07c', label:'+1' },
+];
+
+(function buildBadges(){
+  const grid = document.getElementById('badgeGrid');
+  BADGES.forEach(b=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const stage = document.createElement('div');
+    stage.className = 'badge-ring';
+    stage.style.background = '#0d0810';
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText='width:88px;height:88px;flex-shrink:0';
+    stage.appendChild(cvs);
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.innerHTML = `<strong>${b.name}</strong>${b.short}`;
+    card.appendChild(stage); card.appendChild(label);
+    grid.appendChild(card);
+
+    let t3=0;
+    function drawB(ts){
+      t3 = ts/1000;
+      const dpr=window.devicePixelRatio||1;
+      cvs.width=88*dpr; cvs.height=88*dpr;
+      const c3=cvs.getContext('2d'); c3.scale(dpr,dpr);
+      const cx=44, cy=44, r=30;
+
+      // Outer glow
+      const pulse = .7 + .3*Math.sin(t3*2.5);
+      const glowG = c3.createRadialGradient(cx,cy,r*.5,cx,cy,r*1.8);
+      glowG.addColorStop(0, b.glow.replace('.5)',`${.4*pulse})`).replace('.4)',`${.3*pulse})`).replace('.3)',`${.25*pulse})`));
+      glowG.addColorStop(1,'rgba(0,0,0,0)');
+      c3.fillStyle=glowG; c3.beginPath(); c3.arc(cx,cy,r*1.8,0,TAU); c3.fill();
+
+      // Ring
+      const rings = b.stroke <= -2 ? 2 : (b.stroke === -1 ? 1 : (b.stroke === 0 ? 0 : 0));
+      if(b.stroke === 1){
+        // Square for bogey
+        c3.strokeStyle=b.ring; c3.lineWidth=2;
+        c3.strokeRect(cx-r, cy-r, r*2, r*2);
+      } else if(rings === 2){
+        c3.strokeStyle=b.ring; c3.lineWidth=2;
+        c3.beginPath(); c3.arc(cx,cy,r,0,TAU); c3.stroke();
+        c3.beginPath(); c3.arc(cx,cy,r-6,0,TAU); c3.stroke();
+      } else if(rings===1){
+        c3.strokeStyle=b.ring; c3.lineWidth=2;
+        c3.beginPath(); c3.arc(cx,cy,r,0,TAU); c3.stroke();
+      } else if(b.stroke === 0){
+        // Square
+        const hsq = r*.82;
+        c3.strokeStyle=b.ring; c3.lineWidth=2;
+        c3.strokeRect(cx-hsq, cy-hsq, hsq*2, hsq*2);
+      }
+
+      // HIO star
+      if(b.stroke <= -4){
+        c3.strokeStyle=b.ring; c3.lineWidth=1.5;
+        c3.beginPath(); c3.arc(cx,cy,r+8,0,TAU); c3.stroke();
+        for(let i=0;i<8;i++){
+          const a = (i/8)*TAU + t3*.5;
+          c3.beginPath();
+          c3.moveTo(cx+Math.cos(a)*(r+5), cy+Math.sin(a)*(r+5));
+          c3.lineTo(cx+Math.cos(a)*(r+14), cy+Math.sin(a)*(r+14));
+          c3.lineWidth=1.5; c3.strokeStyle=b.ring; c3.stroke();
+        }
+      }
+
+      // Badge fill
+      c3.fillStyle=b.color;
+      c3.beginPath(); c3.arc(cx,cy,r*.7,0,TAU); c3.fill();
+
+      // Number
+      c3.fillStyle='rgba(0,0,0,.65)';
+      c3.font=`800 ${b.label.length>1?'16':'20'}px "DM Sans",sans-serif`;
+      c3.textAlign='center'; c3.textBaseline='middle';
+      c3.fillText(b.label, cx, cy+1);
+
+      requestAnimationFrame(drawB);
+    }
+    requestAnimationFrame(drawB);
+  });
+})();
+
+// ─────────────────────────────────────────────
+// PARTICLES
+// ─────────────────────────────────────────────
+const PARTICLE_FX = [
+  { name:'Throw Sparks', desc:'On release', color:'#ff8a3d', color2:'#ffd700', type:'burst' },
+  { name:'Chain Hit',    desc:'Basket contact', color:'#86efac', color2:'#49d0ff', type:'chain' },
+  { name:'Sand Splash',  desc:'Sand landing', color:'#d4b86a', color2:'#c8a85c', type:'sand'  },
+  { name:'Hole In One!', desc:'Celebration', color:'#ffd700', color2:'#ff8a3d', type:'hio'   },
+];
+
+(function buildParticles(){
+  const grid = document.getElementById('particleGrid');
+  PARTICLE_FX.forEach(fx=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cursor='pointer';
+    const stage = document.createElement('div');
+    stage.className = 'particle-stage';
+    stage.style.background = 'linear-gradient(180deg,#0a0608 0%,#12090d 100%)';
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText='position:absolute;inset:0;width:100%;height:100%';
+    stage.appendChild(cvs);
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.innerHTML = `<strong>${fx.name}</strong>${fx.desc}`;
+    card.appendChild(stage); card.appendChild(label);
+    grid.appendChild(card);
+
+    let particles = [];
+    let lastSpawn = 0;
+
+    function spawn(){
+      particles = [];
+      const W = cvs.width, H = cvs.height;
+      const cx = W/2, cy = H*.6;
+      const count = fx.type==='hio' ? 40 : 20;
+      for(let i=0;i<count;i++){
+        const a = (i/count)*TAU + (Math.random()-.5)*.3;
+        const spd = fx.type==='sand' ? (30+Math.random()*60) : (80+Math.random()*120);
+        const vx = Math.cos(a)*spd*(fx.type==='sand'?.8:1);
+        const vy = Math.sin(a)*spd - (fx.type==='sand'?40:0);
+        const color = Math.random()<.5 ? fx.color : fx.color2;
+        const r = fx.type==='sand' ? (2+Math.random()*4) : (1.5+Math.random()*3);
+        particles.push({x:cx, y:cy, vx, vy, r, color, life:1, decay:.6+Math.random()*.8, grav: fx.type==='sand'?200:100});
+      }
+      lastSpawn = performance.now();
+    }
+
+    card.addEventListener('click', spawn);
+
+    let prevT = 0;
+    function draw(ts){
+      const dt = Math.min((ts - prevT)/1000, .05);
+      prevT = ts;
+
+      // auto replay every 2.5s
+      if(ts - lastSpawn > 2500) spawn();
+
+      cvs.width = cvs.offsetWidth*(window.devicePixelRatio||1);
+      cvs.height = cvs.offsetHeight*(window.devicePixelRatio||1);
+      const ctx4 = cvs.getContext('2d');
+      const W=cvs.width, H=cvs.height;
+      ctx4.clearRect(0,0,W,H);
+
+      // Glow center
+      const elapsed = (ts - lastSpawn)/1000;
+      if(elapsed < .4){
+        const glowA = (1 - elapsed/.4) * .5;
+        const gg = ctx4.createRadialGradient(W/2, H*.6, 0, W/2, H*.6, 30*(window.devicePixelRatio||1));
+        gg.addColorStop(0, fx.color.replace('#','rgba(').replace(/(..)(..)(..)/, (_,r,g,b)=>`${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)},${glowA})`));
+        gg.addColorStop(1,'rgba(0,0,0,0)');
+        ctx4.fillStyle=gg; ctx4.beginPath(); ctx4.arc(W/2,H*.6,30*(window.devicePixelRatio||1),0,TAU); ctx4.fill();
+      }
+
+      const dpr = window.devicePixelRatio||1;
+      particles.forEach(p=>{
+        p.x += p.vx * dt * dpr;
+        p.y += p.vy * dt * dpr;
+        p.vy += p.grav * dt * dpr;
+        p.life -= dt * p.decay;
+        if(p.life <= 0) return;
+        ctx4.globalAlpha = Math.max(0, p.life);
+        ctx4.fillStyle = p.color;
+        ctx4.beginPath(); ctx4.arc(p.x, p.y, p.r*dpr*p.life, 0, TAU); ctx4.fill();
+      });
+      particles = particles.filter(p=>p.life>0);
+      ctx4.globalAlpha = 1;
+
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+    setTimeout(spawn, 200 + PARTICLE_FX.indexOf(fx)*300);
+  });
+})();
+
+// ─────────────────────────────────────────────
+// BACKGROUND STRUCTURES
+// ─────────────────────────────────────────────
+const STRUCTURES = [
+  { name:'Windmill',     desc:'Animated blades' },
+  { name:'Silo',         desc:'Grain storage' },
+  { name:'Water Tower',  desc:'Silhouette' },
+  { name:'Radio Tower',  desc:'Blinking light' },
+];
+
+function drawWindmill(ctx, cx, baseY, s, t){
+  // Tower
+  ctx.fillStyle = '#050607';
+  ctx.beginPath();
+  ctx.moveTo(cx-8*s, baseY);
+  ctx.lineTo(cx+8*s, baseY);
+  ctx.lineTo(cx+3*s, baseY-70*s);
+  ctx.lineTo(cx-3*s, baseY-70*s);
+  ctx.closePath(); ctx.fill();
+  // Platform
+  ctx.fillRect(cx-10*s, baseY-74*s, 20*s, 6*s);
+  // Blades (animated)
+  ctx.save(); ctx.translate(cx, baseY-74*s); ctx.rotate(t*.8);
+  for(let i=0;i<4;i++){
+    ctx.save(); ctx.rotate((i/4)*TAU);
+    ctx.fillStyle='rgba(5,6,7,.9)';
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(3*s, -32*s);
+    ctx.lineTo(-3*s, -32*s);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawSilo(ctx, cx, baseY, s){
+  ctx.fillStyle = '#050607';
+  ctx.fillRect(cx-14*s, baseY-70*s, 28*s, 70*s);
+  ctx.beginPath(); ctx.ellipse(cx, baseY-70*s, 14*s, 8*s, 0, Math.PI, 0); ctx.fill();
+  // stripes
+  ctx.strokeStyle='rgba(255,255,255,.04)'; ctx.lineWidth=2*s;
+  for(let i=1;i<6;i++){
+    ctx.beginPath(); ctx.moveTo(cx-14*s, baseY-70*s+i*12*s); ctx.lineTo(cx+14*s, baseY-70*s+i*12*s); ctx.stroke();
+  }
+}
+
+function drawWaterTower(ctx, cx, baseY, s){
+  ctx.fillStyle = '#050607';
+  // Legs
+  for(let i=0;i<3;i++){
+    const lx = cx + (i-1)*16*s;
+    ctx.beginPath(); ctx.moveTo(lx, baseY); ctx.lineTo(cx, baseY-52*s); ctx.lineWidth=3*s; ctx.strokeStyle='#050607'; ctx.stroke();
+  }
+  // Tank
+  ctx.beginPath(); ctx.moveTo(cx-18*s, baseY-52*s); ctx.lineTo(cx+18*s, baseY-52*s); ctx.lineTo(cx+14*s, baseY-82*s); ctx.lineTo(cx-14*s, baseY-82*s); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, baseY-82*s, 14*s, 6*s, 0, Math.PI, 0); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, baseY-52*s, 18*s, 7*s, 0, 0, Math.PI); ctx.fill();
+}
+
+function drawRadioTower(ctx, cx, baseY, s, t){
+  ctx.strokeStyle='#050607'; ctx.lineCap='round';
+  // Main spire
+  ctx.beginPath(); ctx.moveTo(cx, baseY); ctx.lineTo(cx, baseY-90*s); ctx.lineWidth=5*s; ctx.stroke();
+  // Cross arms
+  [[baseY-25*s, 32*s],[baseY-45*s, 22*s],[baseY-62*s, 14*s],[baseY-76*s, 8*s]].forEach(([y,w])=>{
+    ctx.beginPath(); ctx.moveTo(cx-w,y); ctx.lineTo(cx+w,y); ctx.lineWidth=2.5*s; ctx.stroke();
+    // Guy wires
+    ctx.beginPath(); ctx.moveTo(cx-w,y); ctx.lineTo(cx-4*s, baseY); ctx.lineWidth=1*s; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+w,y); ctx.lineTo(cx+4*s, baseY); ctx.lineWidth=1*s; ctx.stroke();
+  });
+  // Blinking light
+  const blink = Math.sin(t*3) > .3;
+  if(blink){ ctx.fillStyle='rgba(255,80,80,.9)'; ctx.beginPath(); ctx.arc(cx, baseY-91*s, 3*s, 0, TAU); ctx.fill(); }
+}
+
+(function buildStructures(){
+  const grid = document.getElementById('structureGrid');
+  STRUCTURES.forEach((st,si)=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const stage = document.createElement('div');
+    stage.className = 'structure-stage';
+    stage.style.cssText='height:160px;position:relative;overflow:hidden;background:linear-gradient(180deg,#9d3e25 0%,#f38e41 45%,#ffe6ba 100%)';
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText='position:absolute;inset:0;width:100%;height:100%';
+    stage.appendChild(cvs);
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.innerHTML = `<strong>${st.name}</strong>${st.desc}`;
+    card.appendChild(stage); card.appendChild(label);
+    grid.appendChild(card);
+
+    let ts5=0;
+    function draw(ts){
+      ts5=ts/1000;
+      cvs.width=cvs.offsetWidth*(window.devicePixelRatio||1);
+      cvs.height=cvs.offsetHeight*(window.devicePixelRatio||1);
+      const ctx5=cvs.getContext('2d');
+      const W=cvs.width, H=cvs.height;
+      const dpr=window.devicePixelRatio||1;
+      ctx5.clearRect(0,0,W,H);
+      // Ground
+      ctx5.fillStyle='#050607'; ctx5.fillRect(0, H*.82, W, H*.18);
+
+      const cx=W/2, baseY=H*.82, s=dpr;
+      if(si===0) drawWindmill(ctx5, cx, baseY, s, ts5);
+      else if(si===1) drawSilo(ctx5, cx, baseY, s);
+      else if(si===2) drawWaterTower(ctx5, cx, baseY, s);
+      else if(si===3) drawRadioTower(ctx5, cx, baseY, s, ts5);
+
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  });
+})();
+
+// ─────────────────────────────────────────────
+// HUD / UI ELEMENTS
+// ─────────────────────────────────────────────
+(function buildUI(){
+  const grid = document.getElementById('uiGrid');
+
+  // Power Meter
+  const pm = document.createElement('div');
+  pm.className = 'card';
+  pm.innerHTML = `
+    <div style="background:#0d0810;padding:24px 20px">
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:10px;letter-spacing:.08em;font-family:'DM Mono',monospace">POWER METER</div>
+      <div id="pmWrap" style="position:relative;height:12px;background:rgba(255,255,255,.07);border-radius:999px;overflow:hidden;border:1px solid rgba(255,255,255,.08)">
+        <div id="pmFill" style="height:100%;width:65%;background:linear-gradient(90deg,#86efac,#ff8a3d);border-radius:999px;box-shadow:0 0 12px rgba(255,138,61,.3) inset;transition:width .05s"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:.7rem;color:var(--muted)">
+        <span>MIN</span><span style="color:var(--accent);font-weight:600" id="pmPct">65%</span><span>MAX</span>
+      </div>
+    </div>
+    <div class="card-label"><strong>Power Meter</strong>Animated fill · glow pulse</div>
+  `;
+  grid.appendChild(pm);
+
+  let pmDir = 1, pmVal = 0.65;
+  setInterval(()=>{
+    pmVal = Math.max(0, Math.min(1, pmVal + pmDir * .018));
+    if(pmVal >= 1 || pmVal <= 0) pmDir *= -1;
+    const fill = document.getElementById('pmFill');
+    const pct = document.getElementById('pmPct');
+    if(fill){ fill.style.width = (pmVal*100).toFixed(1)+'%'; }
+    if(pct){ pct.textContent = Math.round(pmVal*100)+'%'; }
+  }, 40);
+
+  // Wind Chip
+  const wc = document.createElement('div');
+  wc.className = 'card';
+  wc.innerHTML = `
+    <div style="background:#0d0810;padding:20px;display:flex;align-items:center;gap:14px;justify-content:center">
+      <canvas id="windCvs" width="80" height="80" style="width:80px;height:80px"></canvas>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);letter-spacing:.08em;font-family:'DM Mono',monospace;margin-bottom:4px">WIND</div>
+        <div style="font-size:1.6rem;font-weight:800;color:var(--accent2)" id="windSpeed">8</div>
+        <div style="font-size:.72rem;color:var(--muted)">m/s · NNW</div>
+      </div>
+    </div>
+    <div class="card-label"><strong>Wind Indicator</strong>Compass rose · animated</div>
+  `;
+  grid.appendChild(wc);
+
+  let windAngle = 0.8, windSpd = 8;
+  function drawWind(ts){
+    const cvs6 = document.getElementById('windCvs');
+    if(!cvs6){ requestAnimationFrame(drawWind); return; }
+    const ctx6=cvs6.getContext('2d');
+    windAngle = Math.sin(ts/3000)*.8 + .6;
+    windSpd = Math.round(5 + Math.abs(Math.sin(ts/2000))*14);
+    const el = document.getElementById('windSpeed');
+    if(el) el.textContent = windSpd;
+    ctx6.clearRect(0,0,80,80);
+    const cx=40,cy=40,r=30;
+    // Ring
+    ctx6.strokeStyle='rgba(73,208,255,.2)'; ctx6.lineWidth=1.5;
+    ctx6.beginPath(); ctx6.arc(cx,cy,r,0,TAU); ctx6.stroke();
+    // Compass ticks
+    for(let i=0;i<8;i++){
+      const a=(i/8)*TAU;
+      const inner=i%2===0?r-8:r-5;
+      ctx6.beginPath(); ctx6.moveTo(cx+Math.cos(a)*inner, cy+Math.sin(a)*inner);
+      ctx6.lineTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r);
+      ctx6.lineWidth=i%2===0?1.5:1; ctx6.strokeStyle='rgba(73,208,255,.3)'; ctx6.stroke();
+    }
+    // Arrow
+    ctx6.save(); ctx6.translate(cx,cy); ctx6.rotate(windAngle);
+    ctx6.fillStyle='#49d0ff';
+    ctx6.beginPath(); ctx6.moveTo(0,-r*.75); ctx6.lineTo(5,8); ctx6.lineTo(-5,8); ctx6.closePath(); ctx6.fill();
+    ctx6.fillStyle='rgba(73,208,255,.3)';
+    ctx6.beginPath(); ctx6.moveTo(0,r*.75); ctx6.lineTo(5,-8); ctx6.lineTo(-5,-8); ctx6.closePath(); ctx6.fill();
+    ctx6.restore();
+    // Center
+    ctx6.fillStyle='rgba(73,208,255,.8)'; ctx6.beginPath(); ctx6.arc(cx,cy,3,0,TAU); ctx6.fill();
+    requestAnimationFrame(drawWind);
+  }
+  requestAnimationFrame(drawWind);
+
+  // Toasts / chips
+  const tc = document.createElement('div');
+  tc.className = 'card';
+  tc.innerHTML = `
+    <div style="background:#0d0810;padding:16px 14px;display:flex;flex-direction:column;gap:8px">
+      <div style="background:rgba(5,6,7,.65);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:.4rem .7rem;font-size:.88rem;display:inline-flex;gap:.6rem;align-items:center">
+        <span style="opacity:.7;font-size:.8rem">To Pin</span>
+        <strong style="color:var(--accent2)">148m</strong>
+      </div>
+      <div style="background:rgba(5,6,7,.65);backdrop-filter:blur(8px);border:1px solid rgba(255,138,61,.25);border-radius:10px;padding:.5rem .7rem;font-size:.85rem;color:var(--accent3);font-weight:600">
+        ⭐ Powerup: Gyro Stabilizer
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span style="background:rgba(134,239,172,.12);color:var(--accent3);border:1px solid rgba(134,239,172,.2);border-radius:999px;padding:3px 10px;font-size:.75rem;font-weight:600">Birdie −1</span>
+        <span style="background:rgba(73,208,255,.12);color:var(--accent2);border:1px solid rgba(73,208,255,.2);border-radius:999px;padding:3px 10px;font-size:.75rem;font-weight:600">Ice Disc</span>
+        <span style="background:rgba(255,138,61,.12);color:var(--accent);border:1px solid rgba(255,138,61,.2);border-radius:999px;padding:3px 10px;font-size:.75rem;font-weight:600">Dunes</span>
+      </div>
+    </div>
+    <div class="card-label"><strong>Chips & Toasts</strong>HUD overlays · glassmorphism</div>
+  `;
+  grid.appendChild(tc);
+})();
+
+// ─────────────────────────────────────────────
+// DISC TRAILS
+// ─────────────────────────────────────────────
+(function buildTrails(){
+  const grid = document.getElementById('trailGrid');
+
+  const TRAIL_TYPES = [
+    { name:'Hyzer Arc',    desc:'Right-to-left fade · sparks', color:'#ff8a3d', arc:-1 },
+    { name:'Anhyzer Fade', desc:'S-curve turnover',            color:'#49d0ff', arc: 1 },
+  ];
+
+  TRAIL_TYPES.forEach(tt=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const stage = document.createElement('div');
+    stage.className = 'trail-stage';
+    stage.style.background = 'linear-gradient(180deg,#0d0810 0%,#120914 100%)';
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText='position:absolute;inset:0;width:100%;height:100%';
+    stage.appendChild(cvs);
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.innerHTML = `<strong>${tt.name}</strong>${tt.desc}`;
+    card.appendChild(stage); card.appendChild(label);
+    grid.appendChild(card);
+
+    let trailPts = [];
+    let tT = 0;
+    function draw(ts){
+      tT = ts/1000;
+      cvs.width = cvs.offsetWidth*(window.devicePixelRatio||1);
+      cvs.height = cvs.offsetHeight*(window.devicePixelRatio||1);
+      const ctx7=cvs.getContext('2d');
+      const W=cvs.width, H=cvs.height;
+      const dpr=window.devicePixelRatio||1;
+      ctx7.clearRect(0,0,W,H);
+
+      // Animated disc position along arc
+      const prog = (tT % 3.5) / 3.5;
+      const sx=W*.1, ex=W*.92;
+      const discX = sx + (ex-sx)*prog;
+      // Parabolic arc with fade
+      const arcY = H*.65 - Math.sin(prog*Math.PI)*H*.45 - tt.arc*Math.sin(prog*TAU*1.2)*H*.12;
+
+      // Trail points
+      trailPts.push({x:discX, y:arcY, a:1});
+      if(trailPts.length > 48) trailPts.shift();
+      trailPts.forEach((p,i)=>{ p.a = (i/trailPts.length) * .7; });
+
+      // Draw trail
+      if(trailPts.length > 2){
+        for(let i=1;i<trailPts.length;i++){
+          const p=trailPts[i], pp=trailPts[i-1];
+          ctx7.beginPath(); ctx7.moveTo(pp.x, pp.y); ctx7.lineTo(p.x, p.y);
+          ctx7.strokeStyle = tt.color;
+          ctx7.globalAlpha = p.a;
+          ctx7.lineWidth = (i/trailPts.length)*4*dpr;
+          ctx7.stroke();
+        }
+        ctx7.globalAlpha=1;
+
+        // Glow trail
+        for(let i=trailPts.length-8;i<trailPts.length;i++){
+          if(i<0) continue;
+          const p=trailPts[i];
+          const gg=ctx7.createRadialGradient(p.x,p.y,0,p.x,p.y,6*dpr);
+          gg.addColorStop(0,tt.color+'60'); gg.addColorStop(1,'rgba(0,0,0,0)');
+          ctx7.fillStyle=gg; ctx7.globalAlpha=p.a*.6;
+          ctx7.beginPath(); ctx7.arc(p.x,p.y,6*dpr,0,TAU); ctx7.fill();
+        }
+        ctx7.globalAlpha=1;
+      }
+
+      // Disc
+      drawDisc(ctx7, discX, arcY, 9*dpr, tt.color, 'rgba(0,0,0,.4)', tT*2);
+
+      // Ground line
+      ctx7.strokeStyle='rgba(255,255,255,.06)'; ctx7.lineWidth=1;
+      ctx7.beginPath(); ctx7.moveTo(0,H*.85); ctx7.lineTo(W,H*.85); ctx7.stroke();
+
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  });
+})();
+
+</script>
+</body>
+</html>
