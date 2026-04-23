@@ -5,16 +5,19 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" name="viewport"/>
 <title>Dusk Drive — Disc Golf (valley-driven water &amp; sand)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
   :root{
     /* defaults; overridden per biome at runtime */
     --bg1:#a54720; --bg2:#f38e41; --bg3:#ffe6ba; --water:#30160f;
-    --fg:#050607; --text:#e6edf3; --muted:#a9b1ba;
+    --fg:#050607; --text:#f0e8e0; --muted:#6a5e72;
     --accent:#ff8a3d; --accent2:#49d0ff; --accent3:#86efac;
     --panel:rgba(5,6,7,.65); --panel-blur:8px;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bg3),var(--bg2) 55%,var(--bg1));color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial}
+  html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bg3),var(--bg2) 55%,var(--bg1));color:var(--text);font-family:'DM Sans',system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial}
   #wrap{position:fixed;inset:0;display:grid;place-items:center}
   canvas{display:block;width:100vw;height:100vh;touch-action:none}
 
@@ -446,7 +449,7 @@
     };
 
     // base sky cache so tinting doesn't accumulate between holes
-    let baseSky = { bg1:'#a54720', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' };
+    let baseSky = { bg1:'#a54720', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f', rim:'#ffb878', haze:'#d4886a' };
 
     const DAYTIMES = {
       clear: {
@@ -862,7 +865,7 @@ function resolveVariantForHole(){
     // === Biomes (colors + mountain profiles) ===
     const BIOMES = [
       { name:'dunes',
-        sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f' },
+        sky:{ bg1:'#9d3e25', bg2:'#f38e41', bg3:'#ffe6ba', water:'#30160f', rim:'#ffb878', haze:'#d4886a' },
         layers:[
           {par:0.08, base:0.52, a1:30,  a2:16,  f1:0.00050, f2:0.00020, shade:0.02, shape:'sin'},
           {par:0.12, base:0.56, a1:50,  a2:24,  f1:0.00065, f2:0.00026, shade:0.035,shape:'sin'},
@@ -873,7 +876,7 @@ function resolveVariantForHole(){
         ]
       },
       { name:'crags',
-        sky:{ bg1:'#5b1a2b', bg2:'#d5425a', bg3:'#f8c3da', water:'#2c0f19' },
+        sky:{ bg1:'#5b1a2b', bg2:'#d5425a', bg3:'#f8c3da', water:'#2c0f19', rim:'#ff9ab0', haze:'#b07080' },
         layers:[
           {par:0.06, base:0.50, a1:60,  a2:36,  f1:0.00055, f2:0.00022, shade:0.02, shape:'crag'},
           {par:0.10, base:0.58, a1:95,  a2:52,  f1:0.00075, f2:0.00030, shade:0.05, shape:'crag'},
@@ -883,7 +886,7 @@ function resolveVariantForHole(){
         ]
       },
       { name:'hills',
-        sky:{ bg1:'#233d6d', bg2:'#5d79b0', bg3:'#cfe2ff', water:'#0e2233' },
+        sky:{ bg1:'#233d6d', bg2:'#5d79b0', bg3:'#cfe2ff', water:'#0e2233', rim:'#a8c8ff', haze:'#8098c0' },
         layers:[
           {par:0.10, base:0.54, a1:36,  a2:18,  f1:0.00044, f2:0.00018, shade:0.02, shape:'round'},
           {par:0.16, base:0.60, a1:60,  a2:28,  f1:0.00062, f2:0.00024, shade:0.04, shape:'round'},
@@ -893,7 +896,7 @@ function resolveVariantForHole(){
         ]
       },
       { name:'mesas',
-        sky:{ bg1:'#6e3b1b', bg2:'#cf7b35', bg3:'#ffe1b0', water:'#2a1a12' },
+        sky:{ bg1:'#6e3b1b', bg2:'#cf7b35', bg3:'#ffe1b0', water:'#2a1a12', rim:'#ffc070', haze:'#b87850' },
         layers:[
           {par:0.08, base:0.54, a1:42,  a2:20,  f1:0.00058, f2:0.00022, shade:0.02, shape:'mesa'},
           {par:0.13, base:0.60, a1:70,  a2:32,  f1:0.00076, f2:0.00030, shade:0.04, shape:'mesa'},
@@ -948,7 +951,7 @@ function pickWeighted(list, weightFn){
     function applyTheme(biome, biomeVariant){
   // Establish biome baseline for later tint/overrides (clear/dusk/night)
   const sky = Object.assign({}, biome.sky, (biomeVariant && biomeVariant.skyOverride) ? biomeVariant.skyOverride : null);
-  baseSky = { bg1: sky.bg1, bg2: sky.bg2, bg3: sky.bg3, water: sky.water };
+  baseSky = { bg1: sky.bg1, bg2: sky.bg2, bg3: sky.bg3, water: sky.water, rim: sky.rim || biome.sky.rim || '#ffb878', haze: sky.haze || biome.sky.haze || '#d4886a' };
 
   const r = document.documentElement;
   r.style.setProperty('--bg1', sky.bg1);
@@ -1164,19 +1167,60 @@ function pickWeighted(list, weightFn){
     function rebuildMountainsOffscreen(){
       backdrop.mountainsImg = [];
       const w = WORLD.w, h = WORLD.h;
+      const rimHex = baseSky.rim || '#ffb878';
+      const hazeHex = baseSky.haze || '#d4886a';
+
+      // Parse hex color to rgba string helper
+      function hexToRgbaStr(hex, a){
+        const n = parseInt(hex.replace('#',''), 16);
+        return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a.toFixed(3)})`;
+      }
+
+      const isNight = (atmo && atmo.night > 0.5);
+
       for(let idx=0; idx<backdrop.mountains.length; idx++){
         const L = backdrop.mountains[idx];
         const off = document.createElement('canvas');
         off.width = w; off.height = h;
         const ox = off.getContext('2d');
-        ox.fillStyle = `rgba(0,0,0,${0.18 + L.shade})`;
         const step = Math.max(8, 16 - idx*2);
-        ox.beginPath(); ox.moveTo(0,h);
-        for(let x=0;x<=w;x+=step){
-          const y = mountainYAt(L, x);
-          ox.lineTo(x, y);
+
+        // Collect edge points
+        const pts = [];
+        for(let x=0; x<=w; x+=step) pts.push([x, mountainYAt(L, x)]);
+
+        // Haze gradient behind hill (only first 3 layers, not at night)
+        if(idx < 3 && !isNight){
+          const baseY = pts.reduce((mn,p)=>Math.min(mn,p[1]), h);
+          const hazeA = (0.28 - idx * 0.08);
+          if(hazeA > 0.01){
+            const hz = ox.createLinearGradient(0, baseY - L.a1, 0, baseY + L.a1 * 0.5);
+            hz.addColorStop(0, 'rgba(255,255,255,0)');
+            hz.addColorStop(1, hexToRgbaStr(hazeHex, hazeA));
+            ox.fillStyle = hz;
+            ox.beginPath(); ox.moveTo(0, h);
+            pts.forEach(([x,y],j)=>{ j===0 ? ox.moveTo(x,y) : ox.lineTo(x,y); });
+            ox.lineTo(w, h); ox.closePath(); ox.fill();
+          }
         }
-        ox.lineTo(w,h); ox.closePath(); ox.fill();
+
+        // Silhouette fill — #050607 family with slight warm/cool bias
+        const darkness = 0.18 + L.shade;
+        ox.fillStyle = isNight ? `rgba(4,6,14,${darkness})` : `rgba(5,6,7,${darkness})`;
+        ox.beginPath(); ox.moveTo(0, h);
+        pts.forEach(([x,y],j)=>{ j===0 ? ox.moveTo(x,y) : ox.lineTo(x,y); });
+        ox.lineTo(w, h); ox.closePath(); ox.fill();
+
+        // Rim light — 1px stroke in biome rim color on top edge
+        const rimA = Math.max(0, (0.30 - idx * 0.05) * (isNight ? 0.4 : 1.0));
+        if(rimA > 0.01){
+          ox.strokeStyle = hexToRgbaStr(rimHex, rimA);
+          ox.lineWidth = 1.5;
+          ox.beginPath();
+          pts.forEach(([x,y],j)=>{ j===0 ? ox.moveTo(x,y) : ox.lineTo(x,y); });
+          ox.stroke();
+        }
+
         backdrop.mountainsImg.push(off);
       }
     }
@@ -3383,11 +3427,12 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       const parY = 0.06 * idx;
 
       ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.88)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+      ctx.fillStyle = '#050607';
+      ctx.strokeStyle = '#050607';
       ctx.lineWidth = 1;
 
       const w = canvas.width / DPR;
+      const _wmRim = baseSky.rim || '#ffb878';
 
       for(const W of backdrop.windmills){
         const sx = W.x - view.x * parX;
@@ -3408,6 +3453,14 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
         ctx.lineTo(sx - tw/2, towerTopY);
         ctx.closePath(); ctx.fill();
 
+        // Rim light on right/sun-facing edge of tower
+        ctx.save();
+        ctx.strokeStyle = _wmRim; ctx.globalAlpha = 0.30; ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(sx + bw/2, baseY); ctx.lineTo(sx + tw/2, towerTopY);
+        ctx.stroke();
+        ctx.restore();
+
         ctx.beginPath();
         ctx.moveTo(sx - bw/2, baseY);
         ctx.lineTo(sx - bw/2 - 10, baseY + 6);
@@ -3420,7 +3473,7 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
         const railY = towerTopY + 4;
         ctx.fillRect(sx - railW/2, railY, railW, 6);
         ctx.save(); ctx.globalAlpha = 0.95;
-        ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+        ctx.strokeStyle = '#050607';
         ctx.lineWidth = 1;
         ctx.strokeRect(sx - railW/2, railY - railH, railW, railH);
         const vBars = 6;
@@ -3484,9 +3537,10 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
       const parY = 0.06 * idx;
 
       ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.80)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.80)';
+      ctx.fillStyle = '#050607';
+      ctx.strokeStyle = '#050607';
       ctx.lineWidth = 1.5;
+      const _bgRim = baseSky.rim || '#ffb878';
 
       for(const B of backdrop.bgStructures){
         const sx = B.x - view.x * parX;
@@ -3511,6 +3565,10 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
             ctx.beginPath(); ctx.moveTo(sx-w/2, y); ctx.lineTo(sx+w/2, y); ctx.stroke();
           }
           ctx.restore();
+          // rim light on right edge
+          ctx.save(); ctx.strokeStyle = _bgRim; ctx.globalAlpha = 0.30; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(sx+w/2, baseY); ctx.lineTo(sx+w/2, baseY-h);
+          ctx.stroke(); ctx.restore();
         }
         else if(B.type === 'water_tower'){
           // Stilted tank
@@ -3534,6 +3592,10 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
           ctx.beginPath();
           ctx.ellipse(sx, topY, tw*0.3, 6*S, 0, Math.PI, 0);
           ctx.fill();
+          // rim light on right arc of tank
+          ctx.save(); ctx.strokeStyle = _bgRim; ctx.globalAlpha = 0.30; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.ellipse(sx, topY + th*0.5, tw/2, th/2, 0, -Math.PI*0.55, Math.PI*0.55);
+          ctx.stroke(); ctx.restore();
         }
         else if(B.type === 'radio_tower'){
           // Tall lattice tower with blinking light
@@ -3544,6 +3606,10 @@ scenery.trees.push({ x, y, h, w: baseW, levels, sway:rng(400+i)*TAU, type, snow:
           ctx.moveTo(sx-bw/2, baseY); ctx.lineTo(sx-3*S, baseY-h);
           ctx.moveTo(sx+bw/2, baseY); ctx.lineTo(sx+3*S, baseY-h);
           ctx.stroke();
+          // rim light on right leg
+          ctx.save(); ctx.strokeStyle = _bgRim; ctx.globalAlpha = 0.28; ctx.lineWidth = 1.0;
+          ctx.beginPath(); ctx.moveTo(sx+bw/2, baseY); ctx.lineTo(sx+3*S, baseY-h);
+          ctx.stroke(); ctx.restore();
           // cross braces
           const braces = 5;
           for(let j=1;j<=braces;j++){
@@ -4111,7 +4177,7 @@ function drawGrass(){
 
       // Rocks
       ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.92)';
+      ctx.fillStyle = '#050607';
       for(const r of scenery.rocks){
         const x = r.x - view.x, y = r.y - view.y;
         if(x<-40 || x>canvas.width/DPR+40) continue;
@@ -4174,8 +4240,8 @@ function drawGrass(){
 
       // Trees
       ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.94)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.94)';
+      ctx.fillStyle = '#050607';
+      ctx.strokeStyle = '#050607';
       for(const t of scenery.trees){
         const x = t.x - view.x, y = t.y - view.y;
         if(x<-80 || x>canvas.width/DPR+80) continue;
@@ -4286,7 +4352,7 @@ function drawGrass(){
             ctx.closePath();
             ctx.fill();
             ctx.restore();
-            ctx.fillStyle = 'rgba(0,0,0,0.94)';
+            ctx.fillStyle = '#050607';
           }
         }
       }
@@ -4296,8 +4362,8 @@ function drawGrass(){
     function drawFences(){
       if(!scenery.fences.length) return;
       ctx.save();
-      ctx.strokeStyle = 'rgba(0,0,0,0.94)';
-      ctx.fillStyle   = 'rgba(0,0,0,0.94)';
+      ctx.strokeStyle = '#050607';
+      ctx.fillStyle   = '#050607';
 
       for(const F of scenery.fences){
         // Posts
@@ -4456,13 +4522,13 @@ function drawBasket(){
       ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x, groundY - poleH); ctx.stroke();
 
-      ctx.fillStyle = 'rgba(0,0,0,0.80)';
+      ctx.fillStyle = '#050607';
       ctx.fillRect(x - cageW/2, cageTop, cageW, 8);
       ctx.fillRect(x - 2, cageTop - 10, 4, 10);
 
       ctx.beginPath(); ctx.ellipse(x, rimY, rimW/2, 4, 0, 0, TAU); ctx.fill();
 
-      ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1;
+      ctx.strokeStyle='#050607'; ctx.lineWidth=1;
       for(let i=0;i<6;i++){
         const t = i/6 * TAU;
         const cx = x + Math.cos(t) * (rimW/2 - 2);
