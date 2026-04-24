@@ -4250,11 +4250,11 @@ function drawGrass(){
         {x1:cx+5*s,y1:baseY-68*s,x2:cx+18*s+sw*25,y2:baseY-92*s,w:2.2},
         {x1:cx+5*s,y1:baseY-68*s,x2:cx-12*s+sw*22,y2:baseY-95*s,w:2.2},
       ];
-      branches.forEach(b=>{
+      branches.forEach((b,bi)=>{
         ctx.lineWidth=b.w*s;
         ctx.beginPath();ctx.moveTo(b.x1,b.y1);
-        const mx=(b.x1+b.x2)/2+(rndT(b.x1|0,b.y1|0)-.5)*10*s;
-        const my=(b.y1+b.y2)/2+(rndT(b.y1|0,b.x2|0)-.5)*8*s;
+        const mx=(b.x1+b.x2)/2+(rndT(bi,5)-.5)*10*s;
+        const my=(b.y1+b.y2)/2+(rndT(bi,6)-.5)*8*s;
         ctx.quadraticCurveTo(mx,my,b.x2,b.y2);ctx.stroke();
       });
       branches.forEach((b,bi)=>{
