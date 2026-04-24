@@ -4438,7 +4438,9 @@ function drawGrass(){
         if(type === 'palm'){
           drawPalmT(ctx, x, y, t.h/90, sw, _tRim);
         } else if(type === 'cactus'){
-          drawCactusT(ctx, x, y, t.h/80, sw, _tRim);
+          ctx.translate(x, y);
+          ctx.scale(0.55, 1.0);
+          drawCactusT(ctx, 0, 0, t.h/100, sw, _tRim);
         } else if(type === 'dead'){
           drawDeadT(ctx, x, y, t.h/95, sw, _tRim);
         } else if(type === 'juniper'){
